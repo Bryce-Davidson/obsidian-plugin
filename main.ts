@@ -407,8 +407,8 @@ class SampleModal extends Modal {
  * as well as a "Stop Scheduling" button centered below the rating buttons.
  * This layout is more mobile friendly.
  *
- * The buttons are now ordered so that "Perfect Recall" is at the top and
- * "Forgot Completely" is at the bottom.
+ * In this version the buttons are ordered in the original order (0 at top, 5 at bottom)
+ * and the Stop Scheduling button is styled with the same colour as the "Perfect Recall" button.
  */
 class RatingModal extends Modal {
 	private onSubmit: (input: string) => void;
@@ -432,15 +432,14 @@ class RatingModal extends Modal {
 		buttonContainer.style.margin = "10px 0";
 		buttonContainer.style.width = "100%";
 
-		// Define ratings with descriptive text and their corresponding colors,
-		// in reverse order: Perfect Recall at top, Forgot Completely at bottom.
+		// Define ratings with descriptive text and their corresponding colors.
 		const ratings = [
-			{ value: "5", text: "Perfect Recall", color: "#7CFC00" },
-			{ value: "4", text: "Good Recall", color: "#ADFF2F" },
-			{ value: "3", text: "Correct with Difficulty", color: "#FFFF66" },
-			{ value: "2", text: "Struggled to Recall", color: "#FFA500" },
-			{ value: "1", text: "Barely Remembered", color: "#FF7F50" },
 			{ value: "0", text: "Forgot Completely", color: "#FF4C4C" },
+			{ value: "1", text: "Barely Remembered", color: "#FF7F50" },
+			{ value: "2", text: "Struggled to Recall", color: "#FFA500" },
+			{ value: "3", text: "Correct with Difficulty", color: "#FFFF66" },
+			{ value: "4", text: "Good Recall", color: "#ADFF2F" },
+			{ value: "5", text: "Perfect Recall", color: "#7CFC00" },
 		];
 
 		// Create a button for each rating.
@@ -474,7 +473,8 @@ class RatingModal extends Modal {
 		const stopButton = stopContainer.createEl("button", {
 			text: "Stop Scheduling",
 		});
-		stopButton.style.backgroundColor = "red";
+		// Use the same color as the "Perfect Recall" button.
+		stopButton.style.backgroundColor = "#7CFC00";
 		stopButton.style.border = "none";
 		stopButton.style.padding = "15px 20px";
 		stopButton.style.fontSize = "16px";
