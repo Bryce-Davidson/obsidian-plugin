@@ -12,7 +12,7 @@ import {
 } from "obsidian";
 
 /* ============================================================================
- * PLUGIN DATA INTERFACES
+ * PLUGIN DATA INTERFACES & CONSTANTS
  * ========================================================================== */
 
 interface MyPluginSettings {
@@ -23,9 +23,97 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 	mySetting: "default",
 };
 
+/**
+ * The plugin stores:
+ * 1) settings
+ * 2) visits (already present in your code)
+ * 3) spacedRepetitionLog (our new addition for SM-2)
+ */
 interface PluginData {
 	settings: MyPluginSettings;
 	visits: { [filePath: string]: string[] };
+	spacedRepetitionLog: { [filePath: string]: NoteState };
+}
+
+/**
+ * NoteState describes how we track spaced repetition for a given note (file).
+ * This is our 'external JSON object' representing SM‑2 data plus an 'active' flag.
+ */
+interface NoteState {
+	id: string; // Some unique ID, often the file path itself
+	repetition: number; // SM-2 repetition count
+	interval: number; // Interval in days
+	ef: number; // Easiness factor
+	lastReviewDate: string; // ISO string of last time user reviewed this note
+	nextReviewDate?: string; // ISO string of next scheduled review date (if active)
+	active: boolean; // Whether the note is actively scheduled
+}
+
+/* ============================================================================
+ * SPACED REPETITION LOGIC
+ * ========================================================================== */
+
+/**
+ * Computes the next review date, given a last review date and interval (in days).
+ */
+function getNextReviewDate(lastReview: Date, interval: number): Date {
+	const nextReview = new Date(lastReview);
+	nextReview.setDate(lastReview.getDate() + interval);
+	return nextReview;
+}
+
+/**
+ * Applies an SM‑2-like update to a note's state based on the user's quality rating.
+ * If stopScheduling is true, the note is deactivated, no next review is scheduled.
+ */
+function updateNoteState(
+	state: NoteState,
+	quality: number,
+	lastReviewDate: Date,
+	stopScheduling: boolean = false
+): NoteState {
+	// If user wants to stop scheduling, mark as inactive, clear nextReviewDate.
+	if (stopScheduling) {
+		return {
+			...state,
+			lastReviewDate: lastReviewDate.toISOString(),
+			nextReviewDate: undefined,
+			active: false,
+		};
+	}
+
+	let { id, repetition, interval, ef } = state;
+
+	// SM-2 style logic
+	if (quality < 3) {
+		repetition = 0;
+		interval = 1;
+	} else {
+		repetition++;
+		if (repetition === 1) {
+			interval = 1;
+		} else if (repetition === 2) {
+			interval = 6;
+		} else {
+			interval = Math.round(interval * ef);
+		}
+	}
+
+	// EF' = EF + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+	ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+	if (ef < 1.3) ef = 1.3;
+
+	const nextReview = getNextReviewDate(lastReviewDate, interval);
+
+	return {
+		id,
+		repetition,
+		interval,
+		ef: parseFloat(ef.toFixed(2)),
+		lastReviewDate: lastReviewDate.toISOString(),
+		nextReviewDate: nextReview.toISOString(),
+		active: true,
+	};
 }
 
 /* ============================================================================
@@ -36,27 +124,24 @@ export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	visitLog: { [filePath: string]: string[] } = {};
 
-	/** Called by Obsidian when the plugin is first loaded. */
+	// Our spaced repetition dictionary: file path -> NoteState
+	spacedRepetitionLog: { [filePath: string]: NoteState } = {};
+
 	async onload() {
-		// Load settings and visit data from disk.
+		// Load existing data (settings, visits, spaced rep)
 		await this.loadPluginData();
 
-		// Initialize UI Elements.
 		this.addPluginRibbonIcon();
 		this.addStatusBar();
-
-		// Register plugin commands.
 		this.registerCommands();
-
-		// Add a settings tab in Obsidian.
 		this.addSettingTab(new SampleSettingTab(this.app, this));
 
-		// Register any DOM events.
+		// Register a DOM event example (unchanged from your code)
 		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
 			console.log("Global click event:", evt);
 		});
 
-		// Register any repeating intervals.
+		// Register an interval example (unchanged)
 		this.registerInterval(
 			window.setInterval(
 				() => console.log("Interval ping"),
@@ -64,19 +149,18 @@ export default class MyPlugin extends Plugin {
 			)
 		);
 
-		// Register a Markdown Post Processor to handle custom hidden text and math.
+		// Register Markdown post-processors (unchanged)
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
 			processHiddenMathBlocks(element);
 		});
 
-		// Listen for when the active leaf changes (i.e. a note is opened).
+		// Listen for active leaf changes to log visits
 		this.registerEvent(
 			this.app.workspace.on(
 				"active-leaf-change",
 				(leaf: WorkspaceLeaf | null) => {
 					if (!leaf) return;
-					// Ensure the view is a MarkdownView before accessing the file property.
 					const markdownView =
 						leaf.view instanceof MarkdownView ? leaf.view : null;
 					if (markdownView && markdownView.file) {
@@ -86,44 +170,53 @@ export default class MyPlugin extends Plugin {
 			)
 		);
 
-		// Listen for file renames to update the visit log.
+		// Listen for file renames to update the logs
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
+				// Migrate old visit log entry
 				if (this.visitLog[oldPath]) {
 					this.visitLog[file.path] = this.visitLog[oldPath];
 					delete this.visitLog[oldPath];
-					this.savePluginData();
-					console.log(
-						`Updated visit log from ${oldPath} to ${file.path}`
-					);
 				}
+				// Migrate spaced repetition log entry
+				if (this.spacedRepetitionLog[oldPath]) {
+					this.spacedRepetitionLog[file.path] =
+						this.spacedRepetitionLog[oldPath];
+					delete this.spacedRepetitionLog[oldPath];
+				}
+				this.savePluginData();
+				console.log(`Updated logs from ${oldPath} to ${file.path}`);
 			})
 		);
 	}
 
-	/** Called by Obsidian when the plugin is unloaded (optional cleanup). */
 	onunload() {
 		console.log("Unloading MyPlugin");
 	}
 
-	/** Loads settings and visit data from disk. */
+	/** Load plugin data from disk, including spaced repetition log. */
 	async loadPluginData() {
 		const data = (await this.loadData()) as PluginData;
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
 			this.visitLog = data.visits || {};
+			this.spacedRepetitionLog = data.spacedRepetitionLog || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
 			this.visitLog = {};
+			this.spacedRepetitionLog = {};
 		}
 	}
 
-	/** Persists settings and visit data to disk. */
+	/** Save plugin data to disk. */
 	async savePluginData() {
-		await this.saveData({
+		console.log("Saving plugin data");
+		const data: PluginData = {
 			settings: this.settings,
 			visits: this.visitLog,
-		} as PluginData);
+			spacedRepetitionLog: this.spacedRepetitionLog,
+		};
+		await this.saveData(data);
 	}
 
 	/** Persists current settings to disk. */
@@ -180,6 +273,44 @@ export default class MyPlugin extends Plugin {
 				return false;
 			},
 		});
+
+		/* --------------------------------------------------------------------
+		 * NEW COMMAND: Prompt user for a rating and update SM-2 for the note
+		 * using the custom RatingModal.
+		 * ------------------------------------------------------------------ */
+		this.addCommand({
+			id: "review-current-note",
+			name: "Review Current Note (Spaced Repetition)",
+			callback: async () => {
+				const markdownView =
+					this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (!markdownView) {
+					new Notice("No active Markdown file to review.");
+					return;
+				}
+				const file = markdownView.file;
+				if (!file) {
+					new Notice("No active Markdown file to review.");
+					return;
+				}
+				const filePath = file.path;
+				new RatingModal(this.app, (ratingStr: string) => {
+					if (!ratingStr) return;
+					if (ratingStr.toLowerCase() === "stop") {
+						this.updateNoteWithQuality(filePath, 0, true);
+					} else {
+						const rating = parseInt(ratingStr, 10);
+						if (isNaN(rating) || rating < 0 || rating > 5) {
+							new Notice(
+								"Invalid rating. Please enter an integer from 0–5."
+							);
+							return;
+						}
+						this.updateNoteWithQuality(filePath, rating, false);
+					}
+				}).open();
+			},
+		});
 	}
 
 	/** Logs a visit for the given file by appending the current date/time. */
@@ -192,10 +323,56 @@ export default class MyPlugin extends Plugin {
 		console.log(`Logged visit for ${file.path} at ${now}`);
 		await this.savePluginData();
 	}
+
+	/**
+	 * NEW HELPER: Looks up or creates a NoteState, then applies SM-2 updates
+	 * via updateNoteState, and saves the changes.
+	 */
+	private async updateNoteWithQuality(
+		filePath: string,
+		quality: number,
+		stopScheduling: boolean
+	) {
+		const now = new Date();
+		let noteState = this.spacedRepetitionLog[filePath];
+		if (!noteState) {
+			// If we have no existing state, initialize it
+			noteState = {
+				id: filePath,
+				repetition: 0,
+				interval: 0,
+				ef: 2.5,
+				lastReviewDate: now.toISOString(),
+				active: true,
+			};
+		}
+
+		// Convert lastReviewDate from string to Date
+		const lastReviewDate = new Date(noteState.lastReviewDate);
+
+		// Update the note using SM-2 logic
+		const updated = updateNoteState(
+			noteState,
+			quality,
+			lastReviewDate,
+			stopScheduling
+		);
+		this.spacedRepetitionLog[filePath] = updated;
+
+		if (stopScheduling) {
+			new Notice(`Scheduling stopped for '${filePath}'`);
+		} else {
+			new Notice(
+				`Updated SM-2 for '${filePath}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
+			);
+		}
+
+		await this.savePluginData();
+	}
 }
 
 /* ============================================================================
- * SAMPLE MODAL EXAMPLE
+ * CUSTOM MODALS
  * ========================================================================== */
 
 /** A simple modal that pops up from a command. */
@@ -215,11 +392,48 @@ class SampleModal extends Modal {
 	}
 }
 
+/**
+ * RatingModal prompts the user for a review rating (0–5) or "stop" to disable scheduling.
+ */
+class RatingModal extends Modal {
+	private onSubmit: (input: string) => void;
+
+	constructor(app: App, onSubmit: (input: string) => void) {
+		super(app);
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl("h2", {
+			text: "Enter your rating (0–5) or type 'stop'",
+		});
+		const inputEl = contentEl.createEl("input", { type: "text" });
+		const submitButton = contentEl.createEl("button", { text: "Submit" });
+
+		submitButton.addEventListener("click", () => {
+			this.onSubmit(inputEl.value);
+			this.close();
+		});
+
+		inputEl.addEventListener("keydown", (evt) => {
+			if (evt.key === "Enter") {
+				this.onSubmit(inputEl.value);
+				this.close();
+			}
+		});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
+
 /* ============================================================================
  * SETTINGS TAB EXAMPLE
  * ========================================================================== */
 
-/** Sample settings tab for the plugin, accessible in the Obsidian settings. */
 class SampleSettingTab extends PluginSettingTab {
 	plugin: MyPlugin;
 
@@ -248,13 +462,9 @@ class SampleSettingTab extends PluginSettingTab {
 }
 
 /* ============================================================================
- * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT
+ * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT (UNCHANGED)
  * ========================================================================== */
 
-/**
- * Replaces any text matching the pattern :-(...)-: with a "[hidden]" toggler
- * in normal text (i.e., not inside a .math container).
- */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {
 		acceptNode: (node) => {
@@ -316,9 +526,6 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	}
 }
 
-/**
- * Checks if the given element or any of its ancestors is part of a KaTeX container.
- */
 function isInsideMath(el: HTMLElement | null): boolean {
 	if (!el) return false;
 	if (
@@ -330,9 +537,6 @@ function isInsideMath(el: HTMLElement | null): boolean {
 	return isInsideMath(el.parentElement);
 }
 
-/**
- * Creates a <span> element that hides the original content behind a "[hidden]" placeholder.
- */
 function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	const span = document.createElement("span");
 	span.className = "toggle-hidden-text";
@@ -364,18 +568,11 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	return span;
 }
 
-/**
- * Processes `.math` elements within the rendered Markdown, looking for :- and -:
- * around those math elements.
- */
 function processHiddenMathBlocks(rootEl: HTMLElement): void {
 	const mathEls = rootEl.querySelectorAll(".math");
 	mathEls.forEach((mathEl) => wrapMathElement(mathEl));
 }
 
-/**
- * Wraps an inline or display math element if it is preceded by ":-" and followed by "-:".
- */
 function wrapMathElement(mathEl: Element): void {
 	const parent = mathEl.parentElement;
 	if (!parent || parent.classList.contains("toggle-hidden-math-wrapper")) {
