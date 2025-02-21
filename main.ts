@@ -228,16 +228,52 @@ export default class MyPlugin extends Plugin {
 	 * HELPER METHODS FOR INITIALIZATION
 	 * ---------------------------------------------------------------------- */
 
+	// Ribbon icon now uses "file-text" (commonly representing a note).
 	private addPluginRibbonIcon(): void {
-		const ribbonIconEl = this.addRibbonIcon("dice", "Sample Plugin", () => {
-			new Notice("Dice icon clicked!");
-		});
+		const ribbonIconEl = this.addRibbonIcon(
+			"file-text",
+			"Review Current Note",
+			() => {
+				this.openReviewModal();
+			}
+		);
 		ribbonIconEl.addClass("my-plugin-ribbon-class");
 	}
 
 	private addStatusBar(): void {
 		const statusBarItemEl = this.addStatusBarItem();
 		statusBarItemEl.setText("Status Bar Text");
+	}
+
+	// New helper that opens the review modal.
+	private openReviewModal(): void {
+		const markdownView =
+			this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!markdownView) {
+			new Notice("No active Markdown file to review.");
+			return;
+		}
+		const file = markdownView.file;
+		if (!file) {
+			new Notice("No active Markdown file to review.");
+			return;
+		}
+		const filePath = file.path;
+		new RatingModal(this.app, (ratingStr: string) => {
+			if (!ratingStr) return;
+			if (ratingStr.toLowerCase() === "stop") {
+				this.updateNoteWithQuality(filePath, 0, true);
+			} else {
+				const rating = parseInt(ratingStr, 10);
+				if (isNaN(rating) || rating < 0 || rating > 5) {
+					new Notice(
+						"Invalid rating. Please choose a rating from 0–5."
+					);
+					return;
+				}
+				this.updateNoteWithQuality(filePath, rating, false);
+			}
+		}).open();
 	}
 
 	private registerCommands(): void {
@@ -275,40 +311,14 @@ export default class MyPlugin extends Plugin {
 		});
 
 		/* --------------------------------------------------------------------
-		 * NEW COMMAND: Prompt user for a rating and update SM-2 for the note
-		 * using the custom RatingModal with colored buttons.
+		 * NEW COMMAND: Review Current Note (Spaced Repetition)
+		 * This command uses the same logic as openReviewModal().
 		 * ------------------------------------------------------------------ */
 		this.addCommand({
 			id: "review-current-note",
 			name: "Review Current Note (Spaced Repetition)",
-			callback: async () => {
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (!markdownView) {
-					new Notice("No active Markdown file to review.");
-					return;
-				}
-				const file = markdownView.file;
-				if (!file) {
-					new Notice("No active Markdown file to review.");
-					return;
-				}
-				const filePath = file.path;
-				new RatingModal(this.app, (ratingStr: string) => {
-					if (!ratingStr) return;
-					if (ratingStr.toLowerCase() === "stop") {
-						this.updateNoteWithQuality(filePath, 0, true);
-					} else {
-						const rating = parseInt(ratingStr, 10);
-						if (isNaN(rating) || rating < 0 || rating > 5) {
-							new Notice(
-								"Invalid rating. Please choose a rating from 0–5."
-							);
-							return;
-						}
-						this.updateNoteWithQuality(filePath, rating, false);
-					}
-				}).open();
+			callback: () => {
+				this.openReviewModal();
 			},
 		});
 	}
@@ -395,6 +405,10 @@ class SampleModal extends Modal {
 /**
  * RatingModal presents separate colored buttons for ratings 0–5 in a vertical layout,
  * as well as a "Stop Scheduling" button centered below the rating buttons.
+ * This layout is more mobile friendly.
+ *
+ * The buttons are now ordered so that "Perfect Recall" is at the top and
+ * "Forgot Completely" is at the bottom.
  */
 class RatingModal extends Modal {
 	private onSubmit: (input: string) => void;
@@ -418,25 +432,26 @@ class RatingModal extends Modal {
 		buttonContainer.style.margin = "10px 0";
 		buttonContainer.style.width = "100%";
 
-		// Define ratings and their corresponding colors.
+		// Define ratings with descriptive text and their corresponding colors,
+		// in reverse order: Perfect Recall at top, Forgot Completely at bottom.
 		const ratings = [
-			{ value: "0", color: "#FF4C4C" }, // Red
-			{ value: "1", color: "#FF7F50" }, // Coral
-			{ value: "2", color: "#FFA500" }, // Orange
-			{ value: "3", color: "#FFFF66" }, // Light Yellow
-			{ value: "4", color: "#ADFF2F" }, // Green Yellow
-			{ value: "5", color: "#7CFC00" }, // Lawn Green
+			{ value: "5", text: "Perfect Recall", color: "#7CFC00" },
+			{ value: "4", text: "Good Recall", color: "#ADFF2F" },
+			{ value: "3", text: "Correct with Difficulty", color: "#FFFF66" },
+			{ value: "2", text: "Struggled to Recall", color: "#FFA500" },
+			{ value: "1", text: "Barely Remembered", color: "#FF7F50" },
+			{ value: "0", text: "Forgot Completely", color: "#FF4C4C" },
 		];
 
 		// Create a button for each rating.
 		ratings.forEach((rating) => {
 			const btn = buttonContainer.createEl("button", {
-				text: rating.value,
+				text: rating.text,
 			});
 			btn.style.backgroundColor = rating.color;
 			btn.style.border = "none";
 			// Larger padding and font size for mobile-friendly buttons.
-			btn.style.padding = "20px 20px";
+			btn.style.padding = "25px 20px";
 			btn.style.margin = "5px 0";
 			btn.style.fontSize = "16px";
 			btn.style.color = "black";
@@ -453,7 +468,7 @@ class RatingModal extends Modal {
 		// Create a separate container for the Stop Scheduling button.
 		const stopContainer = contentEl.createEl("div");
 		stopContainer.style.textAlign = "center";
-		stopContainer.style.marginTop = "20px";
+		stopContainer.style.marginTop = "30px";
 		stopContainer.style.width = "100%";
 
 		const stopButton = stopContainer.createEl("button", {
@@ -461,7 +476,7 @@ class RatingModal extends Modal {
 		});
 		stopButton.style.backgroundColor = "red";
 		stopButton.style.border = "none";
-		stopButton.style.padding = "20px 20px";
+		stopButton.style.padding = "15px 20px";
 		stopButton.style.fontSize = "16px";
 		stopButton.style.cursor = "pointer";
 		stopButton.style.borderRadius = "4px";
