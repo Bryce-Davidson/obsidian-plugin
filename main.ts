@@ -7,10 +7,12 @@ import {
 	Plugin,
 	PluginSettingTab,
 	Setting,
+	TFile,
+	WorkspaceLeaf,
 } from "obsidian";
 
 /* ============================================================================
- * PLUGIN SETTINGS
+ * PLUGIN DATA INTERFACES
  * ========================================================================== */
 
 interface MyPluginSettings {
@@ -21,34 +23,40 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 	mySetting: "default",
 };
 
+interface PluginData {
+	settings: MyPluginSettings;
+	visits: { [filePath: string]: string[] };
+}
+
 /* ============================================================================
  * MAIN PLUGIN CLASS
  * ========================================================================== */
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
+	visitLog: { [filePath: string]: string[] } = {};
 
 	/** Called by Obsidian when the plugin is first loaded. */
 	async onload() {
-		// Load settings
-		await this.loadSettings();
+		// Load settings and visit data from disk.
+		await this.loadPluginData();
 
-		// Initialize UI Elements
+		// Initialize UI Elements.
 		this.addPluginRibbonIcon();
 		this.addStatusBar();
 
-		// Register plugin commands
+		// Register plugin commands.
 		this.registerCommands();
 
-		// Add a settings tab in Obsidian
+		// Add a settings tab in Obsidian.
 		this.addSettingTab(new SampleSettingTab(this.app, this));
 
-		// Register any DOM events
+		// Register any DOM events.
 		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
 			console.log("Global click event:", evt);
 		});
 
-		// Register any repeating intervals
+		// Register any repeating intervals.
 		this.registerInterval(
 			window.setInterval(
 				() => console.log("Interval ping"),
@@ -56,30 +64,71 @@ export default class MyPlugin extends Plugin {
 			)
 		);
 
-		// Register a Markdown Post Processor to handle custom hidden text and math
+		// Register a Markdown Post Processor to handle custom hidden text and math.
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
 			processHiddenMathBlocks(element);
 		});
+
+		// Listen for when the active leaf changes (i.e. a note is opened).
+		this.registerEvent(
+			this.app.workspace.on(
+				"active-leaf-change",
+				(leaf: WorkspaceLeaf | null) => {
+					if (!leaf) return;
+					// Ensure the view is a MarkdownView before accessing the file property.
+					const markdownView =
+						leaf.view instanceof MarkdownView ? leaf.view : null;
+					if (markdownView && markdownView.file) {
+						this.logVisit(markdownView.file);
+					}
+				}
+			)
+		);
+
+		// Listen for file renames to update the visit log.
+		this.registerEvent(
+			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
+				if (this.visitLog[oldPath]) {
+					this.visitLog[file.path] = this.visitLog[oldPath];
+					delete this.visitLog[oldPath];
+					this.savePluginData();
+					console.log(
+						`Updated visit log from ${oldPath} to ${file.path}`
+					);
+				}
+			})
+		);
 	}
 
 	/** Called by Obsidian when the plugin is unloaded (optional cleanup). */
 	onunload() {
-		// Cleanup logic if needed
+		console.log("Unloading MyPlugin");
 	}
 
-	/** Loads settings from disk, falling back to defaults if unavailable. */
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
+	/** Loads settings and visit data from disk. */
+	async loadPluginData() {
+		const data = (await this.loadData()) as PluginData;
+		if (data) {
+			this.settings = data.settings || DEFAULT_SETTINGS;
+			this.visitLog = data.visits || {};
+		} else {
+			this.settings = DEFAULT_SETTINGS;
+			this.visitLog = {};
+		}
+	}
+
+	/** Persists settings and visit data to disk. */
+	async savePluginData() {
+		await this.saveData({
+			settings: this.settings,
+			visits: this.visitLog,
+		} as PluginData);
 	}
 
 	/** Persists current settings to disk. */
 	async saveSettings() {
-		await this.saveData(this.settings);
+		await this.savePluginData();
 	}
 
 	/* ------------------------------------------------------------------------
@@ -131,6 +180,17 @@ export default class MyPlugin extends Plugin {
 				return false;
 			},
 		});
+	}
+
+	/** Logs a visit for the given file by appending the current date/time. */
+	private async logVisit(file: TFile) {
+		const now = new Date().toISOString();
+		if (!this.visitLog[file.path]) {
+			this.visitLog[file.path] = [];
+		}
+		this.visitLog[file.path].push(now);
+		console.log(`Logged visit for ${file.path} at ${now}`);
+		await this.savePluginData();
 	}
 }
 
@@ -199,7 +259,6 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {
 		acceptNode: (node) => {
 			if (isInsideMath(node.parentElement)) {
-				// Skip if this text node is inside a math container
 				return NodeFilter.FILTER_REJECT;
 			}
 			return NodeFilter.FILTER_ACCEPT;
@@ -211,7 +270,7 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 		textNodes.push(walker.currentNode as Text);
 	}
 
-	const delimiterRegex = /:-(.*?)-:/g; // Non-greedy match for :-...-:
+	const delimiterRegex = /:-(.*?)-:/g;
 
 	for (const textNode of textNodes) {
 		const nodeText = textNode.nodeValue;
@@ -226,17 +285,14 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 			const startIndex = match.index;
 			const endIndex = startIndex + fullMatch.length;
 
-			// Push any plain text before this match
 			if (startIndex > lastIndex) {
 				fragments.push(nodeText.slice(lastIndex, startIndex));
 			}
 
-			// Create a span that toggles hidden content
 			fragments.push(createHiddenTextSpan(hiddenContent));
 			lastIndex = endIndex;
 		}
 
-		// If we found matches, or if there's leftover text after the last match
 		if (lastIndex > 0) {
 			if (lastIndex < nodeText.length) {
 				fragments.push(nodeText.slice(lastIndex));
@@ -262,7 +318,6 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 
 /**
  * Checks if the given element or any of its ancestors is part of a KaTeX container.
- * We don't want to insert hidden-text toggles inside `.math` blocks.
  */
 function isInsideMath(el: HTMLElement | null): boolean {
 	if (!el) return false;
@@ -277,15 +332,12 @@ function isInsideMath(el: HTMLElement | null): boolean {
 
 /**
  * Creates a <span> element that hides the original content behind a "[hidden]" placeholder.
- * Clicking the span toggles between the hidden and revealed states.
  */
 function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	const span = document.createElement("span");
 	span.className = "toggle-hidden-text";
 	span.setAttribute("data-original", originalContent);
 	span.setAttribute("data-hidden", "true");
-
-	// Basic inline styles (could also be done in a CSS file)
 	span.style.cursor = "pointer";
 	span.style.color = "gray";
 	span.style.textDecoration = "underline";
@@ -294,7 +346,6 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	span.addEventListener("click", () => {
 		const isHidden = span.getAttribute("data-hidden") === "true";
 		if (isHidden) {
-			// Reveal
 			span.innerHTML = `
 				<span class="bracket" style="color: gray;">[</span>
 				<span class="revealed-text">${originalContent}</span>
@@ -303,7 +354,6 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 			span.style.color = "";
 			span.style.textDecoration = "";
 		} else {
-			// Hide again
 			span.textContent = "[hidden]";
 			span.setAttribute("data-hidden", "true");
 			span.style.color = "gray";
@@ -316,7 +366,7 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 
 /**
  * Processes `.math` elements within the rendered Markdown, looking for :- and -:
- * around those math elements, which signals that the user wants the math hidden behind toggles.
+ * around those math elements.
  */
 function processHiddenMathBlocks(rootEl: HTMLElement): void {
 	const mathEls = rootEl.querySelectorAll(".math");
@@ -324,46 +374,40 @@ function processHiddenMathBlocks(rootEl: HTMLElement): void {
 }
 
 /**
- * Wraps an inline or display math element IF it is preceded by ":-" and followed by "-:" in the text.
- * Example usage in user Markdown: `:-$ x^2 $-:`
+ * Wraps an inline or display math element if it is preceded by ":-" and followed by "-:".
  */
 function wrapMathElement(mathEl: Element): void {
 	const parent = mathEl.parentElement;
 	if (!parent || parent.classList.contains("toggle-hidden-math-wrapper")) {
-		// Already wrapped or no valid parent
 		return;
 	}
 
 	let foundDelimiters = false;
 
-	// Check previous sibling for trailing ":-"
 	const prevSibling = mathEl.previousSibling;
 	if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = prevSibling.nodeValue ?? "";
 		const match = textContent.match(/(.*):-\s*$/);
 		if (match) {
-			prevSibling.nodeValue = match[1]; // Remove ":-"
+			prevSibling.nodeValue = match[1];
 			foundDelimiters = true;
 		}
 	}
 
-	// Check next sibling for leading "-:"
 	const nextSibling = mathEl.nextSibling;
 	if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = nextSibling.nodeValue ?? "";
 		const match = textContent.match(/^\s*-:(.*)/);
 		if (match) {
-			nextSibling.nodeValue = match[1]; // Remove "-:"
+			nextSibling.nodeValue = match[1];
 			foundDelimiters = true;
 		}
 	}
 
-	// If we didn't find the delimiters around this math element, skip
 	if (!foundDelimiters) {
 		return;
 	}
 
-	// Create a wrapper that will contain both the hidden placeholder and the revealed math
 	const isDisplayMath = mathEl.classList.contains("math-display");
 	const wrapperTag = isDisplayMath ? "div" : "span";
 
@@ -372,24 +416,20 @@ function wrapMathElement(mathEl: Element): void {
 	wrapper.setAttribute("data-hidden", "true");
 	wrapper.style.cursor = "pointer";
 
-	// Insert the wrapper before the math element
 	parent.insertBefore(wrapper, mathEl);
 
-	// Placeholder shown when math is hidden
 	const placeholder = document.createElement(wrapperTag);
 	placeholder.className = "toggle-hidden-math-placeholder";
 	placeholder.style.cursor = "pointer";
 	placeholder.style.textAlign = "center";
 	placeholder.innerHTML = `<span style="color: gray;">[hidden]</span>`;
 
-	// Set display based on math element class
 	if (mathEl.classList.contains("math-inline")) {
 		placeholder.style.display = "inline";
 	} else if (mathEl.classList.contains("math-block")) {
 		placeholder.style.display = "block";
 	}
 
-	// A container for the revealed math
 	const revealedContainer = document.createElement(wrapperTag);
 	revealedContainer.className = "toggle-hidden-math-revealed";
 
@@ -404,25 +444,20 @@ function wrapMathElement(mathEl: Element): void {
 	rightBracket.textContent = " ]";
 
 	revealedContainer.appendChild(leftBracket);
-	revealedContainer.appendChild(mathEl); // move the math element here
+	revealedContainer.appendChild(mathEl);
 	revealedContainer.appendChild(rightBracket);
-
-	// Default to hidden
 	revealedContainer.style.display = "none";
 
 	wrapper.appendChild(placeholder);
 	wrapper.appendChild(revealedContainer);
 
-	// Toggle hidden/display on click
 	wrapper.addEventListener("click", () => {
 		const currentlyHidden = wrapper.getAttribute("data-hidden") === "true";
 		if (currentlyHidden) {
-			// Reveal
 			placeholder.style.display = "none";
 			revealedContainer.style.display = "inline";
 			wrapper.setAttribute("data-hidden", "false");
 		} else {
-			// Hide
 			placeholder.style.display = mathEl.classList.contains("math-inline")
 				? "inline"
 				: "block";
