@@ -39,14 +39,21 @@ interface PluginData {
 /**
  * NoteState describes how we track spaced repetition for a given note (file).
  * We no longer store a unique id since the file path is used as the key.
+ *
+ * NEW: Two additional optional fields:
+ * - isLearning: whether the note is in the learning phase.
+ * - learningStep: the current index in the learning steps.
  */
 interface NoteState {
 	repetition: number; // SM‑2 repetition count
-	interval: number; // Interval in days
+	interval: number; // Interval in days (for review phase)
 	ef: number; // Easiness factor
 	lastReviewDate: string; // ISO string of last review
 	nextReviewDate?: string; // ISO string of next review (if active)
 	active: boolean; // Whether the note is actively scheduled
+	// NEW fields for learning phase.
+	isLearning?: boolean; // true if the note is in the learning phase
+	learningStep?: number; // index of the current learning step
 }
 
 /* ============================================================================
@@ -54,7 +61,7 @@ interface NoteState {
  * ========================================================================== */
 
 /**
- * Computes the next review date, given a last review date and interval (in days).
+ * Helper: Computes the next review date, given a last review date and interval (in days).
  */
 function getNextReviewDate(lastReview: Date, interval: number): Date {
 	const nextReview = new Date(lastReview);
@@ -62,6 +69,29 @@ function getNextReviewDate(lastReview: Date, interval: number): Date {
 	return nextReview;
 }
 
+/**
+ * Helper: Adds a given number of minutes to a Date.
+ */
+function addMinutes(date: Date, minutes: number): Date {
+	const result = new Date(date);
+	result.setMinutes(result.getMinutes() + minutes);
+	return result;
+}
+
+// Define learning intervals (in minutes) for the learning phase.
+const LEARNING_STEPS: number[] = [10, 30];
+
+/**
+ * Updates the note state based on the review quality.
+ * For quality < 3, the note enters (or continues in) a learning phase with short intervals.
+ * For quality >= 3, the note leaves the learning phase (if active) and follows normal SM‑2 scheduling.
+ *
+ * @param state The current state of the note.
+ * @param quality The rating given by the user (0–5).
+ * @param lastReviewDate The date of the last review.
+ * @param stopScheduling If true, stops further scheduling.
+ * @returns The updated NoteState.
+ */
 function updateNoteState(
 	state: NoteState,
 	quality: number,
@@ -77,50 +107,69 @@ function updateNoteState(
 		};
 	}
 
-	let { repetition, interval, ef } = state;
-
 	if (quality < 3) {
-		// A low rating resets the repetition count.
-		// (In a full Anki implementation, you might schedule a review in minutes.)
-		repetition = 0;
-		interval = 1;
-	} else {
-		repetition++;
-		if (repetition === 1) {
-			interval = 1;
-		} else if (repetition === 2) {
-			interval = 6;
+		// The note is answered incorrectly—enter or continue learning mode.
+		if (!state.isLearning) {
+			// Start learning phase.
+			state.isLearning = true;
+			state.learningStep = 0;
 		} else {
-			// Apply different multipliers based on quality:
-			// Quality 3 ("Hard") gets a modest 1.2x increase,
-			// Quality 4 ("Good") uses the EF multiplier,
-			// and Quality 5 ("Easy") gets an extra bonus (1.3x).
-			if (quality === 3) {
-				interval = Math.round(interval * 1.2);
-			} else if (quality === 4) {
-				interval = Math.round(interval * ef);
-			} else if (quality === 5) {
-				interval = Math.round(interval * ef * 1.3);
-			} else {
-				interval = Math.round(interval * ef);
+			// Already in learning mode; advance to the next learning step if available.
+			if (
+				state.learningStep !== undefined &&
+				state.learningStep < LEARNING_STEPS.length - 1
+			) {
+				state.learningStep++;
 			}
 		}
+		// Reset repetition count since the card is forgotten.
+		state.repetition = 0;
+		// Compute next review date using the learning step interval (in minutes).
+		const stepIndex = state.learningStep ?? 0;
+		const intervalMinutes = LEARNING_STEPS[stepIndex];
+		const nextReview = addMinutes(lastReviewDate, intervalMinutes);
+		return {
+			...state,
+			lastReviewDate: lastReviewDate.toISOString(),
+			nextReviewDate: nextReview.toISOString(),
+			active: true,
+		};
+	} else {
+		// quality >= 3: the note is answered correctly.
+		if (state.isLearning) {
+			// If the note was in learning mode, exit learning mode and restart with a basic review interval.
+			state.isLearning = false;
+			state.learningStep = undefined;
+			state.repetition = 1;
+			state.interval = 1; // 1 day for the first successful review.
+		} else {
+			// Normal review phase.
+			state.repetition++;
+			if (state.repetition === 1) {
+				state.interval = 1; // day
+			} else if (state.repetition === 2) {
+				state.interval = 6; // days
+			} else {
+				// For later repetitions, multiply the previous interval by the EF (easiness factor).
+				state.interval = Math.round(state.interval * state.ef);
+			}
+		}
+
+		// Update the easiness factor using the SM‑2 formula.
+		let newEF =
+			state.ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+		if (newEF < 1.3) newEF = 1.3;
+		state.ef = parseFloat(newEF.toFixed(2));
+
+		// Compute next review date using the interval in days.
+		const nextReview = getNextReviewDate(lastReviewDate, state.interval);
+		return {
+			...state,
+			lastReviewDate: lastReviewDate.toISOString(),
+			nextReviewDate: nextReview.toISOString(),
+			active: true,
+		};
 	}
-
-	// Update easiness factor using the standard SM‑2 formula.
-	ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-	if (ef < 1.3) ef = 1.3;
-
-	const nextReview = getNextReviewDate(lastReviewDate, interval);
-
-	return {
-		repetition,
-		interval,
-		ef: parseFloat(ef.toFixed(2)),
-		lastReviewDate: lastReviewDate.toISOString(),
-		nextReviewDate: nextReview.toISOString(),
-		active: true,
-	};
 }
 
 /* ============================================================================
@@ -378,13 +427,8 @@ export default class MyPlugin extends Plugin {
 
 	// openReviewModal() checks for an active Markdown file and opens the RatingModal.
 	private openReviewModal(): void {
-		const markdownView =
-			this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!markdownView) {
-			new Notice("No active Markdown file to review.");
-			return;
-		}
-		const file = markdownView.file;
+		const file = this.app.workspace.getActiveFile();
+
 		if (!file) {
 			new Notice("No active Markdown file to review.");
 			return;
@@ -399,7 +443,7 @@ export default class MyPlugin extends Plugin {
 				const rating = parseInt(ratingStr, 10);
 				if (isNaN(rating) || rating < 0 || rating > 5) {
 					new Notice(
-						"Invalid rating. Please choose a rating from 0–5."
+						"Invalid rating. Please choose a rating from 05."
 					);
 					return;
 				}
