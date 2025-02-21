@@ -258,11 +258,17 @@ export class ReviewSidebarView extends ItemView {
 			card.style.display = "flex";
 			card.style.flexDirection = "row";
 			card.style.gap = "12px";
-			card.style.alignItems = "center"; // Align items to the center vertically
+			card.style.alignItems = "center";
 			card.style.cursor = "pointer";
 
+			// Truncate the title if longer than 15 characters.
+			let titleText = file.basename;
+			if (titleText.length > 15) {
+				titleText = titleText.substring(0, 15) + "...";
+			}
+
 			// Note title (clickable to open the note).
-			const cardTitle = card.createEl("h3", { text: file.basename });
+			const cardTitle = card.createEl("h3", { text: titleText });
 			cardTitle.style.margin = "0";
 			cardTitle.style.fontSize = "18px";
 			cardTitle.style.fontWeight = "bold";
