@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
  * The plugin stores:
  * 1) settings
  * 2) visits (already present in your code)
- * 3) spacedRepetitionLog (our new addition for SM-2)
+ * 3) spacedRepetitionLog (our new addition for SM‑2)
  */
 interface PluginData {
 	settings: MyPluginSettings;
@@ -37,15 +37,14 @@ interface PluginData {
 
 /**
  * NoteState describes how we track spaced repetition for a given note (file).
- * We no longer store a unique id since the file path (the key in spacedRepetitionLog)
- * already provides uniqueness.
+ * We no longer store a unique id since the file path is used as the key.
  */
 interface NoteState {
-	repetition: number; // SM-2 repetition count
+	repetition: number; // SM‑2 repetition count
 	interval: number; // Interval in days
 	ef: number; // Easiness factor
-	lastReviewDate: string; // ISO string of last time user reviewed this note
-	nextReviewDate?: string; // ISO string of next scheduled review date (if active)
+	lastReviewDate: string; // ISO string of last review
+	nextReviewDate?: string; // ISO string of next review (if active)
 	active: boolean; // Whether the note is actively scheduled
 }
 
@@ -63,8 +62,8 @@ function getNextReviewDate(lastReview: Date, interval: number): Date {
 }
 
 /**
- * Applies an SM‑2-like update to a note's state based on the user's quality rating.
- * If stopScheduling is true, the note is deactivated, and no next review is scheduled.
+ * Applies an SM‑2‑like update to a note's state based on the user's quality rating.
+ * If stopScheduling is true, the note is deactivated and no next review is scheduled.
  */
 function updateNoteState(
 	state: NoteState,
@@ -83,7 +82,6 @@ function updateNoteState(
 
 	let { repetition, interval, ef } = state;
 
-	// SM-2 style logic: reset repetition if quality is low.
 	if (quality < 3) {
 		repetition = 0;
 		interval = 1;
@@ -98,7 +96,6 @@ function updateNoteState(
 		}
 	}
 
-	// Update EF using the SM-2 formula.
 	ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
 	if (ef < 1.3) ef = 1.3;
 
@@ -211,7 +208,7 @@ export default class MyPlugin extends Plugin {
 		await this.savePluginData();
 	}
 
-	// Ribbon icon uses "file-text" and calls openReviewModal() when clicked.
+	// Ribbon icon uses "file-text" and calls openReviewModal().
 	private addPluginRibbonIcon(): void {
 		const ribbonIconEl = this.addRibbonIcon(
 			"file-text",
@@ -377,8 +374,12 @@ class SampleModal extends Modal {
  * with a statistics panel between the rating buttons and the Stop Scheduling button.
  * All text in the modal is black.
  *
- * The Stop Scheduling button now uses Obsidian's default styling (using the "mod-cta" class)
- * to look like a normal button in the app.
+ * The Stop Scheduling button uses Obsidian's default "mod-cta" styling.
+ *
+ * For hidden elements (both inline math and regular text, and for block‑level math),
+ * the placeholder text is "[show]". In addition, for block‑level math, we measure
+ * the height of the underlying math block and set the placeholder's height to match,
+ * thereby minimizing layout shift.
  */
 class RatingModal extends Modal {
 	private onSubmit: (input: string) => void;
@@ -408,7 +409,7 @@ class RatingModal extends Modal {
 		buttonContainer.style.margin = "10px 0";
 		buttonContainer.style.width = "100%";
 
-		// Define ratings with descriptive text and colors in original order.
+		// Define ratings with descriptive text and their corresponding colors.
 		const ratings = [
 			{ value: "0", text: "Forgot Completely", color: "#FF4C4C" },
 			{ value: "1", text: "Barely Remembered", color: "#FF7F50" },
@@ -418,7 +419,6 @@ class RatingModal extends Modal {
 			{ value: "5", text: "Perfect Recall", color: "#7CFC00" },
 		];
 
-		// Create a button for each rating.
 		ratings.forEach((rating) => {
 			const btn = buttonContainer.createEl("button", {
 				text: rating.text,
@@ -478,7 +478,7 @@ class RatingModal extends Modal {
 		stopContainer.style.marginTop = "30px";
 		stopContainer.style.width = "100%";
 
-		// Create a normal Obsidian-styled button for Stop Scheduling.
+		// Create an Obsidian-styled button for Stop Scheduling.
 		const stopButton = stopContainer.createEl("button", {
 			text: "Stop Scheduling",
 			cls: "mod-cta",
@@ -609,24 +609,30 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	span.className = "toggle-hidden-text";
 	span.setAttribute("data-original", originalContent);
 	span.setAttribute("data-hidden", "true");
+
+	// Initially show the gray "[show]" placeholder.
 	span.style.cursor = "pointer";
 	span.style.color = "gray";
 	span.style.textDecoration = "underline";
-	span.textContent = "[hidden]";
+	span.textContent = "[show]";
 
 	span.addEventListener("click", () => {
 		const isHidden = span.getAttribute("data-hidden") === "true";
 		if (isHidden) {
+			// Remove forced styles so revealed text inherits normal text color.
+			span.removeAttribute("style");
+			span.style.cursor = "pointer";
 			span.innerHTML = `
 				<span class="bracket" style="color: gray;">[</span>
 				<span class="revealed-text">${originalContent}</span>
-				<span class="bracket" style="color: gray;">]</span>`;
+				<span class="bracket" style="color: gray;">]</span>
+			`;
 			span.setAttribute("data-hidden", "false");
-			span.style.color = "";
-			span.style.textDecoration = "";
 		} else {
-			span.textContent = "[hidden]";
+			// Go back to the gray "[show]" placeholder.
+			span.innerHTML = "[show]";
 			span.setAttribute("data-hidden", "true");
+			span.style.cursor = "pointer";
 			span.style.color = "gray";
 			span.style.textDecoration = "underline";
 		}
@@ -682,35 +688,55 @@ function wrapMathElement(mathEl: Element): void {
 
 	parent.insertBefore(wrapper, mathEl);
 
-	const placeholder = document.createElement(wrapperTag);
-	placeholder.className = "toggle-hidden-math-placeholder";
-	placeholder.style.cursor = "pointer";
-	placeholder.style.textAlign = "center";
-	placeholder.innerHTML = `<span style="color: gray;">[hidden]</span>`;
+	let placeholder: HTMLElement;
+	if (mathEl.classList.contains("math-block")) {
+		// For block-level math, create a placeholder.
+		placeholder = document.createElement("div");
+		placeholder.style.padding = "10px 10px";
+		placeholder.style.margin = "5px 0";
+		placeholder.style.backgroundColor = "#fafafa";
+		placeholder.style.textAlign = "center";
+		placeholder.style.fontSize = "14px";
+		placeholder.style.lineHeight = "1.5";
+		placeholder.style.borderRadius = "4px";
+		placeholder.style.color = "gray";
+		placeholder.style.cursor = "pointer";
+		placeholder.textContent = "[show]";
 
-	if (mathEl.classList.contains("math-inline")) {
-		placeholder.style.display = "inline";
-	} else if (mathEl.classList.contains("math-block")) {
-		placeholder.style.display = "block";
+		// Match placeholder height to the math block’s height.
+		const mathHeight = mathEl.getBoundingClientRect().height;
+		placeholder.style.height = `${mathHeight}px`;
+	} else {
+		// For inline math, just do a simple "[show]" placeholder in gray.
+		placeholder = document.createElement(wrapperTag);
+		placeholder.className = "toggle-hidden-math-placeholder";
+		placeholder.style.cursor = "pointer";
+		placeholder.style.textAlign = "center";
+		placeholder.style.color = "gray";
+		placeholder.innerHTML = "[show]";
 	}
 
 	const revealedContainer = document.createElement(wrapperTag);
 	revealedContainer.className = "toggle-hidden-math-revealed";
-
-	const leftBracket = document.createElement("span");
-	leftBracket.className = "bracket";
-	leftBracket.style.color = "gray";
-	leftBracket.textContent = "[ ";
-
-	const rightBracket = document.createElement("span");
-	rightBracket.className = "bracket";
-	rightBracket.style.color = "gray";
-	rightBracket.textContent = " ]";
-
-	revealedContainer.appendChild(leftBracket);
-	revealedContainer.appendChild(mathEl);
-	revealedContainer.appendChild(rightBracket);
 	revealedContainer.style.display = "none";
+
+	if (!mathEl.classList.contains("math-block")) {
+		const leftBracket = document.createElement("span");
+		leftBracket.className = "bracket";
+		leftBracket.style.color = "gray";
+		leftBracket.textContent = "[ ";
+
+		const rightBracket = document.createElement("span");
+		rightBracket.className = "bracket";
+		rightBracket.style.color = "gray";
+		rightBracket.textContent = " ]";
+
+		revealedContainer.appendChild(leftBracket);
+		revealedContainer.appendChild(mathEl);
+		revealedContainer.appendChild(rightBracket);
+	} else {
+		revealedContainer.appendChild(mathEl);
+	}
 
 	wrapper.appendChild(placeholder);
 	wrapper.appendChild(revealedContainer);
@@ -718,13 +744,19 @@ function wrapMathElement(mathEl: Element): void {
 	wrapper.addEventListener("click", () => {
 		const currentlyHidden = wrapper.getAttribute("data-hidden") === "true";
 		if (currentlyHidden) {
+			// Show the math, hide the placeholder
 			placeholder.style.display = "none";
-			revealedContainer.style.display = "inline";
+			revealedContainer.style.display = isDisplayMath
+				? "block"
+				: "inline";
 			wrapper.setAttribute("data-hidden", "false");
 		} else {
-			placeholder.style.display = mathEl.classList.contains("math-inline")
-				? "inline"
-				: "block";
+			// Hide the math, show the placeholder
+			if (mathEl.classList.contains("math-block")) {
+				placeholder.style.display = "block";
+			} else {
+				placeholder.style.display = "inline";
+			}
 			revealedContainer.style.display = "none";
 			wrapper.setAttribute("data-hidden", "true");
 		}
