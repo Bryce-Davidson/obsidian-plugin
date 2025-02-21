@@ -323,7 +323,7 @@ export default class MyPlugin extends Plugin {
 			(leaf) => new ReviewSidebarView(leaf, this)
 		);
 		// For opening the review queue sidebar, use "file-text" icon.
-		this.addRibbonIcon("file-text", "Review Queue", () => {
+		this.addRibbonIcon("file-text", "Open Review Queue", () => {
 			this.activateReviewSidebar();
 		});
 	}
