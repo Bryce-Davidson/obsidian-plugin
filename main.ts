@@ -276,7 +276,7 @@ export default class MyPlugin extends Plugin {
 
 		/* --------------------------------------------------------------------
 		 * NEW COMMAND: Prompt user for a rating and update SM-2 for the note
-		 * using the custom RatingModal.
+		 * using the custom RatingModal with colored buttons.
 		 * ------------------------------------------------------------------ */
 		this.addCommand({
 			id: "review-current-note",
@@ -302,7 +302,7 @@ export default class MyPlugin extends Plugin {
 						const rating = parseInt(ratingStr, 10);
 						if (isNaN(rating) || rating < 0 || rating > 5) {
 							new Notice(
-								"Invalid rating. Please enter an integer from 0–5."
+								"Invalid rating. Please choose a rating from 0–5."
 							);
 							return;
 						}
@@ -393,7 +393,8 @@ class SampleModal extends Modal {
 }
 
 /**
- * RatingModal prompts the user for a review rating (0–5) or "stop" to disable scheduling.
+ * RatingModal presents separate colored buttons for ratings 0–5 in a vertical layout,
+ * as well as a "Stop Scheduling" button centered below the rating buttons.
  */
 class RatingModal extends Modal {
 	private onSubmit: (input: string) => void;
@@ -405,22 +406,69 @@ class RatingModal extends Modal {
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.createEl("h2", {
-			text: "Enter your rating (0–5) or type 'stop'",
-		});
-		const inputEl = contentEl.createEl("input", { type: "text" });
-		const submitButton = contentEl.createEl("button", { text: "Submit" });
+		contentEl.createEl("h2", { text: "Select your rating:" });
 
-		submitButton.addEventListener("click", () => {
-			this.onSubmit(inputEl.value);
-			this.close();
+		// Create a container for the rating buttons (vertical layout).
+		const buttonContainer = contentEl.createEl("div", {
+			cls: "rating-button-container",
 		});
+		buttonContainer.style.display = "flex";
+		buttonContainer.style.flexDirection = "column";
+		buttonContainer.style.alignItems = "center";
+		buttonContainer.style.margin = "10px 0";
+		buttonContainer.style.width = "100%";
 
-		inputEl.addEventListener("keydown", (evt) => {
-			if (evt.key === "Enter") {
-				this.onSubmit(inputEl.value);
+		// Define ratings and their corresponding colors.
+		const ratings = [
+			{ value: "0", color: "#FF4C4C" }, // Red
+			{ value: "1", color: "#FF7F50" }, // Coral
+			{ value: "2", color: "#FFA500" }, // Orange
+			{ value: "3", color: "#FFFF66" }, // Light Yellow
+			{ value: "4", color: "#ADFF2F" }, // Green Yellow
+			{ value: "5", color: "#7CFC00" }, // Lawn Green
+		];
+
+		// Create a button for each rating.
+		ratings.forEach((rating) => {
+			const btn = buttonContainer.createEl("button", {
+				text: rating.value,
+			});
+			btn.style.backgroundColor = rating.color;
+			btn.style.border = "none";
+			// Larger padding and font size for mobile-friendly buttons.
+			btn.style.padding = "15px 20px";
+			btn.style.margin = "5px 0";
+			btn.style.fontSize = "16px";
+			btn.style.cursor = "pointer";
+			btn.style.borderRadius = "4px";
+			// Set button width to 80% of the container.
+			btn.style.width = "80%";
+			btn.addEventListener("click", () => {
+				this.onSubmit(rating.value);
 				this.close();
-			}
+			});
+		});
+
+		// Create a separate container for the Stop Scheduling button.
+		const stopContainer = contentEl.createEl("div");
+		stopContainer.style.textAlign = "center";
+		stopContainer.style.marginTop = "20px";
+		stopContainer.style.width = "100%";
+
+		const stopButton = stopContainer.createEl("button", {
+			text: "Stop Scheduling",
+		});
+		stopButton.style.backgroundColor = "red";
+		stopButton.style.border = "none";
+		stopButton.style.padding = "15px 20px";
+		stopButton.style.fontSize = "16px";
+		stopButton.style.cursor = "pointer";
+		stopButton.style.borderRadius = "4px";
+		// Set width to 80% and center it.
+		stopButton.style.width = "80%";
+		stopButton.addEventListener("click", () => {
+			this.onSubmit("stop");
+			this.close();
 		});
 	}
 
