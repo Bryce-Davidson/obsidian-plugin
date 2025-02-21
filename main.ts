@@ -478,6 +478,7 @@ class RatingModal extends Modal {
 		stopButton.style.border = "none";
 		stopButton.style.padding = "15px 20px";
 		stopButton.style.fontSize = "16px";
+		stopButton.style.color = "black";
 		stopButton.style.cursor = "pointer";
 		stopButton.style.borderRadius = "4px";
 		// Set width to 80% and center it.
