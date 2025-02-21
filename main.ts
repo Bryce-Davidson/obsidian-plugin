@@ -699,9 +699,9 @@ function wrapMathElement(mathEl: Element): void {
 		placeholder.style.fontSize = "14px";
 		placeholder.style.lineHeight = "1.5";
 		placeholder.style.borderRadius = "4px";
-		placeholder.style.color = "gray";
+		placeholder.style.color = "black";
 		placeholder.style.cursor = "pointer";
-		placeholder.textContent = "[show]";
+		placeholder.textContent = "show";
 
 		// Match placeholder height to the math block’s height.
 		const mathHeight = mathEl.getBoundingClientRect().height;
