@@ -9,6 +9,7 @@ import {
 	Setting,
 	TFile,
 	WorkspaceLeaf,
+	ItemView,
 } from "obsidian";
 
 /* ============================================================================
@@ -112,6 +113,80 @@ function updateNoteState(
 }
 
 /* ============================================================================
+ * NEW: REVIEW SIDEBAR VIEW IMPLEMENTATION
+ * ========================================================================== */
+
+// A constant to uniquely identify the review sidebar view.
+export const REVIEW_VIEW_TYPE = "review-sidebar";
+
+// The review sidebar displays all notes that are due for review. Clicking on a note opens it.
+export class ReviewSidebarView extends ItemView {
+	plugin: MyPlugin;
+	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
+		super(leaf);
+		this.plugin = plugin;
+	}
+
+	getViewType(): string {
+		return REVIEW_VIEW_TYPE;
+	}
+
+	getDisplayText(): string {
+		return "Review Queue";
+	}
+
+	// Now the sidebar header displays the "file-text" icon.
+	getIcon(): string {
+		return "file-text";
+	}
+
+	async onOpen() {
+		const container = this.containerEl.children[1];
+		container.empty();
+
+		// Gather notes that are active and due for review.
+		const now = new Date();
+		const reviewNotes: string[] = [];
+		for (const filePath in this.plugin.spacedRepetitionLog) {
+			const state = this.plugin.spacedRepetitionLog[filePath];
+			if (
+				state.active &&
+				state.nextReviewDate &&
+				new Date(state.nextReviewDate) <= now
+			) {
+				reviewNotes.push(filePath);
+			}
+		}
+
+		if (reviewNotes.length === 0) {
+			container.createEl("p", { text: "No notes to review!" });
+			return;
+		}
+
+		// Create a list of review notes.
+		const list = container.createEl("ul");
+		reviewNotes.forEach((filePath) => {
+			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+			if (!file || !(file instanceof TFile)) return;
+			const listItem = list.createEl("li");
+			const link = listItem.createEl("a", {
+				text: file.basename,
+				href: "#",
+			});
+			link.onclick = async (evt) => {
+				evt.preventDefault();
+				const leaf = this.plugin.app.workspace.getLeaf(true);
+				await leaf.openFile(file);
+			};
+		});
+	}
+
+	async onClose() {
+		// No additional cleanup needed.
+	}
+}
+
+/* ============================================================================
  * MAIN PLUGIN CLASS
  * ========================================================================== */
 
@@ -175,6 +250,16 @@ export default class MyPlugin extends Plugin {
 				console.log(`Updated logs from ${oldPath} to ${file.path}`);
 			})
 		);
+
+		// NEW: Register the review sidebar view and add a ribbon icon to open it.
+		this.registerView(
+			REVIEW_VIEW_TYPE,
+			(leaf) => new ReviewSidebarView(leaf, this)
+		);
+		// For opening the review queue sidebar, use "file-text" icon.
+		this.addRibbonIcon("file-text", "Open Review Queue", () => {
+			this.activateReviewSidebar();
+		});
 	}
 
 	onunload() {
@@ -208,10 +293,10 @@ export default class MyPlugin extends Plugin {
 		await this.savePluginData();
 	}
 
-	// Ribbon icon uses "file-text" and calls openReviewModal().
+	// Ribbon icon uses "check-square" and calls openReviewModal().
 	private addPluginRibbonIcon(): void {
 		const ribbonIconEl = this.addRibbonIcon(
-			"file-text",
+			"check-square",
 			"Review Current Note",
 			() => {
 				this.openReviewModal();
@@ -298,6 +383,15 @@ export default class MyPlugin extends Plugin {
 				this.openReviewModal();
 			},
 		});
+
+		// NEW: Command to open the Review Queue sidebar.
+		this.addCommand({
+			id: "open-review-queue",
+			name: "Open Review Queue",
+			callback: () => {
+				this.activateReviewSidebar();
+			},
+		});
 	}
 
 	private async logVisit(file: TFile) {
@@ -345,6 +439,21 @@ export default class MyPlugin extends Plugin {
 		}
 
 		await this.savePluginData();
+	}
+
+	// NEW: Activate (or reveal) the review sidebar.
+	async activateReviewSidebar() {
+		let leaf = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE)[0];
+		if (!leaf) {
+			leaf =
+				this.app.workspace.getRightLeaf(false) ||
+				this.app.workspace.getLeaf(true);
+			await leaf.setViewState({
+				type: REVIEW_VIEW_TYPE,
+				active: true,
+			});
+		}
+		this.app.workspace.revealLeaf(leaf);
 	}
 }
 
