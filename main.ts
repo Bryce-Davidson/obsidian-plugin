@@ -37,10 +37,10 @@ interface PluginData {
 
 /**
  * NoteState describes how we track spaced repetition for a given note (file).
- * This is our 'external JSON object' representing SM‑2 data plus an 'active' flag.
+ * We no longer store a unique id since the file path (the key in spacedRepetitionLog)
+ * already provides uniqueness.
  */
 interface NoteState {
-	id: string; // Some unique ID, often the file path itself
 	repetition: number; // SM-2 repetition count
 	interval: number; // Interval in days
 	ef: number; // Easiness factor
@@ -64,7 +64,7 @@ function getNextReviewDate(lastReview: Date, interval: number): Date {
 
 /**
  * Applies an SM‑2-like update to a note's state based on the user's quality rating.
- * If stopScheduling is true, the note is deactivated, no next review is scheduled.
+ * If stopScheduling is true, the note is deactivated, and no next review is scheduled.
  */
 function updateNoteState(
 	state: NoteState,
@@ -72,7 +72,6 @@ function updateNoteState(
 	lastReviewDate: Date,
 	stopScheduling: boolean = false
 ): NoteState {
-	// If user wants to stop scheduling, mark as inactive, clear nextReviewDate.
 	if (stopScheduling) {
 		return {
 			...state,
@@ -82,9 +81,9 @@ function updateNoteState(
 		};
 	}
 
-	let { id, repetition, interval, ef } = state;
+	let { repetition, interval, ef } = state;
 
-	// SM-2 style logic
+	// SM-2 style logic: reset repetition if quality is low.
 	if (quality < 3) {
 		repetition = 0;
 		interval = 1;
@@ -99,14 +98,13 @@ function updateNoteState(
 		}
 	}
 
-	// EF' = EF + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+	// Update EF using the SM-2 formula.
 	ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
 	if (ef < 1.3) ef = 1.3;
 
 	const nextReview = getNextReviewDate(lastReviewDate, interval);
 
 	return {
-		id,
 		repetition,
 		interval,
 		ef: parseFloat(ef.toFixed(2)),
@@ -124,11 +122,10 @@ export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	visitLog: { [filePath: string]: string[] } = {};
 
-	// Our spaced repetition dictionary: file path -> NoteState
+	// spacedRepetitionLog maps file paths to their NoteState.
 	spacedRepetitionLog: { [filePath: string]: NoteState } = {};
 
 	async onload() {
-		// Load existing data (settings, visits, spaced rep)
 		await this.loadPluginData();
 
 		this.addPluginRibbonIcon();
@@ -136,12 +133,10 @@ export default class MyPlugin extends Plugin {
 		this.registerCommands();
 		this.addSettingTab(new SampleSettingTab(this.app, this));
 
-		// Register a DOM event example (unchanged from your code)
 		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
 			console.log("Global click event:", evt);
 		});
 
-		// Register an interval example (unchanged)
 		this.registerInterval(
 			window.setInterval(
 				() => console.log("Interval ping"),
@@ -149,13 +144,11 @@ export default class MyPlugin extends Plugin {
 			)
 		);
 
-		// Register Markdown post-processors (unchanged)
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
 			processHiddenMathBlocks(element);
 		});
 
-		// Listen for active leaf changes to log visits
 		this.registerEvent(
 			this.app.workspace.on(
 				"active-leaf-change",
@@ -170,15 +163,12 @@ export default class MyPlugin extends Plugin {
 			)
 		);
 
-		// Listen for file renames to update the logs
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
-				// Migrate old visit log entry
 				if (this.visitLog[oldPath]) {
 					this.visitLog[file.path] = this.visitLog[oldPath];
 					delete this.visitLog[oldPath];
 				}
-				// Migrate spaced repetition log entry
 				if (this.spacedRepetitionLog[oldPath]) {
 					this.spacedRepetitionLog[file.path] =
 						this.spacedRepetitionLog[oldPath];
@@ -194,7 +184,6 @@ export default class MyPlugin extends Plugin {
 		console.log("Unloading MyPlugin");
 	}
 
-	/** Load plugin data from disk, including spaced repetition log. */
 	async loadPluginData() {
 		const data = (await this.loadData()) as PluginData;
 		if (data) {
@@ -208,7 +197,6 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	/** Save plugin data to disk. */
 	async savePluginData() {
 		console.log("Saving plugin data");
 		const data: PluginData = {
@@ -219,16 +207,11 @@ export default class MyPlugin extends Plugin {
 		await this.saveData(data);
 	}
 
-	/** Persists current settings to disk. */
 	async saveSettings() {
 		await this.savePluginData();
 	}
 
-	/* ------------------------------------------------------------------------
-	 * HELPER METHODS FOR INITIALIZATION
-	 * ---------------------------------------------------------------------- */
-
-	// Ribbon icon now uses "file-text" (commonly representing a note).
+	// Ribbon icon uses "file-text" and calls openReviewModal() when clicked.
 	private addPluginRibbonIcon(): void {
 		const ribbonIconEl = this.addRibbonIcon(
 			"file-text",
@@ -245,7 +228,7 @@ export default class MyPlugin extends Plugin {
 		statusBarItemEl.setText("Status Bar Text");
 	}
 
-	// New helper that opens the review modal.
+	// openReviewModal() checks for an active Markdown file and opens the RatingModal.
 	private openReviewModal(): void {
 		const markdownView =
 			this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -259,7 +242,8 @@ export default class MyPlugin extends Plugin {
 			return;
 		}
 		const filePath = file.path;
-		new RatingModal(this.app, (ratingStr: string) => {
+		const currentState = this.spacedRepetitionLog[filePath];
+		new RatingModal(this.app, currentState, (ratingStr: string) => {
 			if (!ratingStr) return;
 			if (ratingStr.toLowerCase() === "stop") {
 				this.updateNoteWithQuality(filePath, 0, true);
@@ -310,10 +294,6 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		/* --------------------------------------------------------------------
-		 * NEW COMMAND: Review Current Note (Spaced Repetition)
-		 * This command uses the same logic as openReviewModal().
-		 * ------------------------------------------------------------------ */
 		this.addCommand({
 			id: "review-current-note",
 			name: "Review Current Note (Spaced Repetition)",
@@ -323,7 +303,6 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
-	/** Logs a visit for the given file by appending the current date/time. */
 	private async logVisit(file: TFile) {
 		const now = new Date().toISOString();
 		if (!this.visitLog[file.path]) {
@@ -334,10 +313,6 @@ export default class MyPlugin extends Plugin {
 		await this.savePluginData();
 	}
 
-	/**
-	 * NEW HELPER: Looks up or creates a NoteState, then applies SM-2 updates
-	 * via updateNoteState, and saves the changes.
-	 */
 	private async updateNoteWithQuality(
 		filePath: string,
 		quality: number,
@@ -346,9 +321,7 @@ export default class MyPlugin extends Plugin {
 		const now = new Date();
 		let noteState = this.spacedRepetitionLog[filePath];
 		if (!noteState) {
-			// If we have no existing state, initialize it
 			noteState = {
-				id: filePath,
 				repetition: 0,
 				interval: 0,
 				ef: 2.5,
@@ -357,10 +330,7 @@ export default class MyPlugin extends Plugin {
 			};
 		}
 
-		// Convert lastReviewDate from string to Date
 		const lastReviewDate = new Date(noteState.lastReviewDate);
-
-		// Update the note using SM-2 logic
 		const updated = updateNoteState(
 			noteState,
 			quality,
@@ -403,26 +373,32 @@ class SampleModal extends Modal {
 }
 
 /**
- * RatingModal presents separate colored buttons for ratings 0–5 in a vertical layout,
- * as well as a "Stop Scheduling" button centered below the rating buttons.
- * This layout is more mobile friendly.
+ * RatingModal presents colored buttons for ratings 0–5 in a vertical layout,
+ * with a statistics panel between the rating buttons and the Stop Scheduling button.
+ * All text in the modal is black.
  *
- * In this version the buttons are ordered in the original order (0 at top, 5 at bottom)
- * and the Stop Scheduling button is styled with the same colour as the "Perfect Recall" button.
+ * The Stop Scheduling button now uses Obsidian's default styling (using the "mod-cta" class)
+ * to look like a normal button in the app.
  */
 class RatingModal extends Modal {
 	private onSubmit: (input: string) => void;
+	private currentState?: NoteState;
 
-	constructor(app: App, onSubmit: (input: string) => void) {
+	constructor(
+		app: App,
+		currentState: NoteState | undefined,
+		onSubmit: (input: string) => void
+	) {
 		super(app);
+		this.currentState = currentState;
 		this.onSubmit = onSubmit;
 	}
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.createEl("h2", { text: "Select your rating:" });
+		contentEl.empty();
 
-		// Create a container for the rating buttons (vertical layout).
+		// Create container for rating buttons.
 		const buttonContainer = contentEl.createEl("div", {
 			cls: "rating-button-container",
 		});
@@ -432,7 +408,7 @@ class RatingModal extends Modal {
 		buttonContainer.style.margin = "10px 0";
 		buttonContainer.style.width = "100%";
 
-		// Define ratings with descriptive text and their corresponding colors.
+		// Define ratings with descriptive text and colors in original order.
 		const ratings = [
 			{ value: "0", text: "Forgot Completely", color: "#FF4C4C" },
 			{ value: "1", text: "Barely Remembered", color: "#FF7F50" },
@@ -449,14 +425,12 @@ class RatingModal extends Modal {
 			});
 			btn.style.backgroundColor = rating.color;
 			btn.style.border = "none";
-			// Larger padding and font size for mobile-friendly buttons.
 			btn.style.padding = "25px 20px";
 			btn.style.margin = "5px 0";
 			btn.style.fontSize = "16px";
 			btn.style.color = "black";
 			btn.style.cursor = "pointer";
 			btn.style.borderRadius = "4px";
-			// Set button width to 80% of the container.
 			btn.style.width = "80%";
 			btn.addEventListener("click", () => {
 				this.onSubmit(rating.value);
@@ -464,25 +438,53 @@ class RatingModal extends Modal {
 			});
 		});
 
-		// Create a separate container for the Stop Scheduling button.
+		// Create a statistics container to show current spaced-repetition data.
+		const statsContainer = contentEl.createEl("div", {
+			cls: "stats-container",
+		});
+		statsContainer.style.width = "80%";
+		statsContainer.style.margin = "15px auto";
+		statsContainer.style.padding = "10px";
+		statsContainer.style.border = "1px solid #ccc";
+		statsContainer.style.borderRadius = "4px";
+		statsContainer.style.backgroundColor = "#f9f9f9";
+		statsContainer.style.fontSize = "14px";
+		statsContainer.style.textAlign = "left";
+		statsContainer.style.color = "black";
+
+		if (this.currentState) {
+			statsContainer.innerHTML = `<strong>Current Statistics:</strong>
+      <br/>Repetitions: ${this.currentState.repetition}
+      <br/>Interval: ${this.currentState.interval} day(s)
+      <br/>EF: ${this.currentState.ef}
+      <br/>Next Review: ${
+			this.currentState.nextReviewDate
+				? new Date(
+						this.currentState.nextReviewDate
+				  ).toLocaleDateString()
+				: "Not set"
+		}`;
+		} else {
+			statsContainer.textContent =
+				"No review data available for this note.";
+		}
+
+		// Append the statistics container.
+		contentEl.appendChild(statsContainer);
+
+		// Create a container for the Stop Scheduling button.
 		const stopContainer = contentEl.createEl("div");
 		stopContainer.style.textAlign = "center";
 		stopContainer.style.marginTop = "30px";
 		stopContainer.style.width = "100%";
 
+		// Create a normal Obsidian-styled button for Stop Scheduling.
 		const stopButton = stopContainer.createEl("button", {
 			text: "Stop Scheduling",
+			cls: "mod-cta",
 		});
-		// Use the same color as the "Perfect Recall" button.
-		stopButton.style.backgroundColor = "#7CFC00";
-		stopButton.style.border = "none";
-		stopButton.style.padding = "15px 20px";
-		stopButton.style.fontSize = "16px";
-		stopButton.style.color = "black";
-		stopButton.style.cursor = "pointer";
-		stopButton.style.borderRadius = "4px";
-		// Set width to 80% and center it.
 		stopButton.style.width = "80%";
+		stopButton.style.color = "black";
 		stopButton.addEventListener("click", () => {
 			this.onSubmit("stop");
 			this.close();
