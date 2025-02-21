@@ -801,8 +801,8 @@ function wrapMathElement(mathEl: Element): void {
 	if (mathEl.classList.contains("math-block")) {
 		// For block-level math, create a placeholder.
 		placeholder = document.createElement("div");
-		placeholder.style.padding = "10px 10px";
-		placeholder.style.margin = "5px 0";
+		placeholder.style.padding = "11px 10px";
+		placeholder.style.margin = "0 0";
 		placeholder.style.backgroundColor = "#fafafa";
 		placeholder.style.textAlign = "center";
 		placeholder.style.fontSize = "14px";
@@ -811,10 +811,6 @@ function wrapMathElement(mathEl: Element): void {
 		placeholder.style.color = "black";
 		placeholder.style.cursor = "pointer";
 		placeholder.textContent = "show";
-
-		// Match placeholder height to the math block’s height.
-		const mathHeight = mathEl.getBoundingClientRect().height;
-		placeholder.style.height = `${mathHeight}px`;
 	} else {
 		// For inline math, just do a simple "[show]" placeholder in gray.
 		placeholder = document.createElement(wrapperTag);
