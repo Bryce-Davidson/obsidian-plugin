@@ -436,9 +436,10 @@ class RatingModal extends Modal {
 			btn.style.backgroundColor = rating.color;
 			btn.style.border = "none";
 			// Larger padding and font size for mobile-friendly buttons.
-			btn.style.padding = "15px 20px";
+			btn.style.padding = "20px 20px";
 			btn.style.margin = "5px 0";
 			btn.style.fontSize = "16px";
+			btn.style.color = "black";
 			btn.style.cursor = "pointer";
 			btn.style.borderRadius = "4px";
 			// Set button width to 80% of the container.
@@ -460,7 +461,7 @@ class RatingModal extends Modal {
 		});
 		stopButton.style.backgroundColor = "red";
 		stopButton.style.border = "none";
-		stopButton.style.padding = "15px 20px";
+		stopButton.style.padding = "20px 20px";
 		stopButton.style.fontSize = "16px";
 		stopButton.style.cursor = "pointer";
 		stopButton.style.borderRadius = "4px";
