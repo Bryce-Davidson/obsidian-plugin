@@ -9,9 +9,10 @@ import {
 	Setting,
 } from "obsidian";
 
-/**
- * Plugin Settings
- */
+/* ============================================================================
+ * PLUGIN SETTINGS
+ * ========================================================================== */
+
 interface MyPluginSettings {
 	mySetting: string;
 }
@@ -20,26 +21,84 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 	mySetting: "default",
 };
 
-/**
- * Main Plugin Class
- */
+/* ============================================================================
+ * MAIN PLUGIN CLASS
+ * ========================================================================== */
+
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 
+	/** Called by Obsidian when the plugin is first loaded. */
 	async onload() {
+		// Load settings
 		await this.loadSettings();
 
-		// Ribbon icon example (just a placeholder)
+		// Initialize UI Elements
+		this.addPluginRibbonIcon();
+		this.addStatusBar();
+
+		// Register plugin commands
+		this.registerCommands();
+
+		// Add a settings tab in Obsidian
+		this.addSettingTab(new SampleSettingTab(this.app, this));
+
+		// Register any DOM events
+		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
+			console.log("Global click event:", evt);
+		});
+
+		// Register any repeating intervals
+		this.registerInterval(
+			window.setInterval(
+				() => console.log("Interval ping"),
+				5 * 60 * 1000
+			)
+		);
+
+		// Register a Markdown Post Processor to handle custom hidden text and math
+		this.registerMarkdownPostProcessor((element, context) => {
+			processCustomHiddenText(element);
+			processHiddenMathBlocks(element);
+		});
+	}
+
+	/** Called by Obsidian when the plugin is unloaded (optional cleanup). */
+	onunload() {
+		// Cleanup logic if needed
+	}
+
+	/** Loads settings from disk, falling back to defaults if unavailable. */
+	async loadSettings() {
+		this.settings = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			await this.loadData()
+		);
+	}
+
+	/** Persists current settings to disk. */
+	async saveSettings() {
+		await this.saveData(this.settings);
+	}
+
+	/* ------------------------------------------------------------------------
+	 * HELPER METHODS FOR INITIALIZATION
+	 * ---------------------------------------------------------------------- */
+
+	private addPluginRibbonIcon(): void {
 		const ribbonIconEl = this.addRibbonIcon("dice", "Sample Plugin", () => {
-			new Notice("Looks a!");
+			new Notice("Dice icon clicked!");
 		});
 		ribbonIconEl.addClass("my-plugin-ribbon-class");
+	}
 
-		// Status bar example (just a placeholder)
+	private addStatusBar(): void {
 		const statusBarItemEl = this.addStatusBarItem();
 		statusBarItemEl.setText("Status Bar Text");
+	}
 
-		// Simple command
+	private registerCommands(): void {
 		this.addCommand({
 			id: "open-sample-modal-simple",
 			name: "Open sample modal (simple)",
@@ -48,17 +107,15 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// Editor command
 		this.addCommand({
 			id: "sample-editor-command",
 			name: "Sample editor command",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
+				console.log("Selected text:", editor.getSelection());
 				editor.replaceSelection("Sample Editor Command");
 			},
 		});
 
-		// Complex command
 		this.addCommand({
 			id: "open-sample-modal-complex",
 			name: "Open sample modal (complex)",
@@ -71,55 +128,17 @@ export default class MyPlugin extends Plugin {
 					}
 					return true;
 				}
+				return false;
 			},
 		});
-
-		// Adds a settings tab
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// Register a global DOM event (example)
-		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
-			console.log("click", evt);
-		});
-
-		// Register an interval (example)
-		this.registerInterval(
-			window.setInterval(() => console.log("setInterval"), 5 * 60 * 1000)
-		);
-
-		// --- Toggle Hidden Content Markdown Post-Processor ---
-		// (1) For all text outside KaTeX, hide :-...-: as clickable spans
-		// (2) For all math blocks, only wrap in toggler if preceded by :- and followed by -:
-		this.registerMarkdownPostProcessor((element, context) => {
-			// 1) Hide :-...-: in normal text
-			hideCustomDelimitersText(element);
-
-			// 2) Wrap math with toggler if user typed :- around it
-			const mathEls = element.querySelectorAll(".math");
-			mathEls.forEach((mathEl) => wrapMathElement(mathEl));
-		});
-	}
-
-	onunload() {
-		// Any cleanup if needed
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
 	}
 }
 
-/**
- * Simple Modal Example
- */
+/* ============================================================================
+ * SAMPLE MODAL EXAMPLE
+ * ========================================================================== */
+
+/** A simple modal that pops up from a command. */
 class SampleModal extends Modal {
 	constructor(app: App) {
 		super(app);
@@ -127,7 +146,7 @@ class SampleModal extends Modal {
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.setText("Woah!");
+		contentEl.setText("Modal opened!");
 	}
 
 	onClose() {
@@ -136,9 +155,11 @@ class SampleModal extends Modal {
 	}
 }
 
-/**
- * Settings Tab Example
- */
+/* ============================================================================
+ * SETTINGS TAB EXAMPLE
+ * ========================================================================== */
+
+/** Sample settings tab for the plugin, accessible in the Obsidian settings. */
 class SampleSettingTab extends PluginSettingTab {
 	plugin: MyPlugin;
 
@@ -153,7 +174,7 @@ class SampleSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Setting #1")
-			.setDesc("It's a secret")
+			.setDesc("It's a secret!")
 			.addText((text) =>
 				text
 					.setPlaceholder("Enter your secret")
@@ -166,16 +187,19 @@ class SampleSettingTab extends PluginSettingTab {
 	}
 }
 
+/* ============================================================================
+ * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT
+ * ========================================================================== */
+
 /**
- * We walk the DOM text nodes (excluding KaTeX sections) and replace
- * `:-...-:` with clickable "[hidden]" spans for NON-math content.
- * This avoids conflicts with LaTeX braces.
+ * Replaces any text matching the pattern :-(...)-: with a "[hidden]" toggler
+ * in normal text (i.e., not inside a .math container).
  */
-function hideCustomDelimitersText(rootEl: HTMLElement) {
+function processCustomHiddenText(rootEl: HTMLElement): void {
 	const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {
 		acceptNode: (node) => {
-			// Skip if this text node is inside a math container
 			if (isInsideMath(node.parentElement)) {
+				// Skip if this text node is inside a math container
 				return NodeFilter.FILTER_REJECT;
 			}
 			return NodeFilter.FILTER_ACCEPT;
@@ -187,8 +211,7 @@ function hideCustomDelimitersText(rootEl: HTMLElement) {
 		textNodes.push(walker.currentNode as Text);
 	}
 
-	// Regex to match :-...-: (non-greedy)
-	const delimiterRegex = /:-(.*?)-:/g;
+	const delimiterRegex = /:-(.*?)-:/g; // Non-greedy match for :-...-:
 
 	for (const textNode of textNodes) {
 		const nodeText = textNode.nodeValue;
@@ -196,32 +219,29 @@ function hideCustomDelimitersText(rootEl: HTMLElement) {
 
 		let match;
 		let lastIndex = 0;
-		const fragments: (string | Node)[] = [];
+		const fragments: Array<string | Node> = [];
 
-		// Find all :-...-: matches
 		while ((match = delimiterRegex.exec(nodeText)) !== null) {
+			const [fullMatch, hiddenContent] = match;
 			const startIndex = match.index;
-			const endIndex = startIndex + match[0].length;
-			const contentInside = match[1]; // text between :- and -:
+			const endIndex = startIndex + fullMatch.length;
 
-			// Push any text before the match
+			// Push any plain text before this match
 			if (startIndex > lastIndex) {
 				fragments.push(nodeText.slice(lastIndex, startIndex));
 			}
 
-			// Create the hidden text span
-			const span = createHiddenTextSpan(contentInside);
-			fragments.push(span);
-
+			// Create a span that toggles hidden content
+			fragments.push(createHiddenTextSpan(hiddenContent));
 			lastIndex = endIndex;
 		}
 
-		// If we had matches or leftover text after the last match,
-		// replace the original text node with new fragments
+		// If we found matches, or if there's leftover text after the last match
 		if (lastIndex > 0) {
 			if (lastIndex < nodeText.length) {
 				fragments.push(nodeText.slice(lastIndex));
 			}
+
 			const parent = textNode.parentNode;
 			if (parent) {
 				for (const frag of fragments) {
@@ -241,14 +261,14 @@ function hideCustomDelimitersText(rootEl: HTMLElement) {
 }
 
 /**
- * Check if an element (or its ancestors) is part of a KaTeX (.math) container
+ * Checks if the given element or any of its ancestors is part of a KaTeX container.
+ * We don't want to insert hidden-text toggles inside `.math` blocks.
  */
 function isInsideMath(el: HTMLElement | null): boolean {
 	if (!el) return false;
 	if (
-		el.classList &&
-		(el.classList.contains("math") ||
-			el.classList.contains("toggle-hidden-math-wrapper"))
+		el.classList?.contains("math") ||
+		el.classList?.contains("toggle-hidden-math-wrapper")
 	) {
 		return true;
 	}
@@ -256,36 +276,38 @@ function isInsideMath(el: HTMLElement | null): boolean {
 }
 
 /**
- * Create a span that hides the original content, showing "[hidden]" initially.
+ * Creates a <span> element that hides the original content behind a "[hidden]" placeholder.
+ * Clicking the span toggles between the hidden and revealed states.
  */
 function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	const span = document.createElement("span");
 	span.className = "toggle-hidden-text";
 	span.setAttribute("data-original", originalContent);
 	span.setAttribute("data-hidden", "true");
+
+	// Basic inline styles (could also be done in a CSS file)
 	span.style.cursor = "pointer";
 	span.style.color = "gray";
 	span.style.textDecoration = "underline";
-
-	// Initial placeholder
 	span.textContent = "[hidden]";
 
-	// On click, toggle between hidden and revealed
 	span.addEventListener("click", () => {
 		const isHidden = span.getAttribute("data-hidden") === "true";
 		if (isHidden) {
 			// Reveal
-			span.innerHTML = `<span class="bracket" style="color: gray;">[</span>
+			span.innerHTML = `
+				<span class="bracket" style="color: gray;">[</span>
 				<span class="revealed-text">${originalContent}</span>
 				<span class="bracket" style="color: gray;">]</span>`;
 			span.setAttribute("data-hidden", "false");
-			span.style.textDecoration = "";
 			span.style.color = "";
+			span.style.textDecoration = "";
 		} else {
 			// Hide again
 			span.textContent = "[hidden]";
 			span.setAttribute("data-hidden", "true");
 			span.style.color = "gray";
+			span.style.textDecoration = "underline";
 		}
 	});
 
@@ -293,71 +315,81 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 }
 
 /**
- * Wrap an inline or display math element IF it is preceded by ":-"
- * and followed by "-:" in the text. That means the user typed:
- *
- *    :-$ x^2 $-:
- *
- * We'll remove those delimiters and wrap the math in a "[hidden]" toggler.
+ * Processes `.math` elements within the rendered Markdown, looking for :- and -:
+ * around those math elements, which signals that the user wants the math hidden behind toggles.
  */
-function wrapMathElement(mathEl: Element) {
-	// If it's already wrapped, skip
+function processHiddenMathBlocks(rootEl: HTMLElement): void {
+	const mathEls = rootEl.querySelectorAll(".math");
+	mathEls.forEach((mathEl) => wrapMathElement(mathEl));
+}
+
+/**
+ * Wraps an inline or display math element IF it is preceded by ":-" and followed by "-:" in the text.
+ * Example usage in user Markdown: `:-$ x^2 $-:`
+ */
+function wrapMathElement(mathEl: Element): void {
 	const parent = mathEl.parentElement;
 	if (!parent || parent.classList.contains("toggle-hidden-math-wrapper")) {
+		// Already wrapped or no valid parent
 		return;
 	}
 
-	// Check if there's leftover ":-" in the previous text node
-	// and leftover "-:" in the next text node
 	let foundDelimiters = false;
 
-	// Check previous sibling's text for trailing ':-'
-	const prevTextSibling = mathEl.previousSibling;
-	if (prevTextSibling && prevTextSibling.nodeType === Node.TEXT_NODE) {
-		const txt = prevTextSibling.nodeValue ?? "";
-		// Does it end with ':-'?
-		const match = txt.match(/(.*):-\s*$/);
+	// Check previous sibling for trailing ":-"
+	const prevSibling = mathEl.previousSibling;
+	if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
+		const textContent = prevSibling.nodeValue ?? "";
+		const match = textContent.match(/(.*):-\s*$/);
 		if (match) {
-			prevTextSibling.nodeValue = match[1]; // remove ':-'
+			prevSibling.nodeValue = match[1]; // Remove ":-"
 			foundDelimiters = true;
 		}
 	}
 
-	// Check next sibling's text for leading '-:'
-	const nextTextSibling = mathEl.nextSibling;
-	if (nextTextSibling && nextTextSibling.nodeType === Node.TEXT_NODE) {
-		const txt = nextTextSibling.nodeValue ?? "";
-		// Does it start with '-:'?
-		const match = txt.match(/^\s*-:(.*)/);
+	// Check next sibling for leading "-:"
+	const nextSibling = mathEl.nextSibling;
+	if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
+		const textContent = nextSibling.nodeValue ?? "";
+		const match = textContent.match(/^\s*-:(.*)/);
 		if (match) {
-			nextTextSibling.nodeValue = match[1]; // remove '-:'
+			nextSibling.nodeValue = match[1]; // Remove "-:"
 			foundDelimiters = true;
 		}
 	}
 
-	// If we didn't find the ":-" and "-:" pair around this math, skip
+	// If we didn't find the delimiters around this math element, skip
 	if (!foundDelimiters) {
 		return;
 	}
 
-	// Otherwise, wrap the math in a toggler
-	const isDisplay = mathEl.classList.contains("math-display");
-	const wrapperTag = isDisplay ? "div" : "span";
+	// Create a wrapper that will contain both the hidden placeholder and the revealed math
+	const isDisplayMath = mathEl.classList.contains("math-display");
+	const wrapperTag = isDisplayMath ? "div" : "span";
 
 	const wrapper = document.createElement(wrapperTag);
 	wrapper.className = "toggle-hidden-math-wrapper";
 	wrapper.setAttribute("data-hidden", "true");
 	wrapper.style.cursor = "pointer";
 
+	// Insert the wrapper before the math element
 	parent.insertBefore(wrapper, mathEl);
 
-	// CREATE PLACEHOLDER: "[hidden]"
+	// Placeholder shown when math is hidden
 	const placeholder = document.createElement(wrapperTag);
 	placeholder.className = "toggle-hidden-math-placeholder";
 	placeholder.style.cursor = "pointer";
+	placeholder.style.textAlign = "center";
 	placeholder.innerHTML = `<span style="color: gray;">[hidden]</span>`;
 
-	// CREATE REVEALED CONTAINER with brackets
+	// Set display based on math element class
+	if (mathEl.classList.contains("math-inline")) {
+		placeholder.style.display = "inline";
+	} else if (mathEl.classList.contains("math-block")) {
+		placeholder.style.display = "block";
+	}
+
+	// A container for the revealed math
 	const revealedContainer = document.createElement(wrapperTag);
 	revealedContainer.className = "toggle-hidden-math-revealed";
 
@@ -372,26 +404,28 @@ function wrapMathElement(mathEl: Element) {
 	rightBracket.textContent = " ]";
 
 	revealedContainer.appendChild(leftBracket);
-	revealedContainer.appendChild(mathEl);
+	revealedContainer.appendChild(mathEl); // move the math element here
 	revealedContainer.appendChild(rightBracket);
 
-	// Hide revealed math by default
+	// Default to hidden
 	revealedContainer.style.display = "none";
 
 	wrapper.appendChild(placeholder);
 	wrapper.appendChild(revealedContainer);
 
-	// Toggle on click
+	// Toggle hidden/display on click
 	wrapper.addEventListener("click", () => {
-		const isHidden = wrapper.getAttribute("data-hidden") === "true";
-		if (isHidden) {
-			// Reveal the math
+		const currentlyHidden = wrapper.getAttribute("data-hidden") === "true";
+		if (currentlyHidden) {
+			// Reveal
 			placeholder.style.display = "none";
-			revealedContainer.style.display = "";
+			revealedContainer.style.display = "inline";
 			wrapper.setAttribute("data-hidden", "false");
 		} else {
-			// Hide the math
-			placeholder.style.display = "";
+			// Hide
+			placeholder.style.display = mathEl.classList.contains("math-inline")
+				? "inline"
+				: "block";
 			revealedContainer.style.display = "none";
 			wrapper.setAttribute("data-hidden", "true");
 		}
