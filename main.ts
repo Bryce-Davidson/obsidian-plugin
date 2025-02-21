@@ -62,10 +62,6 @@ function getNextReviewDate(lastReview: Date, interval: number): Date {
 	return nextReview;
 }
 
-/**
- * Applies an SM‑2‑like update to a note's state based on the user's quality rating.
- * If stopScheduling is true, the note is deactivated and no next review is scheduled.
- */
 function updateNoteState(
 	state: NoteState,
 	quality: number,
@@ -84,6 +80,8 @@ function updateNoteState(
 	let { repetition, interval, ef } = state;
 
 	if (quality < 3) {
+		// A low rating resets the repetition count.
+		// (In a full Anki implementation, you might schedule a review in minutes.)
 		repetition = 0;
 		interval = 1;
 	} else {
@@ -93,10 +91,23 @@ function updateNoteState(
 		} else if (repetition === 2) {
 			interval = 6;
 		} else {
-			interval = Math.round(interval * ef);
+			// Apply different multipliers based on quality:
+			// Quality 3 ("Hard") gets a modest 1.2x increase,
+			// Quality 4 ("Good") uses the EF multiplier,
+			// and Quality 5 ("Easy") gets an extra bonus (1.3x).
+			if (quality === 3) {
+				interval = Math.round(interval * 1.2);
+			} else if (quality === 4) {
+				interval = Math.round(interval * ef);
+			} else if (quality === 5) {
+				interval = Math.round(interval * ef * 1.3);
+			} else {
+				interval = Math.round(interval * ef);
+			}
 		}
 	}
 
+	// Update easiness factor using the standard SM‑2 formula.
 	ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
 	if (ef < 1.3) ef = 1.3;
 
@@ -135,7 +146,6 @@ export class ReviewSidebarView extends ItemView {
 		return "Review Queue";
 	}
 
-	// Now the sidebar header displays the "file-text" icon.
 	getIcon(): string {
 		return "file-text";
 	}
@@ -144,7 +154,7 @@ export class ReviewSidebarView extends ItemView {
 		const container = this.containerEl.children[1];
 		container.empty();
 
-		// Gather notes that are active and due for review.
+		// Gather active notes due for review.
 		const now = new Date();
 		const reviewNotes: string[] = [];
 		for (const filePath in this.plugin.spacedRepetitionLog) {
@@ -158,26 +168,72 @@ export class ReviewSidebarView extends ItemView {
 			}
 		}
 
+		// If no notes to review, display a simple message.
 		if (reviewNotes.length === 0) {
 			container.createEl("p", { text: "No notes to review!" });
 			return;
 		}
 
-		// Create a list of review notes.
-		const list = container.createEl("ul");
+		// Header with centered title (refresh button removed).
+		const header = container.createEl("div", { cls: "review-header" });
+		header.style.display = "flex";
+		header.style.justifyContent = "center";
+		header.style.alignItems = "center";
+		header.style.marginBottom = "16px";
+
+		const title = header.createEl("h2", { text: "Review Queue" });
+		title.style.fontFamily = "'Roboto', sans-serif";
+		title.style.margin = "0";
+		title.style.fontSize = "24px";
+
+		// Create a container for the review cards.
+		const cardContainer = container.createEl("div", {
+			cls: "card-container",
+		});
+		cardContainer.style.display = "flex";
+		cardContainer.style.flexDirection = "column";
+		cardContainer.style.gap = "12px";
+		cardContainer.style.padding = "0 8px"; // Added padding for mobile devices
+
 		reviewNotes.forEach((filePath) => {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			if (!file || !(file instanceof TFile)) return;
-			const listItem = list.createEl("li");
-			const link = listItem.createEl("a", {
-				text: file.basename,
-				href: "#",
-			});
-			link.onclick = async (evt) => {
+			const noteState = this.plugin.spacedRepetitionLog[filePath];
+
+			// Create a minimal, mobile-friendly card.
+			const card = cardContainer.createEl("div", { cls: "review-card" });
+			card.style.backgroundColor = "#fff";
+			card.style.borderRadius = "8px";
+			card.style.boxShadow = "0 2px 4px rgba(0,0,0,0.1)";
+			card.style.padding = "12px";
+			card.style.display = "flex";
+			card.style.flexDirection = "row";
+			card.style.gap = "12px";
+			card.style.alignItems = "center"; // Align items to the center vertically
+			card.style.cursor = "pointer";
+
+			// Note title (clickable to open the note).
+			const cardTitle = card.createEl("h3", { text: file.basename });
+			cardTitle.style.margin = "0";
+			cardTitle.style.fontSize = "18px";
+			cardTitle.style.fontWeight = "bold";
+			cardTitle.style.color = "#333";
+			cardTitle.style.flexGrow = "1"; // Allow title to take up remaining space
+			cardTitle.onclick = async (evt) => {
 				evt.preventDefault();
 				const leaf = this.plugin.app.workspace.getLeaf(true);
 				await leaf.openFile(file);
 			};
+
+			// Show only the current EF rating.
+			const efRating = noteState.ef.toFixed(2);
+			const efElem = card.createEl("p", { text: efRating });
+			efElem.style.margin = "0";
+			efElem.style.fontSize = "16px";
+			efElem.style.color = "#666";
+
+			card.appendChild(cardTitle);
+			card.appendChild(efElem);
 		});
 	}
 
@@ -206,7 +262,17 @@ export default class MyPlugin extends Plugin {
 		this.addSettingTab(new SampleSettingTab(this.app, this));
 
 		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
-			console.log("Global click event:", evt);
+			// Get all open leaves of the review sidebar view type.
+			const reviewLeaves =
+				this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
+			// If the review panel is open, refresh its content.
+			if (reviewLeaves.length > 0) {
+				reviewLeaves.forEach((leaf) => {
+					if (leaf.view instanceof ReviewSidebarView) {
+						leaf.view.onOpen();
+					}
+				});
+			}
 		});
 
 		this.registerInterval(
