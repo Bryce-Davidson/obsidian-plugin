@@ -88,87 +88,86 @@ const LEARNING_STEPS: number[] = [10, 30];
  *
  * @param state The current state of the note.
  * @param quality The rating given by the user (0–5).
- * @param lastReviewDate The date of the last review.
+ * @param reviewDate The date/time of the review.
  * @param stopScheduling If true, stops further scheduling.
  * @returns The updated NoteState.
  */
 function updateNoteState(
 	state: NoteState,
 	quality: number,
-	lastReviewDate: Date,
+	reviewDate: Date,
 	stopScheduling: boolean = false
 ): NoteState {
 	if (stopScheduling) {
 		return {
 			...state,
-			lastReviewDate: lastReviewDate.toISOString(),
+			lastReviewDate: reviewDate.toISOString(),
 			nextReviewDate: undefined,
 			active: false,
 		};
 	}
 
+	// Create a new state object to avoid mutating the original.
+	let newState = { ...state };
+
 	if (quality < 3) {
 		// The note is answered incorrectly—enter or continue learning mode.
-		if (!state.isLearning) {
+		if (!newState.isLearning) {
 			// Start learning phase.
-			state.isLearning = true;
-			state.learningStep = 0;
+			newState.isLearning = true;
+			newState.learningStep = 0;
 		} else {
 			// Already in learning mode; advance to the next learning step if available.
 			if (
-				state.learningStep !== undefined &&
-				state.learningStep < LEARNING_STEPS.length - 1
+				newState.learningStep !== undefined &&
+				newState.learningStep < LEARNING_STEPS.length - 1
 			) {
-				state.learningStep++;
+				newState.learningStep++;
 			}
 		}
 		// Reset repetition count since the card is forgotten.
-		state.repetition = 0;
+		newState.repetition = 0;
 		// Compute next review date using the learning step interval (in minutes).
-		const stepIndex = state.learningStep ?? 0;
+		const stepIndex = newState.learningStep ?? 0;
 		const intervalMinutes = LEARNING_STEPS[stepIndex];
-		const nextReview = addMinutes(lastReviewDate, intervalMinutes);
-		return {
-			...state,
-			lastReviewDate: lastReviewDate.toISOString(),
-			nextReviewDate: nextReview.toISOString(),
-			active: true,
-		};
+		const nextReview = addMinutes(reviewDate, intervalMinutes);
+		newState.lastReviewDate = reviewDate.toISOString();
+		newState.nextReviewDate = nextReview.toISOString();
+		newState.active = true;
+		return newState;
 	} else {
 		// quality >= 3: the note is answered correctly.
-		if (state.isLearning) {
+		if (newState.isLearning) {
 			// If the note was in learning mode, exit learning mode and restart with a basic review interval.
-			state.isLearning = false;
-			state.learningStep = undefined;
-			state.repetition = 1;
-			state.interval = 1; // 1 day for the first successful review.
+			newState.isLearning = false;
+			newState.learningStep = undefined;
+			newState.repetition = 1;
+			newState.interval = 1; // 1 day for the first successful review.
 		} else {
 			// Normal review phase.
-			state.repetition++;
-			if (state.repetition === 1) {
-				state.interval = 1; // day
-			} else if (state.repetition === 2) {
-				state.interval = 6; // days
+			newState.repetition++;
+			if (newState.repetition === 1) {
+				newState.interval = 1; // day
+			} else if (newState.repetition === 2) {
+				newState.interval = 6; // days
 			} else {
 				// For later repetitions, multiply the previous interval by the EF (easiness factor).
-				state.interval = Math.round(state.interval * state.ef);
+				newState.interval = Math.round(newState.interval * newState.ef);
 			}
 		}
 
 		// Update the easiness factor using the SM‑2 formula.
 		let newEF =
-			state.ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+			newState.ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
 		if (newEF < 1.3) newEF = 1.3;
-		state.ef = parseFloat(newEF.toFixed(2));
+		newState.ef = parseFloat(newEF.toFixed(2));
 
 		// Compute next review date using the interval in days.
-		const nextReview = getNextReviewDate(lastReviewDate, state.interval);
-		return {
-			...state,
-			lastReviewDate: lastReviewDate.toISOString(),
-			nextReviewDate: nextReview.toISOString(),
-			active: true,
-		};
+		const nextReview = getNextReviewDate(reviewDate, newState.interval);
+		newState.lastReviewDate = reviewDate.toISOString();
+		newState.nextReviewDate = nextReview.toISOString();
+		newState.active = true;
+		return newState;
 	}
 }
 
@@ -200,7 +199,8 @@ export class ReviewSidebarView extends ItemView {
 	}
 
 	async onOpen() {
-		const container = this.containerEl.children[1];
+		// Safely access a container element.
+		const container = this.containerEl.children[1] || this.containerEl;
 		container.empty();
 
 		// Gather active notes due for review.
@@ -223,7 +223,7 @@ export class ReviewSidebarView extends ItemView {
 			return;
 		}
 
-		// Header with centered title (refresh button removed).
+		// Header with centered title.
 		const header = container.createEl("div", { cls: "review-header" });
 		header.style.display = "flex";
 		header.style.justifyContent = "center";
@@ -316,19 +316,7 @@ export default class MyPlugin extends Plugin {
 		this.registerCommands();
 		this.addSettingTab(new SampleSettingTab(this.app, this));
 
-		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
-			// Get all open leaves of the review sidebar view type.
-			const reviewLeaves =
-				this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
-			// If the review panel is open, refresh its content.
-			if (reviewLeaves.length > 0) {
-				reviewLeaves.forEach((leaf) => {
-					if (leaf.view instanceof ReviewSidebarView) {
-						leaf.view.onOpen();
-					}
-				});
-			}
-		});
+		// Removed the document-level click event to refresh the sidebar.
 
 		this.registerInterval(
 			window.setInterval(
@@ -449,7 +437,7 @@ export default class MyPlugin extends Plugin {
 				const rating = parseInt(ratingStr, 10);
 				if (isNaN(rating) || rating < 0 || rating > 5) {
 					new Notice(
-						"Invalid rating. Please choose a rating from 05."
+						"Invalid rating. Please choose a rating between 0 and 5."
 					);
 					return;
 				}
@@ -525,6 +513,7 @@ export default class MyPlugin extends Plugin {
 		quality: number,
 		stopScheduling: boolean
 	) {
+		// Use the current time for the review.
 		const now = new Date();
 		let noteState = this.spacedRepetitionLog[filePath];
 		if (!noteState) {
@@ -537,11 +526,10 @@ export default class MyPlugin extends Plugin {
 			};
 		}
 
-		const lastReviewDate = new Date(noteState.lastReviewDate);
 		const updated = updateNoteState(
 			noteState,
 			quality,
-			lastReviewDate,
+			now,
 			stopScheduling
 		);
 		this.spacedRepetitionLog[filePath] = updated;
