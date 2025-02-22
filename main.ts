@@ -274,19 +274,10 @@ export class ReviewSidebarView extends ItemView {
 			cardTitle.style.fontWeight = "bold";
 			cardTitle.style.color = "#333";
 			cardTitle.style.flexGrow = "1"; // Allow title to take up remaining space
-
-			// Updated click handler: if there's an active leaf that isn't the review sidebar, use it.
 			cardTitle.onclick = async (evt) => {
 				evt.preventDefault();
-				let activeLeaf = this.plugin.app.workspace.getMostRecentLeaf();
-				// If there is no active leaf or it is the review sidebar itself, open in a new leaf.
-				if (
-					!activeLeaf ||
-					activeLeaf.view.getViewType() === REVIEW_VIEW_TYPE
-				) {
-					activeLeaf = this.plugin.app.workspace.getLeaf(true);
-				}
-				await activeLeaf.openFile(file);
+				const leaf = this.plugin.app.workspace.getLeaf(true);
+				await leaf.openFile(file);
 			};
 
 			// Show only the current EF rating.
@@ -324,6 +315,8 @@ export default class MyPlugin extends Plugin {
 		this.addStatusBar();
 		this.registerCommands();
 		this.addSettingTab(new SampleSettingTab(this.app, this));
+
+		// Removed the document-level click event to refresh the sidebar.
 
 		this.registerInterval(
 			window.setInterval(
@@ -550,8 +543,6 @@ export default class MyPlugin extends Plugin {
 		}
 
 		await this.savePluginData();
-		// Refresh the Review Queue if it's open.
-		this.refreshReviewQueue();
 	}
 
 	// NEW: Activate (or reveal) the review sidebar.
@@ -567,17 +558,6 @@ export default class MyPlugin extends Plugin {
 			});
 		}
 		this.app.workspace.revealLeaf(leaf);
-	}
-
-	// NEW: Refresh the Review Queue sidebar if it's open.
-	private refreshReviewQueue(): void {
-		const reviewLeaves =
-			this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
-		reviewLeaves.forEach((leaf) => {
-			if (leaf.view instanceof ReviewSidebarView) {
-				leaf.view.onOpen();
-			}
-		});
 	}
 }
 
@@ -846,7 +826,6 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	// Initially show the gray "[show]" placeholder.
 	span.style.cursor = "pointer";
 	span.style.color = "gray";
-	span.style.textDecoration = "underline";
 	span.textContent = "[show]";
 
 	span.addEventListener("click", () => {
@@ -855,11 +834,34 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 			// Remove forced styles so revealed text inherits normal text color.
 			span.removeAttribute("style");
 			span.style.cursor = "pointer";
-			span.innerHTML = `
-				<span class="bracket" style="color: gray;">[</span>
-				<span class="revealed-text">${originalContent}</span>
-				<span class="bracket" style="color: gray;">]</span>
-			`;
+
+			const container = document.createElement("div");
+			container.style.display = "inline";
+
+			const leftBracket = document.createElement("span");
+			leftBracket.className = "bracket";
+			leftBracket.style.color = "gray";
+			leftBracket.style.display = "inline";
+			leftBracket.textContent = "[";
+
+			const revealedText = document.createElement("span");
+			revealedText.className = "revealed-text";
+			revealedText.style.whiteSpace = "nowrap";
+			revealedText.style.display = "inline";
+			revealedText.textContent = originalContent;
+
+			const rightBracket = document.createElement("span");
+			rightBracket.className = "bracket";
+			rightBracket.style.color = "gray";
+			rightBracket.style.display = "inline";
+			rightBracket.textContent = "]";
+
+			container.appendChild(leftBracket);
+			container.appendChild(revealedText);
+			container.appendChild(rightBracket);
+
+			span.innerHTML = "";
+			span.appendChild(container);
 			span.setAttribute("data-hidden", "false");
 		} else {
 			// Go back to the gray "[show]" placeholder.
@@ -867,7 +869,6 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 			span.setAttribute("data-hidden", "true");
 			span.style.cursor = "pointer";
 			span.style.color = "gray";
-			span.style.textDecoration = "underline";
 		}
 	});
 
@@ -925,16 +926,15 @@ function wrapMathElement(mathEl: Element): void {
 	if (mathEl.classList.contains("math-block")) {
 		// For block-level math, create a placeholder.
 		placeholder = document.createElement("div");
-		placeholder.style.padding = "11px 10px";
+		placeholder.style.padding = "5px 5px";
 		placeholder.style.margin = "0 0";
 		placeholder.style.backgroundColor = "#fafafa";
 		placeholder.style.textAlign = "center";
-		placeholder.style.fontSize = "14px";
-		placeholder.style.lineHeight = "1.5";
 		placeholder.style.borderRadius = "4px";
 		placeholder.style.color = "black";
 		placeholder.style.cursor = "pointer";
 		placeholder.textContent = "show";
+		placeholder.style.height = "auto";
 	} else {
 		// For inline math, just do a simple "[show]" placeholder in gray.
 		placeholder = document.createElement(wrapperTag);
