@@ -219,7 +219,10 @@ export class ReviewSidebarView extends ItemView {
 
 		// If no notes to review, display a simple message.
 		if (reviewNotes.length === 0) {
-			container.createEl("p", { text: "No notes to review!" });
+			const noNotesEL = container.createEl("p", {
+				text: "No notes to review!",
+			});
+			noNotesEL.style.textAlign = "center";
 			return;
 		}
 
@@ -315,8 +318,6 @@ export default class MyPlugin extends Plugin {
 		this.addStatusBar();
 		this.registerCommands();
 		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// Removed the document-level click event to refresh the sidebar.
 
 		this.registerInterval(
 			window.setInterval(
@@ -543,6 +544,8 @@ export default class MyPlugin extends Plugin {
 		}
 
 		await this.savePluginData();
+		// Refresh the Review Queue if it's open.
+		this.refreshReviewQueue();
 	}
 
 	// NEW: Activate (or reveal) the review sidebar.
@@ -558,6 +561,17 @@ export default class MyPlugin extends Plugin {
 			});
 		}
 		this.app.workspace.revealLeaf(leaf);
+	}
+
+	// NEW: Refresh the Review Queue sidebar if it's open.
+	private refreshReviewQueue(): void {
+		const reviewLeaves =
+			this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
+		reviewLeaves.forEach((leaf) => {
+			if (leaf.view instanceof ReviewSidebarView) {
+				leaf.view.onOpen();
+			}
+		});
 	}
 }
 
