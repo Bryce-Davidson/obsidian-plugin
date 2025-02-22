@@ -219,10 +219,7 @@ export class ReviewSidebarView extends ItemView {
 
 		// If no notes to review, display a simple message.
 		if (reviewNotes.length === 0) {
-			const noNotesEL = container.createEl("p", {
-				text: "No notes to review!",
-			});
-			noNotesEL.style.textAlign = "center";
+			container.createEl("p", { text: "No notes to review!" });
 			return;
 		}
 
@@ -277,10 +274,19 @@ export class ReviewSidebarView extends ItemView {
 			cardTitle.style.fontWeight = "bold";
 			cardTitle.style.color = "#333";
 			cardTitle.style.flexGrow = "1"; // Allow title to take up remaining space
+
+			// Updated click handler: if there's an active leaf that isn't the review sidebar, use it.
 			cardTitle.onclick = async (evt) => {
 				evt.preventDefault();
-				const leaf = this.plugin.app.workspace.getLeaf(true);
-				await leaf.openFile(file);
+				let activeLeaf = this.plugin.app.workspace.getMostRecentLeaf();
+				// If there is no active leaf or it is the review sidebar itself, open in a new leaf.
+				if (
+					!activeLeaf ||
+					activeLeaf.view.getViewType() === REVIEW_VIEW_TYPE
+				) {
+					activeLeaf = this.plugin.app.workspace.getLeaf(true);
+				}
+				await activeLeaf.openFile(file);
 			};
 
 			// Show only the current EF rating.
