@@ -308,6 +308,9 @@ export default class MyPlugin extends Plugin {
 	// spacedRepetitionLog maps file paths to their NoteState.
 	spacedRepetitionLog: { [filePath: string]: NoteState } = {};
 
+	// NEW: Track whether all hidden content (text & math) is currently hidden.
+	private allHidden: boolean = true;
+
 	async onload() {
 		await this.loadPluginData();
 
@@ -315,6 +318,11 @@ export default class MyPlugin extends Plugin {
 		this.addStatusBar();
 		this.registerCommands();
 		this.addSettingTab(new SampleSettingTab(this.app, this));
+
+		// NEW: Ribbon icon for toggling all hidden content (text and math).
+		this.addRibbonIcon("eye", "Toggle All Hidden Text/Math", () => {
+			this.toggleAllHiddenText();
+		});
 
 		// Removed the document-level click event to refresh the sidebar.
 
@@ -559,6 +567,136 @@ export default class MyPlugin extends Plugin {
 		}
 		this.app.workspace.revealLeaf(leaf);
 	}
+
+	// ============================================================================
+	// NEW: TOGGLE ALL HIDDEN CONTENT FUNCTIONALITY (Text & Math)
+	// ============================================================================
+
+	/**
+	 * Toggle all hidden text and math elements in the document.
+	 * This method queries all elements with the "toggle-hidden-text" class
+	 * and all math wrappers (".toggle-hidden-math-wrapper") and either reveals
+	 * or hides them all at once.
+	 */
+	private toggleAllHiddenText(): void {
+		// Toggle text spans.
+		const textSpans = document.querySelectorAll("span.toggle-hidden-text");
+		// Toggle math wrappers.
+		const mathWrappers = document.querySelectorAll(
+			".toggle-hidden-math-wrapper"
+		);
+
+		if (this.allHidden) {
+			// Reveal all hidden text.
+			textSpans.forEach((span) => {
+				if (span.getAttribute("data-hidden") === "true") {
+					this.revealHiddenTextSpan(span as HTMLElement);
+				}
+			});
+			// Reveal all hidden math blocks.
+			mathWrappers.forEach((wrapper) => {
+				if (wrapper.getAttribute("data-hidden") === "true") {
+					this.revealHiddenMathBlock(wrapper as HTMLElement);
+				}
+			});
+		} else {
+			// Hide all revealed text.
+			textSpans.forEach((span) => {
+				if (span.getAttribute("data-hidden") === "false") {
+					this.hideHiddenTextSpan(span as HTMLElement);
+				}
+			});
+			// Hide all revealed math blocks.
+			mathWrappers.forEach((wrapper) => {
+				if (wrapper.getAttribute("data-hidden") === "false") {
+					this.hideHiddenMathBlock(wrapper as HTMLElement);
+				}
+			});
+		}
+		this.allHidden = !this.allHidden;
+	}
+
+	/**
+	 * Helper to reveal a hidden text span (mimicking the click handler logic).
+	 */
+	private revealHiddenTextSpan(span: HTMLElement): void {
+		const originalContent = span.getAttribute("data-original") || "";
+		span.removeAttribute("style");
+		span.style.cursor = "pointer";
+
+		const container = document.createElement("div");
+		container.style.display = "inline";
+
+		const leftBracket = document.createElement("span");
+		leftBracket.className = "bracket";
+		leftBracket.style.color = "gray";
+		leftBracket.style.display = "inline";
+		leftBracket.textContent = "[";
+
+		const revealedText = document.createElement("span");
+		revealedText.className = "revealed-text";
+		revealedText.style.whiteSpace = "nowrap";
+		revealedText.style.display = "inline";
+		revealedText.textContent = originalContent;
+
+		const rightBracket = document.createElement("span");
+		rightBracket.className = "bracket";
+		rightBracket.style.color = "gray";
+		rightBracket.style.display = "inline";
+		rightBracket.textContent = "]";
+
+		container.appendChild(leftBracket);
+		container.appendChild(revealedText);
+		container.appendChild(rightBracket);
+
+		span.innerHTML = "";
+		span.appendChild(container);
+		span.setAttribute("data-hidden", "false");
+	}
+
+	/**
+	 * Helper to hide a text span by reverting it to the "[show]" placeholder.
+	 */
+	private hideHiddenTextSpan(span: HTMLElement): void {
+		span.innerHTML = "[show]";
+		span.setAttribute("data-hidden", "true");
+		span.style.cursor = "pointer";
+		span.style.color = "gray";
+	}
+
+	/**
+	 * Helper to reveal a hidden math block.
+	 * Assumes the wrapper element (with class "toggle-hidden-math-wrapper")
+	 * has two children: the placeholder and the revealed container.
+	 */
+	private revealHiddenMathBlock(wrapper: HTMLElement): void {
+		const placeholder = wrapper.firstElementChild as HTMLElement;
+		const revealedContainer = wrapper.lastElementChild as HTMLElement;
+		// Hide the placeholder.
+		placeholder.style.display = "none";
+		// Determine whether to display block or inline.
+		if (wrapper.querySelector(".math-block")) {
+			revealedContainer.style.display = "block";
+		} else {
+			revealedContainer.style.display = "inline";
+		}
+		wrapper.setAttribute("data-hidden", "false");
+	}
+
+	/**
+	 * Helper to hide a math block by reverting it to its placeholder.
+	 */
+	private hideHiddenMathBlock(wrapper: HTMLElement): void {
+		const placeholder = wrapper.firstElementChild as HTMLElement;
+		const revealedContainer = wrapper.lastElementChild as HTMLElement;
+		if (wrapper.querySelector(".math-block")) {
+			placeholder.style.display = "block";
+		} else {
+			placeholder.style.display = "inline";
+		}
+		revealedContainer.style.display = "none";
+		wrapper.setAttribute("data-hidden", "true");
+	}
 }
 
 /* ============================================================================
@@ -583,7 +721,7 @@ class SampleModal extends Modal {
 }
 
 /**
- * RatingModal presents colored buttons for ratings 0–5 in a vertical layout,
+ * RatingModal presents colored buttons for ratings 0-5 in a vertical layout,
  * with a statistics panel between the rating buttons and the Stop Scheduling button.
  * All text in the modal is black.
  *
