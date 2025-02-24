@@ -775,7 +775,7 @@ class RatingModal extends Modal {
  */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	// Process all paragraph elements that might contain our delimiters
-	const paragraphs = rootEl.querySelectorAll("p, li, blockquote, div");
+	const paragraphs = rootEl.querySelectorAll("p, li, blockquote, div, td");
 
 	paragraphs.forEach((paragraph) => {
 		// Get the HTML content of the paragraph
@@ -804,105 +804,6 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 				});
 		}
 	});
-
-	// Also process text nodes that might be outside paragraphs
-	processTextNodesDirectly(rootEl);
-}
-
-/**
- * Process text nodes directly for cases where hidden content might not be
- * inside paragraph elements.
- */
-function processTextNodesDirectly(rootEl: HTMLElement): void {
-	const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
-	const textNodes: Text[] = [];
-
-	while (walker.nextNode()) {
-		const node = walker.currentNode as Text;
-		const content = node.nodeValue || "";
-
-		// Skip nodes that are already inside our spans
-		let parent = node.parentElement;
-		let isInsideOurSpan = false;
-
-		while (parent) {
-			if (
-				parent.classList &&
-				parent.classList.contains("toggle-hidden-text")
-			) {
-				isInsideOurSpan = true;
-				break;
-			}
-			parent = parent.parentElement;
-		}
-
-		if (
-			!isInsideOurSpan &&
-			(content.includes("[hide]") || content.includes("[/hide]"))
-		) {
-			textNodes.push(node);
-		}
-	}
-
-	// Process the found text nodes (same as original logic)
-	const delimiterRegex = /\[hide\]([\s\S]*?)\[\/hide\]/g;
-
-	for (const textNode of textNodes) {
-		const nodeText = textNode.nodeValue;
-		if (!nodeText) continue;
-
-		let match;
-		let lastIndex = 0;
-		const fragments: Array<string | Node> = [];
-
-		while ((match = delimiterRegex.exec(nodeText)) !== null) {
-			const [fullMatch, hiddenContent] = match;
-			const startIndex = match.index;
-			const endIndex = startIndex + fullMatch.length;
-
-			if (startIndex > lastIndex) {
-				fragments.push(nodeText.slice(lastIndex, startIndex));
-			}
-
-			fragments.push(createHiddenTextSpan(hiddenContent));
-			lastIndex = endIndex;
-		}
-
-		if (lastIndex > 0) {
-			if (lastIndex < nodeText.length) {
-				fragments.push(nodeText.slice(lastIndex));
-			}
-
-			const parent = textNode.parentNode;
-			if (parent) {
-				fragments.forEach((frag) => {
-					if (typeof frag === "string") {
-						parent.insertBefore(
-							document.createTextNode(frag),
-							textNode
-						);
-					} else {
-						parent.insertBefore(frag, textNode);
-					}
-				});
-
-				parent.removeChild(textNode);
-			}
-		}
-	}
-}
-
-/**
- * Create a span that holds the hidden text (unchanged from original).
- */
-function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
-	const span = document.createElement("span");
-	span.classList.add("toggle-hidden-text", "hidden-content");
-	span.textContent = originalContent;
-	span.addEventListener("click", () => {
-		span.classList.toggle("hidden-content");
-	});
-	return span;
 }
 
 /**
