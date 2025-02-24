@@ -9,7 +9,7 @@
 }
 
 .toggle-hidden-text.hidden-content {
-	color: var(--hidden-text-color) !important;
+	color: transparent !important;
 	background-color: var(--hidden-text-bg-color) !important;
 	border-radius: 4px;
 }
