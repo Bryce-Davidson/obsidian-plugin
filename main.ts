@@ -114,6 +114,8 @@ function updateNoteState(
 		const stepIndex = newState.learningStep ?? 0;
 		const intervalMinutes = LEARNING_STEPS[stepIndex];
 		const nextReview = addMinutes(reviewDate, intervalMinutes);
+		// Convert learning interval (minutes) into days (rounded)
+		newState.interval = Math.round(intervalMinutes / (60 * 24));
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
 		newState.active = true;
