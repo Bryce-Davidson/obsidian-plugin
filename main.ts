@@ -744,6 +744,8 @@ class RatingModal extends Modal {
 /**
  * Process inline hidden text by replacing custom delimiters with a span
  * that holds the original text and is styled via CSS.
+ *
+ * Updated regex now accounts for newlines (using [\s\S]).
  */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
@@ -751,8 +753,8 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	while (walker.nextNode()) {
 		textNodes.push(walker.currentNode as Text);
 	}
-	// Use new regex for [hide][/hide] delimiters:
-	const delimiterRegex = /\[hide\](.*?)\[\/hide\]/g;
+	// Updated regex to support newlines between the delimiters.
+	const delimiterRegex = /\[hide\]([\s\S]*?)\[\/hide\]/g;
 	for (const textNode of textNodes) {
 		const nodeText = textNode.nodeValue;
 		if (!nodeText) continue;
@@ -766,6 +768,7 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 			if (startIndex > lastIndex) {
 				fragments.push(nodeText.slice(lastIndex, startIndex));
 			}
+			// Create a span for the hidden content.
 			fragments.push(createHiddenTextSpan(hiddenContent));
 			lastIndex = endIndex;
 		}
