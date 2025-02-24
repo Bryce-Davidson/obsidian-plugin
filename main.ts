@@ -272,8 +272,7 @@ export default class MyPlugin extends Plugin {
 	visitLog: { [filePath: string]: string[] } = {};
 	spacedRepetitionLog: { [filePath: string]: NoteState } = {};
 
-	// NEW: Track whether all hidden content is currently hidden.
-	private allHidden: boolean = false;
+	private allHidden: boolean = true;
 
 	async onload() {
 		await this.loadPluginData();
@@ -287,9 +286,6 @@ export default class MyPlugin extends Plugin {
 		this.addRibbonIcon("eye", "Toggle All Hidden Content", () => {
 			this.toggleAllHidden();
 		});
-
-		// Inject CSS for hidden state styling.
-		this.injectStyles();
 
 		this.registerInterval(
 			window.setInterval(
@@ -530,44 +526,13 @@ export default class MyPlugin extends Plugin {
 	 * Toggle hidden state on all elements that use our CSS-based hiding.
 	 */
 	private toggleAllHidden(): void {
-		const textEls = document.querySelectorAll("span.toggle-hidden-text");
-		const mathEls = document.querySelectorAll(".toggle-hidden-math");
+		const textEls = document.querySelectorAll(".toggle-hidden-text");
 		if (this.allHidden) {
 			textEls.forEach((el) => el.classList.remove("hidden-content"));
-			mathEls.forEach((el) => el.classList.remove("hidden-content"));
 		} else {
 			textEls.forEach((el) => el.classList.add("hidden-content"));
-			mathEls.forEach((el) => el.classList.add("hidden-content"));
 		}
 		this.allHidden = !this.allHidden;
-	}
-
-	/**
-	 * Inject CSS to style hidden elements without altering DOM structure.
-	 */
-	private injectStyles(): void {
-		const style = document.createElement("style");
-		style.innerText = `
-		/* Hidden inline text: content remains but becomes invisible,
-		   without a pseudo-element placeholder */
-		.toggle-hidden-text.hidden-content {
-			opacity: 0 !important;
-			position: relative;
-		}
-		/* Hidden math elements: similar technique, with a placeholder */
-		.toggle-hidden-math.hidden-content {
-			opacity: 0 !important;
-			position: relative;
-		}
-		.toggle-hidden-math.hidden-content::after {
-			content: "[show]";
-			position: absolute;
-			left: 0;
-			top: 0;
-			color: gray;
-			pointer-events: none;
-		}`;
-		document.head.appendChild(style);
 	}
 }
 
@@ -700,13 +665,7 @@ class RatingModal extends Modal {
  * that holds the original text and is styled via CSS.
  */
 function processCustomHiddenText(rootEl: HTMLElement): void {
-	const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {
-		acceptNode: (node) => {
-			if (isInsideMath(node.parentElement))
-				return NodeFilter.FILTER_REJECT;
-			return NodeFilter.FILTER_ACCEPT;
-		},
-	});
+	const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
 	const textNodes: Text[] = [];
 	while (walker.nextNode()) {
 		textNodes.push(walker.currentNode as Text);
@@ -755,30 +714,21 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
  */
 function isInsideMath(el: HTMLElement | null): boolean {
 	if (!el) return false;
-	if (
-		el.classList?.contains("math") ||
-		el.classList?.contains("toggle-hidden-math")
-	)
-		return true;
+	if (el.classList?.contains("math")) return true;
 	return isInsideMath(el.parentElement);
 }
 
 /**
  * Create a span that holds the hidden text.
  * This version uses CSS classes so that the original content remains in the DOM.
- * Note: We no longer add "hidden-content" by default.
+ * Here we add "hidden-content" by default so the text is initially hidden.
  */
 function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	const span = document.createElement("span");
-	span.classList.add("toggle-hidden-text");
+	span.classList.add("toggle-hidden-text", "hidden-content");
 	span.textContent = originalContent;
-	span.setAttribute("data-hidden", "false");
 	span.addEventListener("click", () => {
 		span.classList.toggle("hidden-content");
-		span.setAttribute(
-			"data-hidden",
-			span.classList.contains("hidden-content") ? "true" : "false"
-		);
 	});
 	return span;
 }
@@ -794,12 +744,13 @@ function processHiddenMathBlocks(rootEl: HTMLElement): void {
 /**
  * Instead of creating extra DOM nodes, add CSS classes to the math element so that
  * its hidden state is controlled by CSS.
- * We no longer add "hidden-content" by default.
+ * Here we also add "hidden-content" by default if the delimiters are found.
  */
 function wrapMathElement(mathEl: Element): void {
 	const parent = mathEl.parentElement;
 	if (!parent) return;
 	let foundDelimiters = false;
+
 	const prevSibling = mathEl.previousSibling;
 	if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = prevSibling.nodeValue ?? "";
@@ -819,16 +770,12 @@ function wrapMathElement(mathEl: Element): void {
 		}
 	}
 	if (!foundDelimiters) return;
-	(mathEl as HTMLElement).classList.add("toggle-hidden-math");
-	(mathEl as HTMLElement).setAttribute("data-hidden", "false");
+	(mathEl as HTMLElement).classList.add(
+		"toggle-hidden-text",
+		"hidden-content"
+	);
 	mathEl.addEventListener("click", () => {
 		(mathEl as HTMLElement).classList.toggle("hidden-content");
-		(mathEl as HTMLElement).setAttribute(
-			"data-hidden",
-			(mathEl as HTMLElement).classList.contains("hidden-content")
-				? "true"
-				: "false"
-		);
 	});
 }
 

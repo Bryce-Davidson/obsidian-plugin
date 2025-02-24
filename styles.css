@@ -1,0 +1,15 @@
+:root {
+	--math-block-display: block;
+	--hidden-text-color: rgb(0, 255, 191);
+	--hidden-text-bg-color: rgb(0, 255, 191);
+}
+
+.toggle-hidden-text.hidden-content.math-block {
+	display: var(--math-block-display);
+}
+
+.toggle-hidden-text.hidden-content {
+	color: var(--hidden-text-color) !important;
+	background-color: var(--hidden-text-bg-color) !important;
+	border-radius: 4px;
+}
