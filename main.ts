@@ -459,6 +459,21 @@ export default class MyPlugin extends Plugin {
 				this.activateReviewSidebar();
 			},
 		});
+
+		// New command: Wrap selected text with [hide][/hide] delimiters.
+		this.addCommand({
+			id: "wrap-selected-text-with-hide",
+			name: "Wrap Selected Text in [hide][/hide]",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				const selection = editor.getSelection();
+				if (!selection) {
+					new Notice("Please select some text to hide.");
+					return;
+				}
+				const wrapped = `[hide]${selection}[/hide]`;
+				editor.replaceSelection(wrapped);
+			},
+		});
 	}
 
 	private async logVisit(file: TFile) {
@@ -670,7 +685,8 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	while (walker.nextNode()) {
 		textNodes.push(walker.currentNode as Text);
 	}
-	const delimiterRegex = /:-(.*?)-:/g;
+	// Use new regex for [hide][/hide] delimiters:
+	const delimiterRegex = /\[hide\](.*?)\[\/hide\]/g;
 	for (const textNode of textNodes) {
 		const nodeText = textNode.nodeValue;
 		if (!nodeText) continue;
@@ -754,7 +770,8 @@ function wrapMathElement(mathEl: Element): void {
 	const prevSibling = mathEl.previousSibling;
 	if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = prevSibling.nodeValue ?? "";
-		const match = textContent.match(/(.*):-\s*$/);
+		// Look for a trailing [hide] delimiter.
+		const match = textContent.match(/(.*)\[hide\]\s*$/);
 		if (match) {
 			prevSibling.nodeValue = match[1];
 			foundDelimiters = true;
@@ -763,7 +780,8 @@ function wrapMathElement(mathEl: Element): void {
 	const nextSibling = mathEl.nextSibling;
 	if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = nextSibling.nodeValue ?? "";
-		const match = textContent.match(/^\s*-:(.*)/);
+		// Look for a leading [/hide] delimiter.
+		const match = textContent.match(/^\s*\[\/hide\](.*)/);
 		if (match) {
 			nextSibling.nodeValue = match[1];
 			foundDelimiters = true;
