@@ -9,6 +9,7 @@
 }
 
 .toggle-hidden-text.hidden-content {
+	cursor: pointer;
 	color: transparent !important;
 	background-color: var(--hidden-text-bg-color) !important;
 	border-radius: 4px;

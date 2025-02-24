@@ -46,7 +46,7 @@ interface PluginData {
  */
 interface NoteState {
 	repetition: number; // SM‑2 repetition count
-	interval: number; // Interval in days (for review phase)
+	interval: number; // Interval in days (for review phase) or a conversion from minutes in the learning phase.
 	ef: number; // Easiness factor
 	lastReviewDate: string; // ISO string of last review
 	nextReviewDate?: string; // ISO string of next review (if active)
@@ -75,6 +75,27 @@ function addMinutes(date: Date, minutes: number): Date {
 	const result = new Date(date);
 	result.setMinutes(result.getMinutes() + minutes);
 	return result;
+}
+
+/**
+ * Helper: Formats the interval between two ISO dates as days, hours and minutes.
+ */
+function formatInterval(
+	lastReviewDate: string,
+	nextReviewDate: string
+): string {
+	const last = new Date(lastReviewDate);
+	const next = new Date(nextReviewDate);
+	const diffMs = next.getTime() - last.getTime();
+	const diffMinutes = Math.floor(diffMs / (1000 * 60));
+	const days = Math.floor(diffMinutes / (60 * 24));
+	const hours = Math.floor((diffMinutes % (60 * 24)) / 60);
+	const minutes = diffMinutes % 60;
+	let parts: string[] = [];
+	if (days > 0) parts.push(`${days} day(s)`);
+	if (hours > 0) parts.push(`${hours} hour(s)`);
+	if (minutes > 0 || parts.length === 0) parts.push(`${minutes} minute(s)`);
+	return parts.join(", ");
 }
 
 // Define learning intervals (in minutes) for the learning phase.
@@ -114,7 +135,8 @@ function updateNoteState(
 		const stepIndex = newState.learningStep ?? 0;
 		const intervalMinutes = LEARNING_STEPS[stepIndex];
 		const nextReview = addMinutes(reviewDate, intervalMinutes);
-		// Convert learning interval (minutes) into days (rounded)
+		// Instead of only converting to days, we now keep a more detailed view.
+		// However, we update the interval property to a converted value.
 		newState.interval = Math.round(intervalMinutes / (60 * 24));
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
@@ -672,9 +694,15 @@ class RatingModal extends Modal {
 		statsContainer.style.textAlign = "left";
 		statsContainer.style.color = "black";
 		if (this.currentState) {
+			const intervalDisplay = this.currentState.nextReviewDate
+				? formatInterval(
+						this.currentState.lastReviewDate,
+						this.currentState.nextReviewDate
+				  )
+				: "Not set";
 			statsContainer.innerHTML = `<strong>Current Statistics:</strong>
       <br/>Repetitions: ${this.currentState.repetition}
-      <br/>Interval: ${this.currentState.interval} day(s)
+      <br/>Interval: ${intervalDisplay}
       <br/>EF: ${this.currentState.ef}
       <br/>Next Review: ${
 			this.currentState.nextReviewDate
