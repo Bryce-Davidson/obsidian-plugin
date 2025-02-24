@@ -8,14 +8,9 @@
 	cursor: pointer;
 }
 
-.toggle-hidden {
-	color: transparent !important;
-	background-color: var(--hidden-text-bg-color) !important;
-	border-radius: 4px;
-}
-
+.toggle-hidden,
 .toggle-hidden .MathJax {
-	color: transparent !important;
-	background-color: var(--hidden-text-bg-color) !important;
+	color: transparent;
+	background-color: var(--hidden-text-bg-color);
 	border-radius: 4px;
 }
