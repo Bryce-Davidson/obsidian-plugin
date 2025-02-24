@@ -775,11 +775,11 @@ class RatingModal extends Modal {
  */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	// Process all paragraph elements that might contain our delimiters
-	const paragraphs = rootEl.querySelectorAll("p, li, blockquote, div, td");
+	const elements = rootEl.querySelectorAll("p, li, blockquote, div, td");
 
-	paragraphs.forEach((paragraph) => {
+	elements.forEach((element) => {
 		// Get the HTML content of the paragraph
-		const html = paragraph.innerHTML;
+		const html = element.innerHTML;
 
 		// Check if it contains our delimiters
 		if (html.includes("[hide]") && html.includes("[/hide]")) {
@@ -792,16 +792,14 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 			);
 
 			// Update the paragraph content
-			paragraph.innerHTML = newHtml;
+			element.innerHTML = newHtml;
 
 			// Add click handlers to the newly created spans
-			paragraph
-				.querySelectorAll(".toggle-hidden-text")
-				.forEach((span) => {
-					span.addEventListener("click", () => {
-						span.classList.toggle("hidden-content");
-					});
+			element.querySelectorAll(".toggle-hidden-text").forEach((span) => {
+				span.addEventListener("click", () => {
+					span.classList.toggle("hidden-content");
 				});
+			});
 		}
 	});
 }
