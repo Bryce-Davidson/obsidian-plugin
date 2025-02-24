@@ -8,8 +8,11 @@
 	display: var(--math-block-display);
 }
 
-.toggle-hidden-text.hidden-content {
+.toggle-hidden-text {
 	cursor: pointer;
+}
+
+.toggle-hidden-text.hidden-content {
 	color: transparent !important;
 	background-color: var(--hidden-text-bg-color) !important;
 	border-radius: 4px;
