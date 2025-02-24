@@ -629,11 +629,11 @@ export default class MyPlugin extends Plugin {
 	 * Toggle hidden state on all elements that use our CSS-based hiding.
 	 */
 	private toggleAllHidden(): void {
-		const textEls = document.querySelectorAll(".toggle-hidden-text");
+		const textEls = document.querySelectorAll(".hidden-note");
 		if (this.allHidden) {
-			textEls.forEach((el) => el.classList.remove("hidden-content"));
+			textEls.forEach((el) => el.classList.remove("toggle-hidden"));
 		} else {
-			textEls.forEach((el) => el.classList.add("hidden-content"));
+			textEls.forEach((el) => el.classList.add("toggle-hidden"));
 		}
 		this.allHidden = !this.allHidden;
 	}
@@ -787,7 +787,7 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 			const newHtml = html.replace(
 				/\[hide\]([\s\S]*?)\[\/hide\]/g,
 				(match, content) => {
-					return `<span class="toggle-hidden-text hidden-content">${content}</span>`;
+					return `<span class="hidden-note toggle-hidden">${content}</span>`;
 				}
 			);
 
@@ -795,9 +795,9 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 			element.innerHTML = newHtml;
 
 			// Add click handlers to the newly created spans
-			element.querySelectorAll(".toggle-hidden-text").forEach((span) => {
+			element.querySelectorAll(".hidden-note").forEach((span) => {
 				span.addEventListener("click", () => {
-					span.classList.toggle("hidden-content");
+					span.classList.toggle("toggle-hidden");
 				});
 			});
 		}
@@ -848,12 +848,9 @@ function wrapMathElement(mathEl: Element): void {
 	if (!foundDelimiters) return;
 
 	// Add appropriate classes based on whether it's a block or inline math
-	(mathEl as HTMLElement).classList.add(
-		"toggle-hidden-text",
-		"hidden-content"
-	);
+	(mathEl as HTMLElement).classList.add("hidden-note", "toggle-hidden");
 
 	mathEl.addEventListener("click", () => {
-		(mathEl as HTMLElement).classList.toggle("hidden-content");
+		(mathEl as HTMLElement).classList.toggle("toggle-hidden");
 	});
 }
