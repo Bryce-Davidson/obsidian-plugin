@@ -474,6 +474,42 @@ export default class MyPlugin extends Plugin {
 				editor.replaceSelection(wrapped);
 			},
 		});
+
+		// New command: Toggle all hidden content (for key binding).
+		this.addCommand({
+			id: "toggle-all-hidden",
+			name: "Toggle All Hidden Content",
+			callback: () => {
+				this.toggleAllHidden();
+			},
+		});
+
+		// New command: Delete [hide][/hide] wrappers if the cursor is inside them.
+		this.addCommand({
+			id: "delete-hide-wrappers",
+			name: "Delete [hide][/hide] wrappers",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				const cursor = editor.getCursor();
+				const line = editor.getLine(cursor.line);
+				const startIndex = line.lastIndexOf("[hide]", cursor.ch);
+				const endIndex = line.indexOf("[/hide]", cursor.ch);
+				if (startIndex === -1 || endIndex === -1) {
+					new Notice(
+						"Cursor is not inside a [hide]...[/hide] block."
+					);
+					return;
+				}
+				const before = line.slice(0, startIndex);
+				const between = line.slice(
+					startIndex + "[hide]".length,
+					endIndex
+				);
+				const after = line.slice(endIndex + "[/hide]".length);
+				const newLine = before + between + after;
+				editor.setLine(cursor.line, newLine);
+				new Notice("Removed [hide] wrappers.");
+			},
+		});
 	}
 
 	private async logVisit(file: TFile) {
