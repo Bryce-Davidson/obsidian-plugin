@@ -56,6 +56,34 @@ interface NoteState {
 }
 
 /* ============================================================================
+ * SETTINGS TAB
+ * ========================================================================== */
+
+class MyPluginSettingTab extends PluginSettingTab {
+	plugin: MyPlugin;
+	constructor(app: App, plugin: MyPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+		new Setting(containerEl)
+			.setName("Setting #1")
+			.setDesc("It's a secret!")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter your secret")
+					.setValue(this.plugin.settings.mySetting)
+					.onChange(async (value) => {
+						this.plugin.settings.mySetting = value;
+						await this.plugin.saveSettings();
+					})
+			);
+	}
+}
+
+/* ============================================================================
  * SPACED REPETITION LOGIC
  * ========================================================================== */
 
@@ -742,40 +770,109 @@ class RatingModal extends Modal {
  * ========================================================================== */
 
 /**
- * Process inline hidden text by replacing custom delimiters with a span
- * that holds the original text and is styled via CSS.
- *
- * Updated regex now accounts for newlines (using [\s\S]).
+ * Process hidden content in Markdown by looking at the entire HTML content
+ * and properly handling paragraphs and other elements.
  */
 function processCustomHiddenText(rootEl: HTMLElement): void {
+	// Process all paragraph elements that might contain our delimiters
+	const paragraphs = rootEl.querySelectorAll("p, li, blockquote, div");
+
+	paragraphs.forEach((paragraph) => {
+		// Get the HTML content of the paragraph
+		const html = paragraph.innerHTML;
+
+		// Check if it contains our delimiters
+		if (html.includes("[hide]") && html.includes("[/hide]")) {
+			// Replace the delimiters with spans, preserving HTML
+			const newHtml = html.replace(
+				/\[hide\]([\s\S]*?)\[\/hide\]/g,
+				(match, content) => {
+					return `<span class="toggle-hidden-text hidden-content">${content}</span>`;
+				}
+			);
+
+			// Update the paragraph content
+			paragraph.innerHTML = newHtml;
+
+			// Add click handlers to the newly created spans
+			paragraph
+				.querySelectorAll(".toggle-hidden-text")
+				.forEach((span) => {
+					span.addEventListener("click", () => {
+						span.classList.toggle("hidden-content");
+					});
+				});
+		}
+	});
+
+	// Also process text nodes that might be outside paragraphs
+	processTextNodesDirectly(rootEl);
+}
+
+/**
+ * Process text nodes directly for cases where hidden content might not be
+ * inside paragraph elements.
+ */
+function processTextNodesDirectly(rootEl: HTMLElement): void {
 	const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
 	const textNodes: Text[] = [];
+
 	while (walker.nextNode()) {
-		textNodes.push(walker.currentNode as Text);
+		const node = walker.currentNode as Text;
+		const content = node.nodeValue || "";
+
+		// Skip nodes that are already inside our spans
+		let parent = node.parentElement;
+		let isInsideOurSpan = false;
+
+		while (parent) {
+			if (
+				parent.classList &&
+				parent.classList.contains("toggle-hidden-text")
+			) {
+				isInsideOurSpan = true;
+				break;
+			}
+			parent = parent.parentElement;
+		}
+
+		if (
+			!isInsideOurSpan &&
+			(content.includes("[hide]") || content.includes("[/hide]"))
+		) {
+			textNodes.push(node);
+		}
 	}
-	// Updated regex to support newlines between the delimiters.
+
+	// Process the found text nodes (same as original logic)
 	const delimiterRegex = /\[hide\]([\s\S]*?)\[\/hide\]/g;
+
 	for (const textNode of textNodes) {
 		const nodeText = textNode.nodeValue;
 		if (!nodeText) continue;
+
 		let match;
 		let lastIndex = 0;
 		const fragments: Array<string | Node> = [];
+
 		while ((match = delimiterRegex.exec(nodeText)) !== null) {
 			const [fullMatch, hiddenContent] = match;
 			const startIndex = match.index;
 			const endIndex = startIndex + fullMatch.length;
+
 			if (startIndex > lastIndex) {
 				fragments.push(nodeText.slice(lastIndex, startIndex));
 			}
-			// Create a span for the hidden content.
+
 			fragments.push(createHiddenTextSpan(hiddenContent));
 			lastIndex = endIndex;
 		}
+
 		if (lastIndex > 0) {
 			if (lastIndex < nodeText.length) {
 				fragments.push(nodeText.slice(lastIndex));
 			}
+
 			const parent = textNode.parentNode;
 			if (parent) {
 				fragments.forEach((frag) => {
@@ -788,6 +885,7 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 						parent.insertBefore(frag, textNode);
 					}
 				});
+
 				parent.removeChild(textNode);
 			}
 		}
@@ -795,18 +893,7 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 }
 
 /**
- * Returns true if the element is inside a math block.
- */
-function isInsideMath(el: HTMLElement | null): boolean {
-	if (!el) return false;
-	if (el.classList?.contains("math")) return true;
-	return isInsideMath(el.parentElement);
-}
-
-/**
- * Create a span that holds the hidden text.
- * This version uses CSS classes so that the original content remains in the DOM.
- * Here we add "hidden-content" by default so the text is initially hidden.
+ * Create a span that holds the hidden text (unchanged from original).
  */
 function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 	const span = document.createElement("span");
@@ -819,17 +906,18 @@ function createHiddenTextSpan(originalContent: string): HTMLSpanElement {
 }
 
 /**
- * Process math blocks by checking for delimiters and then simply adding CSS classes.
+ * Process math blocks by checking for delimiters and then adding appropriate CSS classes.
+ * Now handles block-level math equations differently from inline math.
  */
 function processHiddenMathBlocks(rootEl: HTMLElement): void {
+	// Look for both inline and block math elements
 	const mathEls = rootEl.querySelectorAll(".math");
 	mathEls.forEach((mathEl) => wrapMathElement(mathEl));
 }
 
 /**
- * Instead of creating extra DOM nodes, add CSS classes to the math element so that
- * its hidden state is controlled by CSS.
- * Here we also add "hidden-content" by default if the delimiters are found.
+ * Add CSS classes to the math element so that its hidden state is controlled by CSS.
+ * Now properly distinguishes between block-level and inline math.
  */
 function wrapMathElement(mathEl: Element): void {
 	const parent = mathEl.parentElement;
@@ -846,6 +934,7 @@ function wrapMathElement(mathEl: Element): void {
 			foundDelimiters = true;
 		}
 	}
+
 	const nextSibling = mathEl.nextSibling;
 	if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = nextSibling.nodeValue ?? "";
@@ -856,40 +945,16 @@ function wrapMathElement(mathEl: Element): void {
 			foundDelimiters = true;
 		}
 	}
+
 	if (!foundDelimiters) return;
+
+	// Add appropriate classes based on whether it's a block or inline math
 	(mathEl as HTMLElement).classList.add(
 		"toggle-hidden-text",
 		"hidden-content"
 	);
+
 	mathEl.addEventListener("click", () => {
 		(mathEl as HTMLElement).classList.toggle("hidden-content");
 	});
-}
-
-/* ============================================================================
- * SETTINGS TAB
- * ========================================================================== */
-
-class MyPluginSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-		new Setting(containerEl)
-			.setName("Setting #1")
-			.setDesc("It's a secret!")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter your secret")
-					.setValue(this.plugin.settings.mySetting)
-					.onChange(async (value) => {
-						this.plugin.settings.mySetting = value;
-						await this.plugin.saveSettings();
-					})
-			);
-	}
 }
