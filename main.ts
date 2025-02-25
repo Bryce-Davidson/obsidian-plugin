@@ -242,6 +242,13 @@ export class ReviewSidebarView extends ItemView {
 		spacer.setAttr("style", "height: 12px;");
 		const header = container.createEl("div", { cls: "review-header" });
 		header.createEl("h2", { text: "Review Queue" });
+		// Always display the subheading, even if 0 notes.
+		header.createEl("div", {
+			cls: "review-count",
+			text: `${validFiles.length} note${
+				validFiles.length === 1 ? "" : "s"
+			} to review`,
+		});
 
 		if (validFiles.length === 0) {
 			const emptyState = container.createEl("div", {
@@ -252,18 +259,9 @@ export class ReviewSidebarView extends ItemView {
 			});
 			iconDiv.innerHTML = "📚";
 			emptyState.createEl("h3", { text: "You're all caught up!" });
-			emptyState.createEl("p", {
-				text: "There are no notes due for review right now.",
-			});
-			return;
+			emptyState.createEl("p", { text: "0 notes due for review." });
+			// Do not return—header remains visible.
 		}
-
-		header.createEl("div", {
-			cls: "review-count",
-			text: `${validFiles.length} note${
-				validFiles.length === 1 ? "" : "s"
-			} to review`,
-		});
 
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
@@ -355,7 +353,6 @@ export class ScheduledSidebarView extends ItemView {
 		return "Scheduled Queue";
 	}
 
-	// We re-use the same container classes for consistent styling.
 	getIcon(): string {
 		return "calendar";
 	}
@@ -363,14 +360,14 @@ export class ScheduledSidebarView extends ItemView {
 	async onOpen() {
 		const container = this.containerEl.children[1] || this.containerEl;
 		container.empty();
-		// Use same container class as review queue for consistent styling
+		// Use same container classes for consistent styling.
 		container.addClass("review-sidebar-container");
 
 		const now = new Date();
 		const scheduledNotes: string[] = [];
 		const validFiles: string[] = [];
 
-		// Collect notes with a nextReviewDate in the future
+		// Collect notes with nextReviewDate in the future
 		for (const filePath in this.plugin.spacedRepetitionLog) {
 			const state = this.plugin.spacedRepetitionLog[filePath];
 			if (
@@ -405,6 +402,13 @@ export class ScheduledSidebarView extends ItemView {
 		spacer.setAttr("style", "height: 12px;");
 		const header = container.createEl("div", { cls: "review-header" });
 		header.createEl("h2", { text: "Scheduled Queue" });
+		// Always display the subheading even if 0 notes.
+		header.createEl("div", {
+			cls: "review-count",
+			text: `${validFiles.length} note${
+				validFiles.length === 1 ? "" : "s"
+			} scheduled`,
+		});
 
 		if (validFiles.length === 0) {
 			const emptyState = container.createEl("div", {
@@ -415,18 +419,8 @@ export class ScheduledSidebarView extends ItemView {
 			});
 			iconDiv.innerHTML = "📅";
 			emptyState.createEl("h3", { text: "No upcoming reviews!" });
-			emptyState.createEl("p", {
-				text: "There are no notes scheduled for review.",
-			});
-			return;
+			emptyState.createEl("p", { text: "0 notes scheduled for review." });
 		}
-
-		header.createEl("div", {
-			cls: "review-count",
-			text: `${validFiles.length} note${
-				validFiles.length === 1 ? "" : "s"
-			} scheduled`,
-		});
 
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
@@ -459,13 +453,13 @@ export class ScheduledSidebarView extends ItemView {
 			const metaContainer = card.createEl("div", {
 				cls: "review-card-meta",
 			});
-			// Instead of "last review", display the scheduled next review time
+			// Display the scheduled next review time
 			const nextReviewFormatted = formatNextReviewTime(
 				noteState.nextReviewDate!
 			);
 			metaContainer.createEl("div", {
 				cls: "review-interval",
-				text: nextReviewFormatted,
+				text: `Next review: ${nextReviewFormatted}`,
 			});
 		});
 	}
