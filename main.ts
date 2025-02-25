@@ -50,6 +50,17 @@ interface NoteState {
 }
 
 /* ============================================================================
+ * HELPER FUNCTIONS
+ * ========================================================================== */
+
+// Helper function to truncate titles (default max length set to 30 characters)
+function truncateTitle(title: string, maxLength: number = 30): string {
+	return title.length > maxLength
+		? title.substring(0, maxLength) + "…"
+		: title;
+}
+
+/* ============================================================================
  * SETTINGS TAB
  * ========================================================================== */
 
@@ -440,8 +451,9 @@ export class ScheduledSidebarView extends ItemView {
 			});
 
 			const titleRow = card.createEl("div", { cls: "title-row" });
+			// Use the truncateTitle helper to shorten long note titles
 			titleRow.createEl("h3", {
-				text: file.basename,
+				text: truncateTitle(file.basename),
 				title: file.basename,
 			});
 
