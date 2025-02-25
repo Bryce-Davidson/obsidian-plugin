@@ -271,7 +271,6 @@ export class ReviewSidebarView extends ItemView {
 			iconDiv.innerHTML = "📚";
 			emptyState.createEl("h3", { text: "You're all caught up!" });
 			emptyState.createEl("p", { text: "0 notes due for review." });
-			// Do not return—header remains visible.
 		}
 
 		const cardContainer = container.createEl("div", {
@@ -491,6 +490,8 @@ export default class MyPlugin extends Plugin {
 	spacedRepetitionLog: { [filePath: string]: NoteState } = {};
 
 	private allHidden: boolean = true;
+	// Timer ID used to schedule refresh when a scheduled note becomes due
+	private refreshTimeout: number | null = null;
 
 	async onload() {
 		await this.loadPluginData();
@@ -545,6 +546,7 @@ export default class MyPlugin extends Plugin {
 				// Refresh both panels if they are open
 				this.refreshReviewQueue();
 				this.refreshScheduledQueue();
+				this.scheduleNextDueRefresh();
 			})
 		);
 
@@ -557,6 +559,7 @@ export default class MyPlugin extends Plugin {
 					setTimeout(() => {
 						this.refreshReviewQueue();
 						this.refreshScheduledQueue();
+						this.scheduleNextDueRefresh();
 					}, 100);
 				}
 			})
@@ -577,10 +580,17 @@ export default class MyPlugin extends Plugin {
 		this.addRibbonIcon("calendar", "Open Scheduled Queue", () => {
 			this.activateScheduledSidebar();
 		});
+
+		// Schedule the first due refresh based on scheduled notes
+		this.scheduleNextDueRefresh();
 	}
 
 	onunload() {
 		console.log("Unloading MyPlugin");
+		if (this.refreshTimeout !== null) {
+			clearTimeout(this.refreshTimeout);
+			this.refreshTimeout = null;
+		}
 	}
 
 	async loadPluginData() {
@@ -811,6 +821,8 @@ export default class MyPlugin extends Plugin {
 		// Refresh both panels after a note is reviewed
 		this.refreshReviewQueue();
 		this.refreshScheduledQueue();
+		// Recalculate the next due refresh in case scheduled dates have changed
+		this.scheduleNextDueRefresh();
 	}
 
 	async activateReviewSidebar() {
@@ -872,6 +884,42 @@ export default class MyPlugin extends Plugin {
 				leaf.view.onOpen();
 			}
 		});
+	}
+
+	/**
+	 * Schedules a timer to refresh the panels when the next scheduled note becomes due.
+	 * It scans the spaced repetition log for the earliest upcoming review time,
+	 * and sets a timeout accordingly.
+	 */
+	private scheduleNextDueRefresh(): void {
+		// Clear any existing timer.
+		if (this.refreshTimeout !== null) {
+			clearTimeout(this.refreshTimeout);
+			this.refreshTimeout = null;
+		}
+		const now = new Date();
+		let earliestTime: number | null = null;
+		for (const filePath in this.spacedRepetitionLog) {
+			const state = this.spacedRepetitionLog[filePath];
+			if (state.active && state.nextReviewDate) {
+				const nextTime = new Date(state.nextReviewDate).getTime();
+				// Only consider scheduled notes that are still in the future.
+				if (nextTime > now.getTime()) {
+					if (earliestTime === null || nextTime < earliestTime) {
+						earliestTime = nextTime;
+					}
+				}
+			}
+		}
+		if (earliestTime !== null) {
+			// Compute the delay until the next note becomes due (add a small margin)
+			const delay = earliestTime - now.getTime() + 100;
+			this.refreshTimeout = window.setTimeout(() => {
+				this.refreshReviewQueue();
+				this.refreshScheduledQueue();
+				this.scheduleNextDueRefresh();
+			}, delay);
+		}
 	}
 }
 
