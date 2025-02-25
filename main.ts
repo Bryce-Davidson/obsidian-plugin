@@ -738,6 +738,19 @@ class SampleModal extends Modal {
 	}
 }
 
+/**
+ * Helper function to format the next review time as "YYYY-MM-DD:HH:mm"
+ */
+function formatNextReviewTime(dateString: string): string {
+	const date = new Date(dateString);
+	const year = date.getFullYear();
+	const month = ("0" + (date.getMonth() + 1)).slice(-2);
+	const day = ("0" + date.getDate()).slice(-2);
+	const hours = ("0" + date.getHours()).slice(-2);
+	const minutes = ("0" + date.getMinutes()).slice(-2);
+	return `${year}-${month}-${day}:${hours}:${minutes}`;
+}
+
 class RatingModal extends Modal {
 	private onSubmit: (input: string) => void;
 	private currentState?: NoteState;
@@ -799,24 +812,19 @@ class RatingModal extends Modal {
 		statsContainer.style.fontSize = "14px";
 		statsContainer.style.textAlign = "left";
 		statsContainer.style.color = "black";
-		if (this.currentState) {
-			const intervalDisplay = this.currentState.nextReviewDate
-				? formatInterval(
-						this.currentState.lastReviewDate,
-						this.currentState.nextReviewDate
-				  )
-				: "Not set";
+		if (this.currentState && this.currentState.nextReviewDate) {
+			const intervalDisplay = formatInterval(
+				this.currentState.lastReviewDate,
+				this.currentState.nextReviewDate
+			);
+			const formattedTime = formatNextReviewTime(
+				this.currentState.nextReviewDate
+			);
 			statsContainer.innerHTML = `<strong>Current Statistics:</strong>
       <br/>Repetitions: ${this.currentState.repetition}
-      <br/>Interval: ${intervalDisplay}
+      <br/>Interval: ${intervalDisplay} - ${formattedTime}
       <br/>EF: ${this.currentState.ef}
-      <br/>Next Review: ${
-			this.currentState.nextReviewDate
-				? new Date(
-						this.currentState.nextReviewDate
-				  ).toLocaleDateString()
-				: "Not set"
-		}`;
+      <br/>Next Review: ${formattedTime}`;
 		} else {
 			statsContainer.textContent =
 				"No review data available for this note.";
