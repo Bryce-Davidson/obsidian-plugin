@@ -806,16 +806,22 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 					if (!group) {
 						this.classList.toggle("toggle-hidden");
 					} else {
-						// Toggle all elements sharing the same group id.
-						document
-							.querySelectorAll(
-								`.group-hide[data-group="${group}"]`
-							)
-							.forEach((elem) => {
-								(elem as HTMLElement).classList.toggle(
-									"toggle-hidden"
-								);
-							});
+						// Get the current state of the first group member
+						const groupElements = document.querySelectorAll(
+							`.group-hide[data-group="${group}"]`
+						);
+						const isHidden =
+							groupElements[0].classList.contains(
+								"toggle-hidden"
+							);
+						// Apply the same state to all elements in the group
+						groupElements.forEach((elem) => {
+							if (isHidden) {
+								elem.classList.remove("toggle-hidden");
+							} else {
+								elem.classList.add("toggle-hidden");
+							}
+						});
 					}
 				});
 			});
