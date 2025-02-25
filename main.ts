@@ -191,9 +191,9 @@ function updateNoteState(
  * ========================================================================== */
 
 export const REVIEW_VIEW_TYPE = "review-sidebar";
-
 export class ReviewSidebarView extends ItemView {
 	plugin: MyPlugin;
+
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -214,9 +214,13 @@ export class ReviewSidebarView extends ItemView {
 	async onOpen() {
 		const container = this.containerEl.children[1] || this.containerEl;
 		container.empty();
+		container.addClass("review-sidebar-container");
 
 		const now = new Date();
 		const reviewNotes: string[] = [];
+		const validFiles: string[] = [];
+
+		// First collect all due notes
 		for (const filePath in this.plugin.spacedRepetitionLog) {
 			const state = this.plugin.spacedRepetitionLog[filePath];
 			if (
@@ -228,81 +232,119 @@ export class ReviewSidebarView extends ItemView {
 			}
 		}
 
-		if (reviewNotes.length === 0) {
-			container.createEl("p", { text: "No notes to review!" });
+		// Then verify which files actually exist
+		for (const filePath of reviewNotes) {
+			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+			if (file && file instanceof TFile) {
+				validFiles.push(filePath);
+			}
+		}
+
+		// Add some top margin before the header
+		const spacer = container.createEl("div", { cls: "header-spacer" });
+		spacer.setAttr("style", "height: 12px;");
+
+		const header = container.createEl("div", { cls: "review-header" });
+		header.createEl("h2", { text: "Review Queue" });
+
+		if (validFiles.length === 0) {
+			const emptyState = container.createEl("div", {
+				cls: "review-empty",
+			});
+			const iconDiv = emptyState.createEl("div", {
+				cls: "review-empty-icon",
+			});
+			iconDiv.innerHTML = "📚"; // Could replace with an SVG icon
+			emptyState.createEl("h3", { text: "You're all caught up!" });
+			emptyState.createEl("p", {
+				text: "There are no notes due for review right now.",
+			});
 			return;
 		}
 
-		const header = container.createEl("div", { cls: "review-header" });
-		header.style.display = "flex";
-		header.style.justifyContent = "center";
-		header.style.alignItems = "center";
-		header.style.marginBottom = "16px";
-
-		const title = header.createEl("h2", { text: "Review Queue" });
-		title.style.fontFamily = "'Roboto', sans-serif";
-		title.style.margin = "0";
-		title.style.fontSize = "24px";
+		header.createEl("div", {
+			cls: "review-count",
+			text: `${validFiles.length} note${
+				validFiles.length === 1 ? "" : "s"
+			} to review`,
+		});
 
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
 		});
-		cardContainer.style.display = "flex";
-		cardContainer.style.flexDirection = "column";
-		cardContainer.style.gap = "12px";
-		cardContainer.style.padding = "0 8px";
 
-		reviewNotes.forEach((filePath) => {
+		validFiles.forEach(async (filePath) => {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			if (!file || !(file instanceof TFile)) return;
 			const noteState = this.plugin.spacedRepetitionLog[filePath];
 
-			const card = cardContainer.createEl("div", { cls: "review-card" });
-			card.style.backgroundColor = "#fff";
-			card.style.borderRadius = "8px";
-			card.style.boxShadow = "0 2px 4px rgba(0,0,0,0.1)";
-			card.style.padding = "12px";
-			card.style.display = "flex";
-			card.style.flexDirection = "row";
-			card.style.gap = "12px";
-			card.style.alignItems = "center";
-			card.style.cursor = "pointer";
+			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
+			const tags = fileCache?.frontmatter?.tags;
+			const firstTag = Array.isArray(tags) ? tags[0] : tags;
 
-			let titleText = file.basename;
-			if (titleText.length > 15) {
-				titleText = titleText.substring(0, 15) + "...";
+			const card = cardContainer.createEl("div", { cls: "review-card" });
+
+			// Make entire card clickable to open the file
+			card.addEventListener("click", () => {
+				this.plugin.app.workspace.getLeaf().openFile(file);
+			});
+
+			// Create a title row that contains both the title and tag
+			const titleRow = card.createEl("div", { cls: "title-row" });
+
+			titleRow.createEl("h3", {
+				text: file.basename,
+				title: file.basename,
+			});
+
+			// Add tag right next to the title if it exists
+			if (firstTag) {
+				const tagEl = titleRow.createEl("div", { cls: "review-tag" });
+				tagEl.createEl("span", { text: `#${firstTag}` });
 			}
 
-			const cardTitle = card.createEl("h3", { text: titleText });
-			cardTitle.style.margin = "0";
-			cardTitle.style.fontSize = "18px";
-			cardTitle.style.fontWeight = "bold";
-			cardTitle.style.color = "#333";
-			cardTitle.style.flexGrow = "1";
-			cardTitle.onclick = async (evt) => {
-				evt.preventDefault();
-				let activeLeaf = this.plugin.app.workspace.getMostRecentLeaf();
-				if (
-					!activeLeaf ||
-					activeLeaf.view.getViewType() === REVIEW_VIEW_TYPE
-				) {
-					activeLeaf = this.plugin.app.workspace.getLeaf(true);
-				}
-				await activeLeaf.openFile(file);
-			};
-			const efRating = noteState.ef.toFixed(2);
-			const efElem = card.createEl("p", { text: efRating });
-			efElem.style.margin = "0";
-			efElem.style.fontSize = "16px";
-			efElem.style.color = "#666";
+			// Calculate days since last review
+			const lastReviewDate = new Date(noteState.lastReviewDate);
+			const daysSinceReview = Math.floor(
+				(now.getTime() - lastReviewDate.getTime()) /
+					(1000 * 60 * 60 * 24)
+			);
 
-			card.appendChild(cardTitle);
-			card.appendChild(efElem);
+			const metaContainer = card.createEl("div", {
+				cls: "review-card-meta",
+			});
+
+			// Show interval visually
+			const intervalEl = card.createEl("div", { cls: "review-interval" });
+			intervalEl.createEl("span", {
+				text: `Last review: ${
+					daysSinceReview === 0
+						? "Today"
+						: daysSinceReview === 1
+						? "Yesterday"
+						: `${daysSinceReview} days ago`
+				}`,
+			});
+
+			// Show EF with color coding
+			const efEl = metaContainer.createEl("div", { cls: "review-stat" });
+			const efValue = noteState.ef.toFixed(2);
+			const efClass =
+				noteState.ef >= 2.5
+					? "ef-high"
+					: noteState.ef >= 1.8
+					? "ef-medium"
+					: "ef-low";
+			efEl.createEl("span", { text: "EF: " });
+			efEl.createEl("span", {
+				text: efValue,
+				cls: `ef-value ${efClass}`,
+			});
 		});
 	}
 
 	async onClose() {
-		// No additional cleanup needed.
+		// Clean up if needed
 	}
 }
 
@@ -335,12 +377,12 @@ export default class MyPlugin extends Plugin {
 			this.toggleAllHidden();
 		});
 
-		this.registerInterval(
-			window.setInterval(
-				() => console.log("Interval ping"),
-				5 * 60 * 1000
-			)
-		);
+		// this.registerInterval(
+		// 	window.setInterval(
+		// 		() => console.log("Interval ping"),
+		// 		5 * 60 * 1000
+		// 	)
+		// );
 
 		// Register our markdown post-processor which now handles both
 		// plain [hide]...[/hide] and group-based [hide=groupId]...[/hide]
