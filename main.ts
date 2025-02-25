@@ -281,10 +281,15 @@ export class ReviewSidebarView extends ItemView {
 			cardTitle.style.flexGrow = "1";
 			cardTitle.onclick = async (evt) => {
 				evt.preventDefault();
-				const leaf = this.plugin.app.workspace.getLeaf(true);
-				await leaf.openFile(file);
+				let activeLeaf = this.plugin.app.workspace.getMostRecentLeaf();
+				if (
+					!activeLeaf ||
+					activeLeaf.view.getViewType() === REVIEW_VIEW_TYPE
+				) {
+					activeLeaf = this.plugin.app.workspace.getLeaf(true);
+				}
+				await activeLeaf.openFile(file);
 			};
-
 			const efRating = noteState.ef.toFixed(2);
 			const efElem = card.createEl("p", { text: efRating });
 			efElem.style.margin = "0";
