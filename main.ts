@@ -548,6 +548,20 @@ export default class MyPlugin extends Plugin {
 			})
 		);
 
+		// Refresh panels whenever the active file is modified (e.g. when tags are edited)
+		this.registerEvent(
+			this.app.vault.on("modify", (file: TFile) => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (activeFile && file.path === activeFile.path) {
+					// Small timeout to allow metadata updates to propagate
+					setTimeout(() => {
+						this.refreshReviewQueue();
+						this.refreshScheduledQueue();
+					}, 100);
+				}
+			})
+		);
+
 		this.registerView(
 			REVIEW_VIEW_TYPE,
 			(leaf) => new ReviewSidebarView(leaf, this)
