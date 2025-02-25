@@ -377,13 +377,6 @@ export default class MyPlugin extends Plugin {
 			this.toggleAllHidden();
 		});
 
-		// this.registerInterval(
-		// 	window.setInterval(
-		// 		() => console.log("Interval ping"),
-		// 		5 * 60 * 1000
-		// 	)
-		// );
-
 		// Register our markdown post-processor which now handles both
 		// plain [hide]...[/hide] and group-based [hide=groupId]...[/hide]
 		this.registerMarkdownPostProcessor((element, context) => {
@@ -680,6 +673,8 @@ export default class MyPlugin extends Plugin {
 			);
 		}
 		await this.savePluginData();
+		// Refresh the review queue after a note is reviewed
+		this.refreshReviewQueue();
 	}
 
 	async activateReviewSidebar() {
@@ -709,11 +704,25 @@ export default class MyPlugin extends Plugin {
 		}
 		this.allHidden = !this.allHidden;
 	}
+
+	// ============================================================================
+	// Helper function to refresh the Review Queue panel
+	// ============================================================================
+
+	private refreshReviewQueue(): void {
+		const reviewLeaves =
+			this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
+		reviewLeaves.forEach((leaf) => {
+			if (leaf.view instanceof ReviewSidebarView) {
+				leaf.view.onOpen();
+			}
+		});
+	}
 }
 
 /* ============================================================================
  * CUSTOM MODALS
- * ============================================================================ */
+ * ========================================================================== */
 
 class SampleModal extends Modal {
 	constructor(app: App) {
