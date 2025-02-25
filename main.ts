@@ -775,7 +775,7 @@ class RatingModal extends Modal {
  */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	// Process all paragraph elements that might contain our delimiters
-	const elements = rootEl.querySelectorAll("p, li, blockquote, div, td");
+	const elements = rootEl.querySelectorAll("*");
 
 	elements.forEach((element) => {
 		// Get the HTML content of the paragraph
