@@ -363,6 +363,7 @@ export default class MyPlugin extends Plugin {
 			)
 		);
 
+		// Register file rename event
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
 				if (this.visitLog[oldPath]) {
@@ -376,6 +377,16 @@ export default class MyPlugin extends Plugin {
 				}
 				this.savePluginData();
 				console.log(`Updated logs from ${oldPath} to ${file.path}`);
+
+				// Refresh the review queue view if it's open:
+				const reviewLeaves =
+					this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
+				reviewLeaves.forEach((leaf) => {
+					// Ensure the view is an instance of ReviewSidebarView
+					if (leaf.view instanceof ReviewSidebarView) {
+						leaf.view.onOpen();
+					}
+				});
 			})
 		);
 
@@ -634,7 +645,7 @@ export default class MyPlugin extends Plugin {
 
 /* ============================================================================
  * CUSTOM MODALS
- * ========================================================================== */
+ * ============================================================================ */
 
 class SampleModal extends Modal {
 	constructor(app: App) {
