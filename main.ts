@@ -337,6 +337,8 @@ export default class MyPlugin extends Plugin {
 			)
 		);
 
+		// Register our markdown post-processor which now handles both
+		// plain [hide]...[/hide] and group-based [hide=groupId]...[/hide]
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
 			processHiddenMathBlocks(element);
@@ -511,6 +513,8 @@ export default class MyPlugin extends Plugin {
 					new Notice("Please select some text to hide.");
 					return;
 				}
+				// Here, you can choose to wrap in plain hide tags or with a group id.
+				// For example, plain:
 				const wrapped = `[hide]${selection}[/hide]`;
 				editor.replaceSelection(wrapped);
 			},
@@ -625,7 +629,7 @@ export default class MyPlugin extends Plugin {
 
 /* ============================================================================
  * CUSTOM MODALS
- * ============================================================================ */
+ * ========================================================================== */
 
 class SampleModal extends Modal {
 	constructor(app: App) {
@@ -750,24 +754,64 @@ class RatingModal extends Modal {
  * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT
  * ========================================================================== */
 
+/**
+ * Process hidden text in markdown.
+ *
+ * This function supports two syntaxes:
+ * 1. Plain hide: [hide]content[/hide] – toggles individually.
+ * 2. Group hide: [hide=groupId]content[/hide] – toggles all elements sharing the same group id.
+ */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
-
 	elements.forEach((element) => {
-		const html = element.innerHTML;
-		if (html.includes("[hide]") && html.includes("[/hide]")) {
-			const newHtml = html.replace(
+		let html = element.innerHTML;
+		// Only process if there is a hide tag present.
+		if (html.includes("[hide") && html.includes("[/hide]")) {
+			// First process group hide blocks: [hide=groupId]...[/hide]
+			html = html.replace(
+				/\[hide=(\d+)\]([\s\S]*?)\[\/hide\]/g,
+				(match, groupId, content) => {
+					return `<span class="hidden-note group-hide toggle-hidden" data-group="${groupId}">${content}</span>`;
+				}
+			);
+			// Then process plain hide blocks: [hide]...[/hide]
+			html = html.replace(
 				/\[hide\]([\s\S]*?)\[\/hide\]/g,
 				(match, content) => {
 					return `<span class="hidden-note toggle-hidden">${content}</span>`;
 				}
 			);
-			element.innerHTML = newHtml;
-			element.querySelectorAll(".hidden-note").forEach((span) => {
-				span.addEventListener("click", () => {
-					span.classList.toggle("toggle-hidden");
+			element.innerHTML = html;
+
+			// Add click event listener for group hide elements.
+			element.querySelectorAll(".group-hide").forEach((el) => {
+				el.addEventListener("click", function () {
+					const group = this.getAttribute("data-group");
+					if (!group) {
+						this.classList.toggle("toggle-hidden");
+					} else {
+						// Toggle all elements sharing the same group id.
+						document
+							.querySelectorAll(
+								`.group-hide[data-group="${group}"]`
+							)
+							.forEach((elem) => {
+								(elem as HTMLElement).classList.toggle(
+									"toggle-hidden"
+								);
+							});
+					}
 				});
 			});
+
+			// Add individual toggle for plain hide elements.
+			element
+				.querySelectorAll(".hidden-note:not(.group-hide)")
+				.forEach((el) => {
+					el.addEventListener("click", function () {
+						this.classList.toggle("toggle-hidden");
+					});
+				});
 		}
 	});
 }
