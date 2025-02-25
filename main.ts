@@ -592,23 +592,49 @@ export default class MyPlugin extends Plugin {
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				const cursor = editor.getCursor();
 				const line = editor.getLine(cursor.line);
-				const startIndex = line.lastIndexOf("[hide]", cursor.ch);
+
+				// Regular expression to match both [hide] and [hide=groupId]
+				const startHidePattern = /\[hide(?:=\d+)?\]/;
+				const endHidePattern = /\[\/hide\]/;
+
+				// Find the last hide tag before cursor
+				let startMatch = null;
+				let startIndex = -1;
+
+				// Find the last occurrence of a hide tag before cursor position
+				const beforeCursor = line.substring(0, cursor.ch);
+				const startMatches = [
+					...beforeCursor.matchAll(/\[hide(?:=\d+)?\]/g),
+				];
+				if (startMatches.length > 0) {
+					startMatch = startMatches[startMatches.length - 1];
+					startIndex = startMatch.index;
+				}
+
+				// Find the first hide closing tag after cursor
 				const endIndex = line.indexOf("[/hide]", cursor.ch);
+
 				if (startIndex === -1 || endIndex === -1) {
 					new Notice(
 						"Cursor is not inside a [hide]...[/hide] block."
 					);
 					return;
 				}
+
+				// Extract the actual hide tag that was matched
+				const hideTag = startMatch ? startMatch[0] : "[hide]";
+
+				// Create the new line by removing the hide tags
 				const before = line.slice(0, startIndex);
 				const between = line.slice(
-					startIndex + "[hide]".length,
+					startIndex + hideTag.length,
 					endIndex
 				);
 				const after = line.slice(endIndex + "[/hide]".length);
 				const newLine = before + between + after;
+
 				editor.setLine(cursor.line, newLine);
-				new Notice("Removed [hide] wrappers.");
+				new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
 			},
 		});
 	}
