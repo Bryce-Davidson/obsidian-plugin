@@ -459,7 +459,7 @@ export class ScheduledSidebarView extends ItemView {
 			);
 			metaContainer.createEl("div", {
 				cls: "review-interval",
-				text: `Next review: ${nextReviewFormatted}`,
+				text: nextReviewFormatted,
 			});
 		});
 	}
