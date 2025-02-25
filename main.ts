@@ -63,7 +63,6 @@ class MyPluginSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		// New: Background Color Setting for Hidden Text
 		new Setting(containerEl)
 			.setName("Hidden Text Background Color")
 			.setDesc("Set the background color for hidden text")
@@ -73,7 +72,6 @@ class MyPluginSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.hiddenColor)
 					.onChange(async (value) => {
 						this.plugin.settings.hiddenColor = value;
-						// Update the CSS variable so the change takes effect immediately.
 						document.documentElement.style.setProperty(
 							"--hidden-color",
 							value
@@ -187,7 +185,7 @@ function updateNoteState(
 }
 
 /* ============================================================================
- * REVIEW SIDEBAR VIEW (Unchanged)
+ * REVIEW SIDEBAR VIEW (Review Queue)
  * ========================================================================== */
 
 export const REVIEW_VIEW_TYPE = "review-sidebar";
@@ -220,7 +218,7 @@ export class ReviewSidebarView extends ItemView {
 		const reviewNotes: string[] = [];
 		const validFiles: string[] = [];
 
-		// First collect all due notes
+		// Collect due notes
 		for (const filePath in this.plugin.spacedRepetitionLog) {
 			const state = this.plugin.spacedRepetitionLog[filePath];
 			if (
@@ -232,7 +230,7 @@ export class ReviewSidebarView extends ItemView {
 			}
 		}
 
-		// Then verify which files actually exist
+		// Verify files exist
 		for (const filePath of reviewNotes) {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			if (file && file instanceof TFile) {
@@ -240,10 +238,8 @@ export class ReviewSidebarView extends ItemView {
 			}
 		}
 
-		// Add some top margin before the header
 		const spacer = container.createEl("div", { cls: "header-spacer" });
 		spacer.setAttr("style", "height: 12px;");
-
 		const header = container.createEl("div", { cls: "review-header" });
 		header.createEl("h2", { text: "Review Queue" });
 
@@ -254,7 +250,7 @@ export class ReviewSidebarView extends ItemView {
 			const iconDiv = emptyState.createEl("div", {
 				cls: "review-empty-icon",
 			});
-			iconDiv.innerHTML = "📚"; // Could replace with an SVG icon
+			iconDiv.innerHTML = "📚";
 			emptyState.createEl("h3", { text: "You're all caught up!" });
 			emptyState.createEl("p", {
 				text: "There are no notes due for review right now.",
@@ -272,7 +268,6 @@ export class ReviewSidebarView extends ItemView {
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
 		});
-
 		validFiles.forEach(async (filePath) => {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			if (!file || !(file instanceof TFile)) return;
@@ -283,27 +278,21 @@ export class ReviewSidebarView extends ItemView {
 			const firstTag = Array.isArray(tags) ? tags[0] : tags;
 
 			const card = cardContainer.createEl("div", { cls: "review-card" });
-
-			// Make entire card clickable to open the file
 			card.addEventListener("click", () => {
 				this.plugin.app.workspace.getLeaf().openFile(file);
 			});
 
-			// Create a title row that contains both the title and tag
 			const titleRow = card.createEl("div", { cls: "title-row" });
-
 			titleRow.createEl("h3", {
 				text: file.basename,
 				title: file.basename,
 			});
 
-			// Add tag right next to the title if it exists
 			if (firstTag) {
 				const tagEl = titleRow.createEl("div", { cls: "review-tag" });
 				tagEl.createEl("span", { text: `#${firstTag}` });
 			}
 
-			// Calculate days since last review
 			const lastReviewDate = new Date(noteState.lastReviewDate);
 			const daysSinceReview = Math.floor(
 				(now.getTime() - lastReviewDate.getTime()) /
@@ -313,8 +302,6 @@ export class ReviewSidebarView extends ItemView {
 			const metaContainer = card.createEl("div", {
 				cls: "review-card-meta",
 			});
-
-			// Show interval visually
 			const intervalEl = card.createEl("div", { cls: "review-interval" });
 			intervalEl.createEl("span", {
 				text: `Last review: ${
@@ -326,7 +313,6 @@ export class ReviewSidebarView extends ItemView {
 				}`,
 			});
 
-			// Show EF with color coding
 			const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 			const efValue = noteState.ef.toFixed(2);
 			const efClass =
@@ -339,6 +325,147 @@ export class ReviewSidebarView extends ItemView {
 			efEl.createEl("span", {
 				text: efValue,
 				cls: `ef-value ${efClass}`,
+			});
+		});
+	}
+
+	async onClose() {
+		// Clean up if needed
+	}
+}
+
+/* ============================================================================
+ * SCHEDULED SIDEBAR VIEW (Scheduled Queue)
+ * ========================================================================== */
+
+export const SCHEDULED_VIEW_TYPE = "scheduled-sidebar";
+export class ScheduledSidebarView extends ItemView {
+	plugin: MyPlugin;
+
+	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
+		super(leaf);
+		this.plugin = plugin;
+	}
+
+	getViewType(): string {
+		return SCHEDULED_VIEW_TYPE;
+	}
+
+	getDisplayText(): string {
+		return "Scheduled Queue";
+	}
+
+	// We re-use the same container classes for consistent styling.
+	getIcon(): string {
+		return "calendar";
+	}
+
+	async onOpen() {
+		const container = this.containerEl.children[1] || this.containerEl;
+		container.empty();
+		// Use same container class as review queue for consistent styling
+		container.addClass("review-sidebar-container");
+
+		const now = new Date();
+		const scheduledNotes: string[] = [];
+		const validFiles: string[] = [];
+
+		// Collect notes with a nextReviewDate in the future
+		for (const filePath in this.plugin.spacedRepetitionLog) {
+			const state = this.plugin.spacedRepetitionLog[filePath];
+			if (
+				state.active &&
+				state.nextReviewDate &&
+				new Date(state.nextReviewDate) > now
+			) {
+				scheduledNotes.push(filePath);
+			}
+		}
+
+		// Verify files exist
+		for (const filePath of scheduledNotes) {
+			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+			if (file && file instanceof TFile) {
+				validFiles.push(filePath);
+			}
+		}
+
+		// Sort by nextReviewDate ascending
+		validFiles.sort((a, b) => {
+			const dateA = new Date(
+				this.plugin.spacedRepetitionLog[a].nextReviewDate!
+			);
+			const dateB = new Date(
+				this.plugin.spacedRepetitionLog[b].nextReviewDate!
+			);
+			return dateA.getTime() - dateB.getTime();
+		});
+
+		const spacer = container.createEl("div", { cls: "header-spacer" });
+		spacer.setAttr("style", "height: 12px;");
+		const header = container.createEl("div", { cls: "review-header" });
+		header.createEl("h2", { text: "Scheduled Queue" });
+
+		if (validFiles.length === 0) {
+			const emptyState = container.createEl("div", {
+				cls: "review-empty",
+			});
+			const iconDiv = emptyState.createEl("div", {
+				cls: "review-empty-icon",
+			});
+			iconDiv.innerHTML = "📅";
+			emptyState.createEl("h3", { text: "No upcoming reviews!" });
+			emptyState.createEl("p", {
+				text: "There are no notes scheduled for review.",
+			});
+			return;
+		}
+
+		header.createEl("div", {
+			cls: "review-count",
+			text: `${validFiles.length} note${
+				validFiles.length === 1 ? "" : "s"
+			} scheduled`,
+		});
+
+		const cardContainer = container.createEl("div", {
+			cls: "card-container",
+		});
+		validFiles.forEach(async (filePath) => {
+			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+			if (!file || !(file instanceof TFile)) return;
+			const noteState = this.plugin.spacedRepetitionLog[filePath];
+
+			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
+			const tags = fileCache?.frontmatter?.tags;
+			const firstTag = Array.isArray(tags) ? tags[0] : tags;
+
+			const card = cardContainer.createEl("div", { cls: "review-card" });
+			card.addEventListener("click", () => {
+				this.plugin.app.workspace.getLeaf().openFile(file);
+			});
+
+			const titleRow = card.createEl("div", { cls: "title-row" });
+			titleRow.createEl("h3", {
+				text: file.basename,
+				title: file.basename,
+			});
+
+			if (firstTag) {
+				const tagEl = titleRow.createEl("div", { cls: "review-tag" });
+				tagEl.createEl("span", { text: `#${firstTag}` });
+			}
+
+			const metaContainer = card.createEl("div", {
+				cls: "review-card-meta",
+			});
+			// Instead of "last review", display the scheduled next review time
+			const nextReviewFormatted = formatNextReviewTime(
+				noteState.nextReviewDate!
+			);
+			metaContainer.createEl("div", {
+				cls: "review-interval",
+				text: nextReviewFormatted,
 			});
 		});
 	}
@@ -362,7 +489,6 @@ export default class MyPlugin extends Plugin {
 	async onload() {
 		await this.loadPluginData();
 
-		// Update the CSS variable on load.
 		document.documentElement.style.setProperty(
 			"--hidden-color",
 			this.settings.hiddenColor
@@ -377,8 +503,6 @@ export default class MyPlugin extends Plugin {
 			this.toggleAllHidden();
 		});
 
-		// Register our markdown post-processor which now handles both
-		// plain [hide]...[/hide] and group-based [hide=groupId]...[/hide]
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
 			processHiddenMathBlocks(element);
@@ -398,7 +522,6 @@ export default class MyPlugin extends Plugin {
 			)
 		);
 
-		// Register file rename event
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
 				if (this.visitLog[oldPath]) {
@@ -413,15 +536,9 @@ export default class MyPlugin extends Plugin {
 				this.savePluginData();
 				console.log(`Updated logs from ${oldPath} to ${file.path}`);
 
-				// Refresh the review queue view if it's open:
-				const reviewLeaves =
-					this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
-				reviewLeaves.forEach((leaf) => {
-					// Ensure the view is an instance of ReviewSidebarView
-					if (leaf.view instanceof ReviewSidebarView) {
-						leaf.view.onOpen();
-					}
-				});
+				// Refresh both panels if they are open
+				this.refreshReviewQueue();
+				this.refreshScheduledQueue();
 			})
 		);
 
@@ -429,8 +546,16 @@ export default class MyPlugin extends Plugin {
 			REVIEW_VIEW_TYPE,
 			(leaf) => new ReviewSidebarView(leaf, this)
 		);
+		this.registerView(
+			SCHEDULED_VIEW_TYPE,
+			(leaf) => new ScheduledSidebarView(leaf, this)
+		);
+
 		this.addRibbonIcon("file-text", "Open Review Queue", () => {
 			this.activateReviewSidebar();
+		});
+		this.addRibbonIcon("calendar", "Open Scheduled Queue", () => {
+			this.activateScheduledSidebar();
 		});
 	}
 
@@ -556,6 +681,14 @@ export default class MyPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "open-scheduled-queue",
+			name: "Open Scheduled Queue",
+			callback: () => {
+				this.activateScheduledSidebar();
+			},
+		});
+
+		this.addCommand({
 			id: "wrap-selected-text-with-hide",
 			name: "Wrap Selected Text in [hide][/hide]",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
@@ -564,8 +697,6 @@ export default class MyPlugin extends Plugin {
 					new Notice("Please select some text to hide.");
 					return;
 				}
-				// Here, you can choose to wrap in plain hide tags or with a group id.
-				// For example, plain:
 				const wrapped = `[hide]${selection}[/hide]`;
 				editor.replaceSelection(wrapped);
 			},
@@ -585,39 +716,24 @@ export default class MyPlugin extends Plugin {
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				const cursor = editor.getCursor();
 				const line = editor.getLine(cursor.line);
-
-				// Regular expression to match both [hide] and [hide=groupId]
-				const startHidePattern = /\[hide(?:=\d+)?\]/;
-				const endHidePattern = /\[\/hide\]/;
-
-				// Find the last hide tag before cursor
-				let startMatch = null;
-				let startIndex = -1;
-
-				// Find the last occurrence of a hide tag before cursor position
-				const beforeCursor = line.substring(0, cursor.ch);
 				const startMatches = [
-					...beforeCursor.matchAll(/\[hide(?:=\d+)?\]/g),
+					...line
+						.substring(0, cursor.ch)
+						.matchAll(/\[hide(?:=\d+)?\]/g),
 				];
-				if (startMatches.length > 0) {
-					startMatch = startMatches[startMatches.length - 1];
-					startIndex = startMatch.index;
-				}
-
-				// Find the first hide closing tag after cursor
+				let startMatch =
+					startMatches.length > 0
+						? startMatches[startMatches.length - 1]
+						: null;
+				let startIndex = startMatch ? startMatch.index : -1;
 				const endIndex = line.indexOf("[/hide]", cursor.ch);
-
 				if (startIndex === -1 || endIndex === -1) {
 					new Notice(
 						"Cursor is not inside a [hide]...[/hide] block."
 					);
 					return;
 				}
-
-				// Extract the actual hide tag that was matched
 				const hideTag = startMatch ? startMatch[0] : "[hide]";
-
-				// Create the new line by removing the hide tags
 				const before = line.slice(0, startIndex);
 				const between = line.slice(
 					startIndex + hideTag.length,
@@ -625,7 +741,6 @@ export default class MyPlugin extends Plugin {
 				);
 				const after = line.slice(endIndex + "[/hide]".length);
 				const newLine = before + between + after;
-
 				editor.setLine(cursor.line, newLine);
 				new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
 			},
@@ -673,8 +788,9 @@ export default class MyPlugin extends Plugin {
 			);
 		}
 		await this.savePluginData();
-		// Refresh the review queue after a note is reviewed
+		// Refresh both panels after a note is reviewed
 		this.refreshReviewQueue();
+		this.refreshScheduledQueue();
 	}
 
 	async activateReviewSidebar() {
@@ -683,8 +799,19 @@ export default class MyPlugin extends Plugin {
 			leaf =
 				this.app.workspace.getRightLeaf(false) ||
 				this.app.workspace.getLeaf(true);
+			await leaf.setViewState({ type: REVIEW_VIEW_TYPE, active: true });
+		}
+		this.app.workspace.revealLeaf(leaf);
+	}
+
+	async activateScheduledSidebar() {
+		let leaf = this.app.workspace.getLeavesOfType(SCHEDULED_VIEW_TYPE)[0];
+		if (!leaf) {
+			leaf =
+				this.app.workspace.getRightLeaf(false) ||
+				this.app.workspace.getLeaf(true);
 			await leaf.setViewState({
-				type: REVIEW_VIEW_TYPE,
+				type: SCHEDULED_VIEW_TYPE,
 				active: true,
 			});
 		}
@@ -694,7 +821,6 @@ export default class MyPlugin extends Plugin {
 	// ============================================================================
 	// TOGGLE ALL HIDDEN CONTENT FUNCTIONALITY (Using CSS classes)
 	// ============================================================================
-
 	private toggleAllHidden(): void {
 		const textEls = document.querySelectorAll(".hidden-note");
 		if (this.allHidden) {
@@ -706,14 +832,23 @@ export default class MyPlugin extends Plugin {
 	}
 
 	// ============================================================================
-	// Helper function to refresh the Review Queue panel
+	// Helper functions to refresh the panels
 	// ============================================================================
-
 	private refreshReviewQueue(): void {
 		const reviewLeaves =
 			this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
 		reviewLeaves.forEach((leaf) => {
 			if (leaf.view instanceof ReviewSidebarView) {
+				leaf.view.onOpen();
+			}
+		});
+	}
+
+	private refreshScheduledQueue(): void {
+		const scheduledLeaves =
+			this.app.workspace.getLeavesOfType(SCHEDULED_VIEW_TYPE);
+		scheduledLeaves.forEach((leaf) => {
+			if (leaf.view instanceof ScheduledSidebarView) {
 				leaf.view.onOpen();
 			}
 		});
@@ -739,7 +874,7 @@ class SampleModal extends Modal {
 }
 
 /**
- * Helper function to format the next review time as "YYYY-MM-DD:HH:mm"
+ * Helper function to format the next review time as "YYYY-MM-DD:HH:mm" in 24hr format
  */
 function formatNextReviewTime(dateString: string): string {
 	const date = new Date(dateString);
@@ -855,27 +990,17 @@ class RatingModal extends Modal {
  * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT
  * ========================================================================== */
 
-/**
- * Process hidden text in markdown.
- *
- * This function supports two syntaxes:
- * 1. Plain hide: [hide]content[/hide] – toggles individually.
- * 2. Group hide: [hide=groupId]content[/hide] – toggles all elements sharing the same group id.
- */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
 	elements.forEach((element) => {
 		let html = element.innerHTML;
-		// Only process if there is a hide tag present.
 		if (html.includes("[hide") && html.includes("[/hide]")) {
-			// First process group hide blocks: [hide=groupId]...[/hide]
 			html = html.replace(
 				/\[hide=(\d+)\]([\s\S]*?)\[\/hide\]/g,
 				(match, groupId, content) => {
 					return `<span class="hidden-note group-hide toggle-hidden" data-group="${groupId}">${content}</span>`;
 				}
 			);
-			// Then process plain hide blocks: [hide]...[/hide]
 			html = html.replace(
 				/\[hide\]([\s\S]*?)\[\/hide\]/g,
 				(match, content) => {
@@ -883,15 +1008,12 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 				}
 			);
 			element.innerHTML = html;
-
-			// Add click event listener for group hide elements.
 			element.querySelectorAll(".group-hide").forEach((el) => {
 				el.addEventListener("click", function () {
 					const group = this.getAttribute("data-group");
 					if (!group) {
 						this.classList.toggle("toggle-hidden");
 					} else {
-						// Get the current state of the first group member
 						const groupElements = document.querySelectorAll(
 							`.group-hide[data-group="${group}"]`
 						);
@@ -899,7 +1021,6 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 							groupElements[0].classList.contains(
 								"toggle-hidden"
 							);
-						// Apply the same state to all elements in the group
 						groupElements.forEach((elem) => {
 							if (isHidden) {
 								elem.classList.remove("toggle-hidden");
@@ -910,8 +1031,6 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 					}
 				});
 			});
-
-			// Add individual toggle for plain hide elements.
 			element
 				.querySelectorAll(".hidden-note:not(.group-hide)")
 				.forEach((el) => {
@@ -932,7 +1051,6 @@ function wrapMathElement(mathEl: Element): void {
 	const parent = mathEl.parentElement;
 	if (!parent) return;
 	let foundDelimiters = false;
-
 	const prevSibling = mathEl.previousSibling;
 	if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = prevSibling.nodeValue ?? "";
@@ -942,7 +1060,6 @@ function wrapMathElement(mathEl: Element): void {
 			foundDelimiters = true;
 		}
 	}
-
 	const nextSibling = mathEl.nextSibling;
 	if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = nextSibling.nodeValue ?? "";
@@ -952,7 +1069,6 @@ function wrapMathElement(mathEl: Element): void {
 			foundDelimiters = true;
 		}
 	}
-
 	if (!foundDelimiters) return;
 	(mathEl as HTMLElement).classList.add("hidden-note", "toggle-hidden");
 	mathEl.addEventListener("click", () => {
