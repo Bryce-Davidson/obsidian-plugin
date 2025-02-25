@@ -18,17 +18,19 @@ import {
 
 interface MyPluginSettings {
 	mySetting: string;
+	hiddenColor: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	mySetting: "default",
+	hiddenColor: "#00ffbf",
 };
 
 /**
  * The plugin stores:
  * 1) settings
- * 2) visits (already present in your code)
- * 3) spacedRepetitionLog (our new addition for SM‑2)
+ * 2) visits
+ * 3) spacedRepetitionLog
  */
 interface PluginData {
 	settings: MyPluginSettings;
@@ -36,23 +38,15 @@ interface PluginData {
 	spacedRepetitionLog: { [filePath: string]: NoteState };
 }
 
-/**
- * NoteState describes how we track spaced repetition for a given note (file).
- * We no longer store a unique id since the file path is used as the key.
- *
- * NEW: Two additional optional fields:
- * - isLearning: whether the note is in the learning phase.
- * - learningStep: the current index in the learning steps.
- */
 interface NoteState {
-	repetition: number; // SM‑2 repetition count
-	interval: number; // Interval in days (for review phase) or a conversion from minutes in the learning phase.
-	ef: number; // Easiness factor
-	lastReviewDate: string; // ISO string of last review
-	nextReviewDate?: string; // ISO string of next review (if active)
-	active: boolean; // Whether the note is actively scheduled
-	isLearning?: boolean; // true if the note is in the learning phase
-	learningStep?: number; // index of the current learning step
+	repetition: number;
+	interval: number;
+	ef: number;
+	lastReviewDate: string;
+	nextReviewDate?: string;
+	active: boolean;
+	isLearning?: boolean;
+	learningStep?: number;
 }
 
 /* ============================================================================
@@ -68,15 +62,22 @@ class MyPluginSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+
+		// New: Background Color Setting for Hidden Text
 		new Setting(containerEl)
-			.setName("Setting #1")
-			.setDesc("It's a secret!")
+			.setName("Hidden Text Background Color")
+			.setDesc("Set the background color for hidden text")
 			.addText((text) =>
 				text
-					.setPlaceholder("Enter your secret")
-					.setValue(this.plugin.settings.mySetting)
+					.setPlaceholder("Color")
+					.setValue(this.plugin.settings.hiddenColor)
 					.onChange(async (value) => {
-						this.plugin.settings.mySetting = value;
+						this.plugin.settings.hiddenColor = value;
+						// Update the CSS variable so the change takes effect immediately.
+						document.documentElement.style.setProperty(
+							"--hidden-color",
+							value
+						);
 						await this.plugin.saveSettings();
 					})
 			);
@@ -84,30 +85,21 @@ class MyPluginSettingTab extends PluginSettingTab {
 }
 
 /* ============================================================================
- * SPACED REPETITION LOGIC
+ * SPACED REPETITION LOGIC (Unchanged)
  * ========================================================================== */
 
-/**
- * Helper: Computes the next review date, given a last review date and interval (in days).
- */
 function getNextReviewDate(lastReview: Date, interval: number): Date {
 	const nextReview = new Date(lastReview);
 	nextReview.setDate(lastReview.getDate() + interval);
 	return nextReview;
 }
 
-/**
- * Helper: Adds a given number of minutes to a Date.
- */
 function addMinutes(date: Date, minutes: number): Date {
 	const result = new Date(date);
 	result.setMinutes(result.getMinutes() + minutes);
 	return result;
 }
 
-/**
- * Helper: Formats the interval between two ISO dates as days, hours and minutes.
- */
 function formatInterval(
 	lastReviewDate: string,
 	nextReviewDate: string
@@ -126,12 +118,8 @@ function formatInterval(
 	return parts.join(", ");
 }
 
-// Define learning intervals (in minutes) for the learning phase.
 const LEARNING_STEPS: number[] = [10, 30];
 
-/**
- * Updates the note state based on the review quality.
- */
 function updateNoteState(
 	state: NoteState,
 	quality: number,
@@ -163,8 +151,6 @@ function updateNoteState(
 		const stepIndex = newState.learningStep ?? 0;
 		const intervalMinutes = LEARNING_STEPS[stepIndex];
 		const nextReview = addMinutes(reviewDate, intervalMinutes);
-		// Instead of only converting to days, we now keep a more detailed view.
-		// However, we update the interval property to a converted value.
 		newState.interval = Math.round(intervalMinutes / (60 * 24));
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
@@ -201,7 +187,7 @@ function updateNoteState(
 }
 
 /* ============================================================================
- * NEW: REVIEW SIDEBAR VIEW IMPLEMENTATION
+ * REVIEW SIDEBAR VIEW (Unchanged)
  * ========================================================================== */
 
 export const REVIEW_VIEW_TYPE = "review-sidebar";
@@ -329,12 +315,17 @@ export default class MyPlugin extends Plugin {
 	async onload() {
 		await this.loadPluginData();
 
+		// Update the CSS variable on load.
+		document.documentElement.style.setProperty(
+			"--hidden-color",
+			this.settings.hiddenColor
+		);
+
 		this.addPluginRibbonIcon();
 		this.addStatusBar();
 		this.registerCommands();
 		this.addSettingTab(new MyPluginSettingTab(this.app, this));
 
-		// NEW: Ribbon icon to toggle all hidden content (text and math)
 		this.addRibbonIcon("eye", "Toggle All Hidden Content", () => {
 			this.toggleAllHidden();
 		});
@@ -408,7 +399,6 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async savePluginData() {
-		console.log("Saving plugin data");
 		const data: PluginData = {
 			settings: this.settings,
 			visits: this.visitLog,
@@ -512,7 +502,6 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// New command: Wrap selected text with [hide][/hide] delimiters.
 		this.addCommand({
 			id: "wrap-selected-text-with-hide",
 			name: "Wrap Selected Text in [hide][/hide]",
@@ -527,7 +516,6 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// New command: Toggle all hidden content (for key binding).
 		this.addCommand({
 			id: "toggle-all-hidden",
 			name: "Toggle All Hidden Content",
@@ -536,7 +524,6 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// New command: Delete [hide][/hide] wrappers if the cursor is inside them.
 		this.addCommand({
 			id: "delete-hide-wrappers",
 			name: "Delete [hide][/hide] wrappers",
@@ -622,12 +609,9 @@ export default class MyPlugin extends Plugin {
 	}
 
 	// ============================================================================
-	// NEW: TOGGLE ALL HIDDEN CONTENT FUNCTIONALITY (Using CSS classes)
+	// TOGGLE ALL HIDDEN CONTENT FUNCTIONALITY (Using CSS classes)
 	// ============================================================================
 
-	/**
-	 * Toggle hidden state on all elements that use our CSS-based hiding.
-	 */
 	private toggleAllHidden(): void {
 		const textEls = document.querySelectorAll(".hidden-note");
 		if (this.allHidden) {
@@ -641,7 +625,7 @@ export default class MyPlugin extends Plugin {
 
 /* ============================================================================
  * CUSTOM MODALS
- * ========================================================================== */
+ * ============================================================================ */
 
 class SampleModal extends Modal {
 	constructor(app: App) {
@@ -657,9 +641,6 @@ class SampleModal extends Modal {
 	}
 }
 
-/**
- * RatingModal presents colored buttons for ratings 0-5 along with spaced-repetition stats.
- */
 class RatingModal extends Modal {
 	private onSubmit: (input: string) => void;
 	private currentState?: NoteState;
@@ -769,32 +750,19 @@ class RatingModal extends Modal {
  * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT
  * ========================================================================== */
 
-/**
- * Process hidden content in Markdown by looking at the entire HTML content
- * and properly handling paragraphs and other elements.
- */
 function processCustomHiddenText(rootEl: HTMLElement): void {
-	// Process all paragraph elements that might contain our delimiters
 	const elements = rootEl.querySelectorAll("*");
 
 	elements.forEach((element) => {
-		// Get the HTML content of the paragraph
 		const html = element.innerHTML;
-
-		// Check if it contains our delimiters
 		if (html.includes("[hide]") && html.includes("[/hide]")) {
-			// Replace the delimiters with spans, preserving HTML
 			const newHtml = html.replace(
 				/\[hide\]([\s\S]*?)\[\/hide\]/g,
 				(match, content) => {
 					return `<span class="hidden-note toggle-hidden">${content}</span>`;
 				}
 			);
-
-			// Update the paragraph content
 			element.innerHTML = newHtml;
-
-			// Add click handlers to the newly created spans
 			element.querySelectorAll(".hidden-note").forEach((span) => {
 				span.addEventListener("click", () => {
 					span.classList.toggle("toggle-hidden");
@@ -804,20 +772,11 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	});
 }
 
-/**
- * Process math blocks by checking for delimiters and then adding appropriate CSS classes.
- * Now handles block-level math equations differently from inline math.
- */
 function processHiddenMathBlocks(rootEl: HTMLElement): void {
-	// Look for both inline and block math elements
 	const mathEls = rootEl.querySelectorAll(".math");
 	mathEls.forEach((mathEl) => wrapMathElement(mathEl));
 }
 
-/**
- * Add CSS classes to the math element so that its hidden state is controlled by CSS.
- * Now properly distinguishes between block-level and inline math.
- */
 function wrapMathElement(mathEl: Element): void {
 	const parent = mathEl.parentElement;
 	if (!parent) return;
@@ -826,7 +785,6 @@ function wrapMathElement(mathEl: Element): void {
 	const prevSibling = mathEl.previousSibling;
 	if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = prevSibling.nodeValue ?? "";
-		// Look for a trailing [hide] delimiter.
 		const match = textContent.match(/(.*)\[hide\]\s*$/);
 		if (match) {
 			prevSibling.nodeValue = match[1];
@@ -837,7 +795,6 @@ function wrapMathElement(mathEl: Element): void {
 	const nextSibling = mathEl.nextSibling;
 	if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
 		const textContent = nextSibling.nodeValue ?? "";
-		// Look for a leading [/hide] delimiter.
 		const match = textContent.match(/^\s*\[\/hide\](.*)/);
 		if (match) {
 			nextSibling.nodeValue = match[1];
@@ -846,10 +803,7 @@ function wrapMathElement(mathEl: Element): void {
 	}
 
 	if (!foundDelimiters) return;
-
-	// Add appropriate classes based on whether it's a block or inline math
 	(mathEl as HTMLElement).classList.add("hidden-note", "toggle-hidden");
-
 	mathEl.addEventListener("click", () => {
 		(mathEl as HTMLElement).classList.toggle("toggle-hidden");
 	});
