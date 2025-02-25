@@ -11,4 +11,8 @@
 	color: transparent;
 	background-color: var(--hidden-color);
 	border-radius: 4px;
+	user-select: none; /* Standard */
+	-webkit-user-select: none; /* Safari */
+	-moz-user-select: none; /* Firefox */
+	-ms-user-select: none; /* IE10+ */
 }
