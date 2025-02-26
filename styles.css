@@ -19,7 +19,6 @@
 
 /* ------------- */
 /* Review Sidebar Container */
-/* Review Sidebar Container */
 .review-sidebar-container {
 	padding: 0 12px;
 	overflow-y: auto;
@@ -63,6 +62,10 @@
 @media (max-width: 600px) {
 	.card-container {
 		grid-template-columns: 1fr;
+	}
+	.review-card {
+		min-width: 0;
+		width: 100%;
 	}
 }
 
@@ -125,10 +128,15 @@
 	margin-right: 8px;
 }
 
+/* Adjusted Review Interval to break long timestamps */
 .review-interval {
 	margin-top: 8px;
 	font-size: 0.8rem;
 	color: var(--text-faint);
+	white-space: normal; /* Allow wrapping */
+	overflow-wrap: anywhere; /* Break long words */
+	word-break: break-all; /* Force breaks in long strings */
+	min-width: 0; /* Allow flex item to shrink */
 }
 
 /* Ease Factor Styling */
@@ -165,4 +173,11 @@
 	font-size: 3rem;
 	margin-bottom: 16px;
 	opacity: 0.5;
+}
+
+/* Additional adjustments for mobile devices */
+@media (max-width: 600px) {
+	.review-interval {
+		font-size: 0.75rem;
+	}
 }
