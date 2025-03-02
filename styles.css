@@ -18,6 +18,19 @@
 }
 
 /* ------------- */
+.inline-math-container {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	gap: 0.5em; /* adjust spacing as needed */
+	flex-wrap: wrap;
+}
+
+.inline-math-container .math-block {
+	display: inline-block;
+}
+
+/* ------------- */
 /* Review Sidebar Container */
 .review-sidebar-container {
 	padding: 0 12px;

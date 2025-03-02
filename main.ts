@@ -510,9 +510,10 @@ export default class MyPlugin extends Plugin {
 			this.toggleAllHidden();
 		});
 
+		// Register Markdown post-processor that calls both custom hidden text processing and our math block processor.
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
-			processHiddenMathBlocks(element);
+			processMathBlocks(element);
 		});
 
 		this.registerEvent(
@@ -1055,7 +1056,7 @@ class RatingModal extends Modal {
 }
 
 /* ============================================================================
- * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT
+ * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT AND INLINE MATH
  * ========================================================================== */
 
 function processCustomHiddenText(rootEl: HTMLElement): void {
@@ -1110,36 +1111,23 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	});
 }
 
-function processHiddenMathBlocks(rootEl: HTMLElement): void {
-	const mathEls = rootEl.querySelectorAll(".math");
-	mathEls.forEach((mathEl) => wrapMathElement(mathEl));
-}
-
-function wrapMathElement(mathEl: Element): void {
-	const parent = mathEl.parentElement;
-	if (!parent) return;
-	let foundDelimiters = false;
-	const prevSibling = mathEl.previousSibling;
-	if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
-		const textContent = prevSibling.nodeValue ?? "";
-		const match = textContent.match(/(.*)\[hide\]\s*$/);
-		if (match) {
-			prevSibling.nodeValue = match[1];
-			foundDelimiters = true;
+/**
+ * Processes paragraphs to detect multiple block-level math expressions and wraps them in a div.
+ * Assumes that math blocks are rendered with the class "math-block".
+ */
+function processMathBlocks(rootEl: HTMLElement): void {
+	rootEl.querySelectorAll("p").forEach((paragraph) => {
+		const mathBlocks = Array.from(
+			paragraph.querySelectorAll(".math-block")
+		);
+		console.log(mathBlocks);
+		if (mathBlocks.length > 1) {
+			const wrapper = document.createElement("div");
+			wrapper.classList.add("inline-math-container");
+			while (paragraph.firstChild) {
+				wrapper.appendChild(paragraph.firstChild);
+			}
+			paragraph.replaceWith(wrapper);
 		}
-	}
-	const nextSibling = mathEl.nextSibling;
-	if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
-		const textContent = nextSibling.nodeValue ?? "";
-		const match = textContent.match(/^\s*\[\/hide\](.*)/);
-		if (match) {
-			nextSibling.nodeValue = match[1];
-			foundDelimiters = true;
-		}
-	}
-	if (!foundDelimiters) return;
-	(mathEl as HTMLElement).classList.add("hidden-note", "toggle-hidden");
-	mathEl.addEventListener("click", () => {
-		(mathEl as HTMLElement).classList.toggle("toggle-hidden");
 	});
 }
