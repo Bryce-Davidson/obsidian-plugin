@@ -1120,7 +1120,6 @@ function processMathBlocks(rootEl: HTMLElement): void {
 		const mathBlocks = Array.from(
 			paragraph.querySelectorAll(".math-block")
 		);
-		console.log(mathBlocks);
 		if (mathBlocks.length > 1) {
 			const wrapper = document.createElement("div");
 			wrapper.classList.add("inline-math-container");
