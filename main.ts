@@ -651,125 +651,18 @@ export default class MyPlugin extends Plugin {
 	spacedRepetitionLog: { [filePath: string]: NoteState } = {};
 
 	private allHidden: boolean = true;
-	// Timer ID used to schedule refresh when a scheduled note becomes due
 	private refreshTimeout: number | null = null;
 
+	/* =========================
+	   Plugin Lifecycle Methods
+	========================= */
 	async onload() {
 		await this.loadPluginData();
-
-		// Add ribbon icon for flashcards
-		const ribbonIconEl = this.addRibbonIcon(
-			"layers",
-			"Flashcards",
-			(evt: MouseEvent) => {
-				// Prevent default behavior
-				evt.preventDefault();
-				// Show the flashcards modal
-				this.showFlashcardsModal();
-			}
-		);
-
-		// Add tooltip to ribbon icon
-		ribbonIconEl.addClass("flashcard-ribbon-icon");
-
-		// Command to show flashcards modal
-		this.addCommand({
-			id: "show-flashcards-modal",
-			name: "Show Flashcards Modal",
-			callback: () => this.showFlashcardsModal(),
-		});
-
-		// Command to wrap selected text in [card][/card] delimiters
-		this.addCommand({
-			id: "wrap-text-as-flashcard",
-			name: "Wrap Selected Text as Flashcard",
-			editorCallback: (editor: Editor) => {
-				this.wrapSelectedTextAsFlashcard(editor);
-			},
-		});
-
-		// Register a Markdown postprocessor to remove the [card][/card] delimiters
-		// from the rendered view. This ensures they remain hidden in reading view.
-		this.registerMarkdownPostProcessor((el: HTMLElement) => {
-			el.innerHTML = el.innerHTML.replace(/\[\/?card\]/g, "");
-		});
-
-		// ---------------
-
-		document.documentElement.style.setProperty(
-			"--hidden-color",
-			this.settings.hiddenColor
-		);
-
-		this.addRibbonIcon("check-square", "Review Current Note", () => {
-			this.openReviewModal();
-		});
-
+		this.initializeUI();
 		this.registerCommands();
+		this.registerEvents();
+		this.registerCustomViews();
 		this.addSettingTab(new MyPluginSettingTab(this.app, this));
-
-		this.addRibbonIcon("eye", "Toggle All Hidden Content", () => {
-			this.toggleAllHidden();
-		});
-
-		this.registerMarkdownPostProcessor((element, context) => {
-			processCustomHiddenText(element);
-			processMathBlocks(element);
-		});
-
-		this.registerEvent(
-			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
-				if (this.visitLog[oldPath]) {
-					this.visitLog[file.path] = this.visitLog[oldPath];
-					delete this.visitLog[oldPath];
-				}
-				if (this.spacedRepetitionLog[oldPath]) {
-					this.spacedRepetitionLog[file.path] =
-						this.spacedRepetitionLog[oldPath];
-					delete this.spacedRepetitionLog[oldPath];
-				}
-				this.savePluginData();
-				console.log(`Updated logs from ${oldPath} to ${file.path}`);
-
-				// Refresh both panels if they are open
-				this.refreshReviewQueue();
-				this.refreshScheduledQueue();
-				this.scheduleNextDueRefresh();
-			})
-		);
-
-		// Refresh panels whenever the active file is modified (e.g. when tags are edited)
-		this.registerEvent(
-			this.app.vault.on("modify", (file: TFile) => {
-				const activeFile = this.app.workspace.getActiveFile();
-				if (activeFile && file.path === activeFile.path) {
-					// Small timeout to allow metadata updates to propagate
-					setTimeout(() => {
-						this.refreshReviewQueue();
-						this.refreshScheduledQueue();
-						this.scheduleNextDueRefresh();
-					}, 100);
-				}
-			})
-		);
-
-		this.registerView(
-			REVIEW_VIEW_TYPE,
-			(leaf) => new ReviewSidebarView(leaf, this)
-		);
-		this.registerView(
-			SCHEDULED_VIEW_TYPE,
-			(leaf) => new ScheduledSidebarView(leaf, this)
-		);
-
-		this.addRibbonIcon("file-text", "Open Review Queue", () => {
-			this.activateReviewSidebar();
-		});
-		this.addRibbonIcon("calendar", "Open Scheduled Queue", () => {
-			this.activateScheduledSidebar();
-		});
-
-		// Schedule the first due refresh based on scheduled notes
 		this.scheduleNextDueRefresh();
 	}
 
@@ -781,6 +674,9 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	/* =========================
+	   Data Loading & Saving
+	========================= */
 	async loadPluginData() {
 		const data = (await this.loadData()) as PluginData;
 		if (data) {
@@ -791,6 +687,11 @@ export default class MyPlugin extends Plugin {
 			this.visitLog = {};
 			this.spacedRepetitionLog = {};
 		}
+		// Apply settings (e.g. hidden color)
+		document.documentElement.style.setProperty(
+			"--hidden-color",
+			this.settings.hiddenColor
+		);
 	}
 
 	async savePluginData() {
@@ -805,48 +706,209 @@ export default class MyPlugin extends Plugin {
 		await this.savePluginData();
 	}
 
+	/* =========================
+	   UI Initialization
+	========================= */
+	private initializeUI(): void {
+		// Add ribbon icons
+		this.addRibbonIcon("layers", "Flashcards", (evt: MouseEvent) => {
+			evt.preventDefault();
+			this.showFlashcardsModal();
+		}).addClass("flashcard-ribbon-icon");
+
+		this.addRibbonIcon("check-square", "Review Current Note", () => {
+			this.openReviewModal();
+		});
+
+		this.addRibbonIcon("eye", "Toggle All Hidden Content", () => {
+			this.toggleAllHidden();
+		});
+
+		this.addRibbonIcon("file-text", "Open Review Queue", () => {
+			this.activateReviewSidebar();
+		});
+
+		this.addRibbonIcon("calendar", "Open Scheduled Queue", () => {
+			this.activateScheduledSidebar();
+		});
+
+		// Markdown post processors
+		this.registerMarkdownPostProcessor((el: HTMLElement) => {
+			// Remove flashcard tags
+			el.innerHTML = el.innerHTML.replace(/\[\/?card\]/g, "");
+		});
+
+		this.registerMarkdownPostProcessor((element, context) => {
+			processCustomHiddenText(element);
+			processMathBlocks(element);
+		});
+	}
+
+	/* =========================
+	   Command Registration
+	========================= */
+	private registerCommands(): void {
+		// Flashcard modal
+		this.addCommand({
+			id: "show-flashcards-modal",
+			name: "Show Flashcards Modal",
+			callback: () => this.showFlashcardsModal(),
+		});
+
+		// Wrap selected text as flashcard
+		this.addCommand({
+			id: "wrap-text-as-flashcard",
+			name: "Wrap Selected Text as Flashcard",
+			editorCallback: (editor: Editor) =>
+				this.wrapSelectedTextAsFlashcard(editor),
+		});
+
+		// Sample editor command
+		this.addCommand({
+			id: "sample-editor-command",
+			name: "Sample editor command",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				console.log("Selected text:", editor.getSelection());
+				editor.replaceSelection("Sample Editor Command");
+			},
+		});
+
+		// Review current note (Spaced Repetition)
+		this.addCommand({
+			id: "review-current-note",
+			name: "Review Current Note (Spaced Repetition)",
+			callback: () => this.openReviewModal(),
+		});
+
+		// Open review queue
+		this.addCommand({
+			id: "open-review-queue",
+			name: "Open Review Queue",
+			callback: () => this.activateReviewSidebar(),
+		});
+
+		// Open scheduled queue
+		this.addCommand({
+			id: "open-scheduled-queue",
+			name: "Open Scheduled Queue",
+			callback: () => this.activateScheduledSidebar(),
+		});
+
+		// Wrap selected text with hide tags
+		this.addCommand({
+			id: "wrap-selected-text-with-hide",
+			name: "Wrap Selected Text in [hide][/hide]",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				const selection = editor.getSelection();
+				if (!selection) {
+					new Notice("Please select some text to hide.");
+					return;
+				}
+				editor.replaceSelection(`[hide]${selection}[/hide]`);
+			},
+		});
+
+		// Toggle all hidden content
+		this.addCommand({
+			id: "toggle-all-hidden",
+			name: "Toggle All Hidden Content",
+			callback: () => this.toggleAllHidden(),
+		});
+
+		// Delete hide wrappers
+		this.addCommand({
+			id: "delete-hide-wrappers",
+			name: "Delete [hide][/hide] wrappers",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.deleteHideWrappers(editor);
+			},
+		});
+	}
+
+	/* =========================
+	   Event Registration
+	========================= */
+	private registerEvents(): void {
+		// Handle file rename to update logs
+		this.registerEvent(
+			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
+				this.handleFileRename(file, oldPath);
+			})
+		);
+
+		// Handle file modifications for active file
+		this.registerEvent(
+			this.app.vault.on("modify", (file: TFile) => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (activeFile && file.path === activeFile.path) {
+					setTimeout(() => {
+						this.refreshReviewQueue();
+						this.refreshScheduledQueue();
+						this.scheduleNextDueRefresh();
+					}, 100);
+				}
+			})
+		);
+	}
+
+	/* =========================
+	   Custom Views Registration
+	========================= */
+	private registerCustomViews(): void {
+		this.registerView(
+			REVIEW_VIEW_TYPE,
+			(leaf) => new ReviewSidebarView(leaf, this)
+		);
+		this.registerView(
+			SCHEDULED_VIEW_TYPE,
+			(leaf) => new ScheduledSidebarView(leaf, this)
+		);
+	}
+
+	/* =========================
+	   Command Handlers & Utilities
+	========================= */
 	wrapSelectedTextAsFlashcard(editor: Editor) {
 		const selection = editor.getSelection();
-
-		if (selection) {
-			// Trim the selection to avoid extra whitespace
-			const trimmedSelection = selection.trim();
-
-			if (trimmedSelection.length > 0) {
-				// Replace the selection with the wrapped version
-				editor.replaceSelection(`[card]${trimmedSelection}[/card]`);
-				new Notice("Text wrapped as flashcard");
-			} else {
-				new Notice("Please select some text first");
-			}
+		if (selection && selection.trim().length > 0) {
+			editor.replaceSelection(`[card]${selection.trim()}[/card]`);
+			new Notice("Text wrapped as flashcard");
 		} else {
 			new Notice("Please select some text first");
 		}
 	}
 
-	async showFlashcardsModal() {
-		const activeFile = this.app.workspace.getActiveFile();
-		if (!activeFile) {
-			new Notice("No active file open.");
+	deleteHideWrappers(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const startMatches = [
+			...line.substring(0, cursor.ch).matchAll(/\[hide(?:=\d+)?\]/g),
+		];
+		const startMatch =
+			startMatches.length > 0
+				? startMatches[startMatches.length - 1]
+				: null;
+		const startIndex = startMatch ? startMatch.index : -1;
+		const endIndex = line.indexOf("[/hide]", cursor.ch);
+		if (startIndex === -1 || endIndex === -1) {
+			new Notice("Cursor is not inside a [hide]...[/hide] block.");
 			return;
 		}
-		const content = await this.app.vault.read(activeFile);
-		const flashcards = this.parseFlashcards(content);
-		if (flashcards.length > 0) {
-			new FlashcardModal(this.app, flashcards, this).open();
-		} else {
-			new Notice("No flashcards found.");
-		}
+		const hideTag = startMatch ? startMatch[0] : "[hide]";
+		const newLine =
+			line.slice(0, startIndex) +
+			line.slice(startIndex + hideTag.length, endIndex) +
+			line.slice(endIndex + "[/hide]".length);
+		editor.setLine(cursor.line, newLine);
+		new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
 	}
 
-	// Parse every [card]...[/card] pair (even nested ones) as separate flashcards.
 	parseFlashcards(content: string): string[] {
 		const flashcards: string[] = [];
 		const openTag = "[card]";
 		const closeTag = "[/card]";
 		const stack: number[] = [];
 		let pos = 0;
-
 		while (pos < content.length) {
 			const nextOpen = content.indexOf(openTag, pos);
 			const nextClose = content.indexOf(closeTag, pos);
@@ -866,6 +928,21 @@ export default class MyPlugin extends Plugin {
 			}
 		}
 		return flashcards;
+	}
+
+	async showFlashcardsModal() {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) {
+			new Notice("No active file open.");
+			return;
+		}
+		const content = await this.app.vault.read(activeFile);
+		const flashcards = this.parseFlashcards(content);
+		if (flashcards.length > 0) {
+			new FlashcardModal(this.app, flashcards, this).open();
+		} else {
+			new Notice("No flashcards found.");
+		}
 	}
 
 	private openReviewModal(): void {
@@ -891,99 +968,6 @@ export default class MyPlugin extends Plugin {
 				this.updateNoteWithQuality(filePath, rating, false);
 			}
 		}).open();
-	}
-
-	private registerCommands(): void {
-		this.addCommand({
-			id: "sample-editor-command",
-			name: "Sample editor command",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log("Selected text:", editor.getSelection());
-				editor.replaceSelection("Sample Editor Command");
-			},
-		});
-
-		this.addCommand({
-			id: "review-current-note",
-			name: "Review Current Note (Spaced Repetition)",
-			callback: () => {
-				this.openReviewModal();
-			},
-		});
-
-		this.addCommand({
-			id: "open-review-queue",
-			name: "Open Review Queue",
-			callback: () => {
-				this.activateReviewSidebar();
-			},
-		});
-
-		this.addCommand({
-			id: "open-scheduled-queue",
-			name: "Open Scheduled Queue",
-			callback: () => {
-				this.activateScheduledSidebar();
-			},
-		});
-
-		this.addCommand({
-			id: "wrap-selected-text-with-hide",
-			name: "Wrap Selected Text in [hide][/hide]",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				const selection = editor.getSelection();
-				if (!selection) {
-					new Notice("Please select some text to hide.");
-					return;
-				}
-				const wrapped = `[hide]${selection}[/hide]`;
-				editor.replaceSelection(wrapped);
-			},
-		});
-
-		this.addCommand({
-			id: "toggle-all-hidden",
-			name: "Toggle All Hidden Content",
-			callback: () => {
-				this.toggleAllHidden();
-			},
-		});
-
-		this.addCommand({
-			id: "delete-hide-wrappers",
-			name: "Delete [hide][/hide] wrappers",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				const cursor = editor.getCursor();
-				const line = editor.getLine(cursor.line);
-				const startMatches = [
-					...line
-						.substring(0, cursor.ch)
-						.matchAll(/\[hide(?:=\d+)?\]/g),
-				];
-				let startMatch =
-					startMatches.length > 0
-						? startMatches[startMatches.length - 1]
-						: null;
-				let startIndex = startMatch ? startMatch.index : -1;
-				const endIndex = line.indexOf("[/hide]", cursor.ch);
-				if (startIndex === -1 || endIndex === -1) {
-					new Notice(
-						"Cursor is not inside a [hide]...[/hide] block."
-					);
-					return;
-				}
-				const hideTag = startMatch ? startMatch[0] : "[hide]";
-				const before = line.slice(0, startIndex);
-				const between = line.slice(
-					startIndex + hideTag.length,
-					endIndex
-				);
-				const after = line.slice(endIndex + "[/hide]".length);
-				const newLine = before + between + after;
-				editor.setLine(cursor.line, newLine);
-				new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
-			},
-		});
 	}
 
 	private async updateNoteWithQuality(
@@ -1022,6 +1006,26 @@ export default class MyPlugin extends Plugin {
 		this.scheduleNextDueRefresh();
 	}
 
+	private handleFileRename(file: TFile, oldPath: string) {
+		if (this.visitLog[oldPath]) {
+			this.visitLog[file.path] = this.visitLog[oldPath];
+			delete this.visitLog[oldPath];
+		}
+		if (this.spacedRepetitionLog[oldPath]) {
+			this.spacedRepetitionLog[file.path] =
+				this.spacedRepetitionLog[oldPath];
+			delete this.spacedRepetitionLog[oldPath];
+		}
+		this.savePluginData();
+		console.log(`Updated logs from ${oldPath} to ${file.path}`);
+		this.refreshReviewQueue();
+		this.refreshScheduledQueue();
+		this.scheduleNextDueRefresh();
+	}
+
+	/* =========================
+	   Sidebar Activation & Refreshing
+	========================= */
 	async activateReviewSidebar() {
 		let leaf = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE)[0];
 		if (!leaf) {
@@ -1047,16 +1051,6 @@ export default class MyPlugin extends Plugin {
 		this.app.workspace.revealLeaf(leaf);
 	}
 
-	private toggleAllHidden(): void {
-		const textEls = document.querySelectorAll(".hidden-note");
-		if (this.allHidden) {
-			textEls.forEach((el) => el.classList.remove("toggle-hidden"));
-		} else {
-			textEls.forEach((el) => el.classList.add("toggle-hidden"));
-		}
-		this.allHidden = !this.allHidden;
-	}
-
 	private refreshReviewQueue(): void {
 		const reviewLeaves =
 			this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
@@ -1077,11 +1071,9 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
-	/**
-	 * Schedules a timer to refresh the panels when the next scheduled note becomes due.
-	 * It scans the spaced repetition log for the earliest upcoming review time,
-	 * and sets a timeout accordingly.
-	 */
+	/* =========================
+	   Scheduling Refreshes
+	========================= */
 	private scheduleNextDueRefresh(): void {
 		if (this.refreshTimeout !== null) {
 			clearTimeout(this.refreshTimeout);
@@ -1093,11 +1085,11 @@ export default class MyPlugin extends Plugin {
 			const state = this.spacedRepetitionLog[filePath];
 			if (state.active && state.nextReviewDate) {
 				const nextTime = new Date(state.nextReviewDate).getTime();
-				// Only consider scheduled notes that are still in the future.
-				if (nextTime > now.getTime()) {
-					if (earliestTime === null || nextTime < earliestTime) {
-						earliestTime = nextTime;
-					}
+				if (
+					nextTime > now.getTime() &&
+					(earliestTime === null || nextTime < earliestTime)
+				) {
+					earliestTime = nextTime;
 				}
 			}
 		}
@@ -1109,6 +1101,19 @@ export default class MyPlugin extends Plugin {
 				this.scheduleNextDueRefresh();
 			}, delay);
 		}
+	}
+
+	/* =========================
+	   Toggle Hidden Content
+	========================= */
+	private toggleAllHidden(): void {
+		const textEls = document.querySelectorAll(".hidden-note");
+		if (this.allHidden) {
+			textEls.forEach((el) => el.classList.remove("toggle-hidden"));
+		} else {
+			textEls.forEach((el) => el.classList.add("toggle-hidden"));
+		}
+		this.allHidden = !this.allHidden;
 	}
 }
 
