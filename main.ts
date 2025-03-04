@@ -191,12 +191,8 @@ function updateNoteState(
 	}
 }
 
-/* ============================================================================
- * REVIEW SIDEBAR VIEW (Review Queue)
- * ========================================================================== */
-
-export const REVIEW_VIEW_TYPE = "review-sidebar";
-export class ReviewSidebarView extends ItemView {
+// BaseSidebarView.ts
+export abstract class BaseSidebarView extends ItemView {
 	plugin: MyPlugin;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
@@ -204,59 +200,45 @@ export class ReviewSidebarView extends ItemView {
 		this.plugin = plugin;
 	}
 
-	getViewType(): string {
-		return REVIEW_VIEW_TYPE;
-	}
-
-	getDisplayText(): string {
-		return "Review Queue";
-	}
-
-	getIcon(): string {
-		return "file-text";
-	}
+	// Abstract methods to provide specifics for each sidebar
+	abstract getViewType(): string;
+	abstract getDisplayText(): string;
+	abstract getIcon(): string;
+	abstract getHeaderTitle(): string;
+	abstract getCountMessage(count: number): string;
+	abstract getEmptyStateIcon(): string;
+	abstract getEmptyStateTitle(): string;
+	abstract getEmptyStateMessage(): string;
+	abstract filterFiles(now: Date): string[];
 
 	async onOpen() {
+		// Get container element and set the common class
 		const container = this.containerEl.children[1] || this.containerEl;
 		container.empty();
 		container.addClass("review-sidebar-container");
 
 		const now = new Date();
-		const reviewNotes: string[] = [];
+		// Get files according to the specific filtering criteria
+		const filePaths = this.filterFiles(now);
 		const validFiles: string[] = [];
 
-		// Collect due notes
-		for (const filePath in this.plugin.spacedRepetitionLog) {
-			const state = this.plugin.spacedRepetitionLog[filePath];
-			if (
-				state.active &&
-				state.nextReviewDate &&
-				new Date(state.nextReviewDate) <= now
-			) {
-				reviewNotes.push(filePath);
-			}
-		}
-
 		// Verify files exist
-		for (const filePath of reviewNotes) {
+		for (const filePath of filePaths) {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-			if (file && file instanceof TFile) {
-				validFiles.push(filePath);
-			}
+			if (file && file instanceof TFile) validFiles.push(filePath);
 		}
 
+		// Create header section
 		const spacer = container.createEl("div", { cls: "header-spacer" });
 		spacer.setAttr("style", "height: 12px;");
 		const header = container.createEl("div", { cls: "review-header" });
-		header.createEl("h2", { text: "Review Queue" });
-		// Always display the subheading, even if 0 notes.
+		header.createEl("h2", { text: this.getHeaderTitle() });
 		header.createEl("div", {
 			cls: "review-count",
-			text: `${validFiles.length} note${
-				validFiles.length === 1 ? "" : "s"
-			} to review`,
+			text: this.getCountMessage(validFiles.length),
 		});
 
+		// Empty state if no files
 		if (validFiles.length === 0) {
 			const emptyState = container.createEl("div", {
 				cls: "review-empty",
@@ -264,11 +246,13 @@ export class ReviewSidebarView extends ItemView {
 			const iconDiv = emptyState.createEl("div", {
 				cls: "review-empty-icon",
 			});
-			iconDiv.innerHTML = "📚";
-			emptyState.createEl("h3", { text: "You're all caught up!" });
-			emptyState.createEl("p", { text: "0 notes due for review." });
+			iconDiv.innerHTML = this.getEmptyStateIcon();
+			emptyState.createEl("h3", { text: this.getEmptyStateTitle() });
+			emptyState.createEl("p", { text: this.getEmptyStateMessage() });
+			return;
 		}
 
+		// Create card container and add cards for each file.
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
 		});
@@ -277,6 +261,7 @@ export class ReviewSidebarView extends ItemView {
 			if (!file || !(file instanceof TFile)) return;
 			const noteState = this.plugin.spacedRepetitionLog[filePath];
 
+			// Use metadata cache to extract frontmatter tags (if any)
 			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
 			const tags = fileCache?.frontmatter?.tags;
 			const firstTag = Array.isArray(tags) ? tags[0] : tags;
@@ -297,58 +282,109 @@ export class ReviewSidebarView extends ItemView {
 				tagEl.createEl("span", { text: `#${firstTag}` });
 			}
 
-			const lastReviewDate = new Date(noteState.lastReviewDate);
-			const daysSinceReview = Math.floor(
-				(now.getTime() - lastReviewDate.getTime()) /
-					(1000 * 60 * 60 * 24)
-			);
-
-			const metaContainer = card.createEl("div", {
-				cls: "review-card-meta",
-			});
-			const intervalEl = card.createEl("div", { cls: "review-interval" });
-			intervalEl.createEl("span", {
-				text: `Last review: ${
-					daysSinceReview === 0
-						? "Today"
-						: daysSinceReview === 1
-						? "Yesterday"
-						: `${daysSinceReview} days ago`
-				}`,
-			});
-
-			const efEl = metaContainer.createEl("div", { cls: "review-stat" });
-			const efValue = noteState.ef.toFixed(2);
-			const efClass =
-				noteState.ef >= 2.5
-					? "ef-high"
-					: noteState.ef >= 1.8
-					? "ef-medium"
-					: "ef-low";
-			efEl.createEl("span", { text: "EF: " });
-			efEl.createEl("span", {
-				text: efValue,
-				cls: `ef-value ${efClass}`,
-			});
+			this.addCardMeta(card, noteState, now);
 		});
 	}
 
-	async onClose() {
-		// Clean up if needed
+	// Default behavior: subclasses may override this method if needed.
+	protected addCardMeta(
+		card: HTMLElement,
+		noteState: NoteState,
+		now: Date
+	): void {
+		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
+		// For a review card, show last review info; subclasses can change as needed.
+		const intervalEl = card.createEl("div", { cls: "review-interval" });
+		const lastReviewDate = new Date(noteState.lastReviewDate);
+		const daysSinceReview = Math.floor(
+			(now.getTime() - lastReviewDate.getTime()) / (1000 * 60 * 60 * 24)
+		);
+		intervalEl.createEl("span", {
+			text:
+				daysSinceReview === 0
+					? "Today"
+					: daysSinceReview === 1
+					? "Yesterday"
+					: `${daysSinceReview} days ago`,
+		});
+
+		// Show Ease Factor
+		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
+		efEl.createEl("span", { text: "EF: " });
+		const efValue = noteState.ef.toFixed(2);
+		const efClass =
+			noteState.ef >= 2.5
+				? "ef-high"
+				: noteState.ef >= 1.8
+				? "ef-medium"
+				: "ef-low";
+		efEl.createEl("span", { text: efValue, cls: `ef-value ${efClass}` });
 	}
 }
 
-/* ============================================================================
- * SCHEDULED SIDEBAR VIEW (Scheduled Queue)
- * ========================================================================== */
-
-export const SCHEDULED_VIEW_TYPE = "scheduled-sidebar";
-export class ScheduledSidebarView extends ItemView {
-	plugin: MyPlugin;
-
+// ReviewSidebarView.ts
+export const REVIEW_VIEW_TYPE = "review-sidebar";
+export class ReviewSidebarView extends BaseSidebarView {
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
-		super(leaf);
-		this.plugin = plugin;
+		super(leaf, plugin);
+	}
+
+	getViewType(): string {
+		return REVIEW_VIEW_TYPE;
+	}
+
+	getDisplayText(): string {
+		return "Review Queue";
+	}
+
+	getIcon(): string {
+		return "file-text";
+	}
+
+	getHeaderTitle(): string {
+		return "Review Queue";
+	}
+
+	getCountMessage(count: number): string {
+		return `${count} note${count === 1 ? "" : "s"} to review`;
+	}
+
+	getEmptyStateIcon(): string {
+		return "📚";
+	}
+
+	getEmptyStateTitle(): string {
+		return "You're all caught up!";
+	}
+
+	getEmptyStateMessage(): string {
+		return "0 notes due for review.";
+	}
+
+	// Only include notes that are due (nextReviewDate is now or in the past)
+	filterFiles(now: Date): string[] {
+		const due: string[] = [];
+		for (const filePath in this.plugin.spacedRepetitionLog) {
+			const state = this.plugin.spacedRepetitionLog[filePath];
+			if (
+				state.active &&
+				state.nextReviewDate &&
+				new Date(state.nextReviewDate) <= now
+			) {
+				due.push(filePath);
+			}
+		}
+		return due;
+	}
+
+	// Use default addCardMeta from BaseSidebarView (shows last review info)
+}
+
+// ScheduledSidebarView.ts
+export const SCHEDULED_VIEW_TYPE = "scheduled-sidebar";
+export class ScheduledSidebarView extends BaseSidebarView {
+	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
+		super(leaf, plugin);
 	}
 
 	getViewType(): string {
@@ -363,17 +399,29 @@ export class ScheduledSidebarView extends ItemView {
 		return "calendar";
 	}
 
-	async onOpen() {
-		const container = this.containerEl.children[1] || this.containerEl;
-		container.empty();
-		// Use same container classes for consistent styling.
-		container.addClass("review-sidebar-container");
+	getHeaderTitle(): string {
+		return "Scheduled Queue";
+	}
 
-		const now = new Date();
-		const scheduledNotes: string[] = [];
-		const validFiles: string[] = [];
+	getCountMessage(count: number): string {
+		return `${count} note${count === 1 ? "" : "s"} scheduled`;
+	}
 
-		// Collect notes with nextReviewDate in the future
+	getEmptyStateIcon(): string {
+		return "📅";
+	}
+
+	getEmptyStateTitle(): string {
+		return "No upcoming reviews!";
+	}
+
+	getEmptyStateMessage(): string {
+		return "0 notes scheduled for review.";
+	}
+
+	// Only include notes that are scheduled for the future.
+	filterFiles(now: Date): string[] {
+		const scheduled: string[] = [];
 		for (const filePath in this.plugin.spacedRepetitionLog) {
 			const state = this.plugin.spacedRepetitionLog[filePath];
 			if (
@@ -381,20 +429,11 @@ export class ScheduledSidebarView extends ItemView {
 				state.nextReviewDate &&
 				new Date(state.nextReviewDate) > now
 			) {
-				scheduledNotes.push(filePath);
+				scheduled.push(filePath);
 			}
 		}
-
-		// Verify files exist
-		for (const filePath of scheduledNotes) {
-			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-			if (file && file instanceof TFile) {
-				validFiles.push(filePath);
-			}
-		}
-
 		// Sort by nextReviewDate ascending
-		validFiles.sort((a, b) => {
+		return scheduled.sort((a, b) => {
 			const dateA = new Date(
 				this.plugin.spacedRepetitionLog[a].nextReviewDate!
 			);
@@ -403,77 +442,9 @@ export class ScheduledSidebarView extends ItemView {
 			);
 			return dateA.getTime() - dateB.getTime();
 		});
-
-		const spacer = container.createEl("div", { cls: "header-spacer" });
-		spacer.setAttr("style", "height: 12px;");
-		const header = container.createEl("div", { cls: "review-header" });
-		header.createEl("h2", { text: "Scheduled Queue" });
-		// Always display the subheading even if 0 notes.
-		header.createEl("div", {
-			cls: "review-count",
-			text: `${validFiles.length} note${
-				validFiles.length === 1 ? "" : "s"
-			} scheduled`,
-		});
-
-		if (validFiles.length === 0) {
-			const emptyState = container.createEl("div", {
-				cls: "review-empty",
-			});
-			const iconDiv = emptyState.createEl("div", {
-				cls: "review-empty-icon",
-			});
-			iconDiv.innerHTML = "📅";
-			emptyState.createEl("h3", { text: "No upcoming reviews!" });
-			emptyState.createEl("p", { text: "0 notes scheduled for review." });
-		}
-
-		const cardContainer = container.createEl("div", {
-			cls: "card-container",
-		});
-		validFiles.forEach(async (filePath) => {
-			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-			if (!file || !(file instanceof TFile)) return;
-			const noteState = this.plugin.spacedRepetitionLog[filePath];
-
-			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
-			const tags = fileCache?.frontmatter?.tags;
-			const firstTag = Array.isArray(tags) ? tags[0] : tags;
-
-			const card = cardContainer.createEl("div", { cls: "review-card" });
-			card.addEventListener("click", () => {
-				this.plugin.app.workspace.getLeaf().openFile(file);
-			});
-
-			const titleRow = card.createEl("div", { cls: "title-row" });
-			// Use the truncateTitle helper to shorten long note titles
-			titleRow.createEl("h3", {
-				text: truncateTitle(file.basename),
-				title: file.basename,
-			});
-
-			if (firstTag) {
-				const tagEl = titleRow.createEl("div", { cls: "review-tag" });
-				tagEl.createEl("span", { text: `#${firstTag}` });
-			}
-
-			const metaContainer = card.createEl("div", {
-				cls: "review-card-meta",
-			});
-			// Display the scheduled next review time
-			const nextReviewFormatted = formatNextReviewTime(
-				noteState.nextReviewDate!
-			);
-			metaContainer.createEl("div", {
-				cls: "review-interval",
-				text: nextReviewFormatted,
-			});
-		});
 	}
 
-	async onClose() {
-		// Clean up if needed
-	}
+	// For scheduled notes, you might choose to override addCardMeta if you want different meta information.
 }
 
 class FlashcardModal extends Modal {
