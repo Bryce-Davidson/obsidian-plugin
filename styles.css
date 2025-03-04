@@ -305,12 +305,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-}
-
-.flashcard-nav-button:hover {
-	background-color: var(
-		--background-secondary
-	); /* Maintain same color on hover */
+	cursor: pointer;
 }
 
 .flashcard-nav-button .clickable-icon {
@@ -319,10 +314,6 @@
 
 .flashcard-nav-button.last-card-button {
 	background-color: #4caf50;
-}
-
-.flashcard-nav-button.last-card-button:hover {
-	background-color: #4caf50; /* Maintain same color on hover for the green button */
 }
 
 .flashcard-nav-button.last-card-button .clickable-icon {
