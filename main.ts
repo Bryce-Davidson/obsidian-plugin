@@ -918,35 +918,11 @@ export default class MyPlugin extends Plugin {
 
 	private registerCommands(): void {
 		this.addCommand({
-			id: "open-sample-modal-simple",
-			name: "Open sample modal (simple)",
-			callback: () => {
-				new SampleModal(this.app).open();
-			},
-		});
-
-		this.addCommand({
 			id: "sample-editor-command",
 			name: "Sample editor command",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				console.log("Selected text:", editor.getSelection());
 				editor.replaceSelection("Sample Editor Command");
-			},
-		});
-
-		this.addCommand({
-			id: "open-sample-modal-complex",
-			name: "Open sample modal (complex)",
-			checkCallback: (checking: boolean) => {
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-					return true;
-				}
-				return false;
 			},
 		});
 
@@ -1182,20 +1158,6 @@ export default class MyPlugin extends Plugin {
 /* ============================================================================
  * CUSTOM MODALS
  * ========================================================================== */
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText("Modal opened!");
-	}
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
-	}
-}
 
 /**
  * Helper function to format the next review time as "YYYY-MM-DD:HH:mm" in 24hr format
