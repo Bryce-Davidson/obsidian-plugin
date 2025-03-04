@@ -26,7 +26,7 @@ interface MyPluginSettings {
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	mySetting: "default",
-	hiddenColor: "#00ffbf",
+	hiddenColor: "#272c36",
 };
 
 interface PluginData {
