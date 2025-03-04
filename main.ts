@@ -408,7 +408,45 @@ export class ReviewSidebarView extends BaseSidebarView {
 		return due;
 	}
 
-	// Use default addCardMeta from BaseSidebarView (shows last review info)
+	protected addCardMeta(
+		card: HTMLElement,
+		noteState: NoteState,
+		now: Date
+	): void {
+		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
+		const intervalEl = card.createEl("div", { cls: "review-interval" });
+		const lastReviewDate = new Date(noteState.lastReviewDate);
+		const daysSinceReview = Math.floor(
+			(now.getTime() - lastReviewDate.getTime()) / (1000 * 60 * 60 * 24)
+		);
+		const displayText =
+			daysSinceReview === 0
+				? "Today"
+				: daysSinceReview === 1
+				? "Yesterday"
+				: `${daysSinceReview} days ago`;
+		// Format the time in 24h format (HH:mm)
+		const lastReviewTime = lastReviewDate.toLocaleTimeString("en-GB", {
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: false,
+		});
+		intervalEl.createEl("span", {
+			text: `Reviewed: ${displayText} at ${lastReviewTime}`,
+		});
+
+		// Show Ease Factor
+		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
+		efEl.createEl("span", { text: "EF: " });
+		const efValue = noteState.ef.toFixed(2);
+		const efClass =
+			noteState.ef >= 2.5
+				? "ef-high"
+				: noteState.ef >= 1.8
+				? "ef-medium"
+				: "ef-low";
+		efEl.createEl("span", { text: efValue, cls: `ef-value ${efClass}` });
+	}
 }
 
 // ScheduledSidebarView.ts
@@ -475,7 +513,46 @@ export class ScheduledSidebarView extends BaseSidebarView {
 		});
 	}
 
-	// For scheduled notes, you might choose to override addCardMeta if you want different meta information.
+	protected addCardMeta(
+		card: HTMLElement,
+		noteState: NoteState,
+		now: Date
+	): void {
+		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
+		const intervalEl = card.createEl("div", { cls: "review-interval" });
+		if (noteState.nextReviewDate) {
+			const nextReviewDate = new Date(noteState.nextReviewDate);
+			const diffMs = nextReviewDate.getTime() - now.getTime();
+			const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+			const displayText =
+				diffDays === 0
+					? "Today"
+					: diffDays === 1
+					? "Tomorrow"
+					: `in ${diffDays} days`;
+			// Format the time in 24h format (HH:mm)
+			const nextReviewTime = nextReviewDate.toLocaleTimeString("en-GB", {
+				hour: "2-digit",
+				minute: "2-digit",
+				hour12: false,
+			});
+			intervalEl.createEl("span", {
+				text: `Next: ${displayText} at ${nextReviewTime}`,
+			});
+		}
+
+		// Show Ease Factor
+		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
+		efEl.createEl("span", { text: "EF: " });
+		const efValue = noteState.ef.toFixed(2);
+		const efClass =
+			noteState.ef >= 2.5
+				? "ef-high"
+				: noteState.ef >= 1.8
+				? "ef-medium"
+				: "ef-low";
+		efEl.createEl("span", { text: efValue, cls: `ef-value ${efClass}` });
+	}
 }
 
 class FlashcardModal extends Modal {
