@@ -1017,10 +1017,8 @@ export default class MyPlugin extends Plugin {
 			);
 		}
 		await this.savePluginData();
-		// Refresh both panels after a note is reviewed
 		this.refreshReviewQueue();
 		this.refreshScheduledQueue();
-		// Recalculate the next due refresh in case scheduled dates have changed
 		this.scheduleNextDueRefresh();
 	}
 
@@ -1049,9 +1047,6 @@ export default class MyPlugin extends Plugin {
 		this.app.workspace.revealLeaf(leaf);
 	}
 
-	// ============================================================================
-	// TOGGLE ALL HIDDEN CONTENT FUNCTIONALITY (Using CSS classes)
-	// ============================================================================
 	private toggleAllHidden(): void {
 		const textEls = document.querySelectorAll(".hidden-note");
 		if (this.allHidden) {
@@ -1062,9 +1057,6 @@ export default class MyPlugin extends Plugin {
 		this.allHidden = !this.allHidden;
 	}
 
-	// ============================================================================
-	// Helper functions to refresh the panels
-	// ============================================================================
 	private refreshReviewQueue(): void {
 		const reviewLeaves =
 			this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
@@ -1091,7 +1083,6 @@ export default class MyPlugin extends Plugin {
 	 * and sets a timeout accordingly.
 	 */
 	private scheduleNextDueRefresh(): void {
-		// Clear any existing timer.
 		if (this.refreshTimeout !== null) {
 			clearTimeout(this.refreshTimeout);
 			this.refreshTimeout = null;
@@ -1111,7 +1102,6 @@ export default class MyPlugin extends Plugin {
 			}
 		}
 		if (earliestTime !== null) {
-			// Compute the delay until the next note becomes due (add a small margin)
 			const delay = earliestTime - now.getTime() + 100;
 			this.refreshTimeout = window.setTimeout(() => {
 				this.refreshReviewQueue();
@@ -1154,14 +1144,10 @@ class RatingModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
+		// Create the container for rating buttons with the defined class
 		const buttonContainer = contentEl.createEl("div", {
 			cls: "rating-button-container",
 		});
-		buttonContainer.style.display = "flex";
-		buttonContainer.style.flexDirection = "column";
-		buttonContainer.style.alignItems = "center";
-		buttonContainer.style.margin = "10px 0";
-		buttonContainer.style.width = "100%";
 		const ratings = [
 			{ value: "0", text: "Forgot Completely", color: "#FF4C4C" },
 			{ value: "1", text: "Barely Remembered", color: "#FF7F50" },
@@ -1173,16 +1159,9 @@ class RatingModal extends Modal {
 		ratings.forEach((rating) => {
 			const btn = buttonContainer.createEl("button", {
 				text: rating.text,
+				cls: "rating-button",
 			});
 			btn.style.backgroundColor = rating.color;
-			btn.style.border = "none";
-			btn.style.padding = "25px 20px";
-			btn.style.margin = "5px 0";
-			btn.style.fontSize = "16px";
-			btn.style.color = "black";
-			btn.style.cursor = "pointer";
-			btn.style.borderRadius = "4px";
-			btn.style.width = "80%";
 			btn.addEventListener("click", () => {
 				this.onSubmit(rating.value);
 				this.close();
@@ -1191,15 +1170,6 @@ class RatingModal extends Modal {
 		const statsContainer = contentEl.createEl("div", {
 			cls: "stats-container",
 		});
-		statsContainer.style.width = "80%";
-		statsContainer.style.margin = "15px auto";
-		statsContainer.style.padding = "10px";
-		statsContainer.style.border = "1px solid #ccc";
-		statsContainer.style.borderRadius = "4px";
-		statsContainer.style.backgroundColor = "#f9f9f9";
-		statsContainer.style.fontSize = "14px";
-		statsContainer.style.textAlign = "left";
-		statsContainer.style.color = "black";
 		if (this.currentState && this.currentState.nextReviewDate) {
 			const intervalDisplay = formatInterval(
 				this.currentState.lastReviewDate,
@@ -1218,16 +1188,14 @@ class RatingModal extends Modal {
 				"No review data available for this note.";
 		}
 		contentEl.appendChild(statsContainer);
-		const stopContainer = contentEl.createEl("div");
-		stopContainer.style.textAlign = "center";
-		stopContainer.style.marginTop = "30px";
-		stopContainer.style.width = "100%";
+		// Create the stop container with its class
+		const stopContainer = contentEl.createEl("div", {
+			cls: "stop-container",
+		});
 		const stopButton = stopContainer.createEl("button", {
 			text: "Stop Scheduling",
-			cls: "mod-cta",
+			cls: "mod-cta stop-button",
 		});
-		stopButton.style.width = "80%";
-		stopButton.style.color = "black";
 		stopButton.addEventListener("click", () => {
 			this.onSubmit("stop");
 			this.close();
