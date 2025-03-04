@@ -29,15 +29,8 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 	hiddenColor: "#00ffbf",
 };
 
-/**
- * The plugin stores:
- * 1) settings
- * 2) visits
- * 3) spacedRepetitionLog
- */
 interface PluginData {
 	settings: MyPluginSettings;
-	visits: { [filePath: string]: string[] };
 	spacedRepetitionLog: { [filePath: string]: NoteState };
 }
 
@@ -725,20 +718,6 @@ export default class MyPlugin extends Plugin {
 		});
 
 		this.registerEvent(
-			this.app.workspace.on(
-				"active-leaf-change",
-				(leaf: WorkspaceLeaf | null) => {
-					if (!leaf) return;
-					const markdownView =
-						leaf.view instanceof MarkdownView ? leaf.view : null;
-					if (markdownView && markdownView.file) {
-						this.logVisit(markdownView.file);
-					}
-				}
-			)
-		);
-
-		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
 				if (this.visitLog[oldPath]) {
 					this.visitLog[file.path] = this.visitLog[oldPath];
@@ -806,7 +785,6 @@ export default class MyPlugin extends Plugin {
 		const data = (await this.loadData()) as PluginData;
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
-			this.visitLog = data.visits || {};
 			this.spacedRepetitionLog = data.spacedRepetitionLog || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
@@ -818,7 +796,6 @@ export default class MyPlugin extends Plugin {
 	async savePluginData() {
 		const data: PluginData = {
 			settings: this.settings,
-			visits: this.visitLog,
 			spacedRepetitionLog: this.spacedRepetitionLog,
 		};
 		await this.saveData(data);
@@ -1007,16 +984,6 @@ export default class MyPlugin extends Plugin {
 				new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
 			},
 		});
-	}
-
-	private async logVisit(file: TFile) {
-		const now = new Date().toISOString();
-		if (!this.visitLog[file.path]) {
-			this.visitLog[file.path] = [];
-		}
-		this.visitLog[file.path].push(now);
-		console.log(`Logged visit for ${file.path} at ${now}`);
-		await this.savePluginData();
 	}
 
 	private async updateNoteWithQuality(
