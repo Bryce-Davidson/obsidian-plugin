@@ -3,13 +3,16 @@ import {
 	Editor,
 	MarkdownView,
 	Modal,
+	setIcon,
 	Notice,
 	Plugin,
 	PluginSettingTab,
 	Setting,
+	ButtonComponent,
 	TFile,
 	WorkspaceLeaf,
 	ItemView,
+	MarkdownRenderer,
 } from "obsidian";
 
 /* ============================================================================
@@ -480,6 +483,171 @@ export class ScheduledSidebarView extends ItemView {
 	}
 }
 
+class FlashcardModal extends Modal {
+	flashcards: string[];
+	currentIndex: number = 0;
+	plugin: Plugin;
+	cardEl: HTMLElement | null = null;
+	nextBtn: ButtonComponent | null = null;
+
+	constructor(app: App, flashcards: string[], plugin: Plugin) {
+		super(app);
+		this.flashcards = flashcards;
+		this.plugin = plugin;
+	}
+
+	onOpen() {
+		const { contentEl, modalEl } = this;
+		contentEl.empty();
+
+		// Apply modern styling to modal
+		modalEl.addClass("modern-flashcard-modal");
+
+		// Container for the entire modal content
+		const container = contentEl.createDiv({
+			cls: "flashcard-content-container",
+		});
+
+		// Progress bar
+		const progressContainer = container.createDiv({
+			cls: "flashcard-progress-container",
+		});
+		const progressBar = progressContainer.createDiv({
+			cls: "flashcard-progress-bar",
+		});
+		this.updateProgressBar(progressBar);
+
+		// Card container with shadow and rounded corners
+		const cardContainer = container.createDiv({ cls: "flashcard-card" });
+		this.cardEl = cardContainer;
+
+		// Render initial card
+		this.renderCard(cardContainer);
+
+		// Navigation controls
+		const controls = container.createDiv({ cls: "flashcard-controls" });
+
+		// Previous button
+		const prevBtn = new ButtonComponent(controls)
+			.setClass("flashcard-nav-button")
+			.setClass("flashcard-prev-button")
+			.onClick(() => {
+				if (this.currentIndex > 0) {
+					this.showPrevious();
+					this.renderCard(cardContainer);
+					this.updateProgressBar(progressBar);
+					this.updateNextButtonIcon();
+					counter.setText(
+						`${this.currentIndex + 1} / ${this.flashcards.length}`
+					);
+				}
+			});
+
+		setIcon(prevBtn.buttonEl, "arrow-left");
+
+		// Counter
+		const counter = controls.createDiv({
+			cls: "flashcard-counter",
+			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
+		});
+
+		// Next button
+		this.nextBtn = new ButtonComponent(controls)
+			.setClass("flashcard-nav-button")
+			.setClass("flashcard-next-button")
+			.onClick(() => {
+				if (this.currentIndex < this.flashcards.length - 1) {
+					this.showNext();
+					this.renderCard(cardContainer);
+					this.updateProgressBar(progressBar);
+					this.updateNextButtonIcon();
+					counter.setText(
+						`${this.currentIndex + 1} / ${this.flashcards.length}`
+					);
+				} else if (this.currentIndex === this.flashcards.length - 1) {
+					// Close the modal when clicking the green checkmark on the last card
+					this.close();
+				}
+			});
+
+		// Set initial icon state
+		this.updateNextButtonIcon();
+
+		// Add keyboard shortcuts
+		this.scope.register([], "ArrowLeft", () => {
+			prevBtn.buttonEl.click();
+			return false;
+		});
+
+		this.scope.register([], "ArrowRight", () => {
+			if (this.nextBtn) {
+				this.nextBtn.buttonEl.click();
+			}
+			return false;
+		});
+	}
+
+	updateNextButtonIcon() {
+		if (!this.nextBtn) return;
+
+		if (this.currentIndex === this.flashcards.length - 1) {
+			// Last card - show checkmark
+			setIcon(this.nextBtn.buttonEl, "check");
+			this.nextBtn.buttonEl.addClass("last-card-button");
+		} else {
+			// Not last card - show arrow
+			setIcon(this.nextBtn.buttonEl, "arrow-right");
+			this.nextBtn.buttonEl.removeClass("last-card-button");
+		}
+	}
+
+	updateProgressBar(progressBar: HTMLElement) {
+		const progress =
+			((this.currentIndex + 1) / this.flashcards.length) * 100;
+		progressBar.style.width = `${progress}%`;
+	}
+
+	onClose() {
+		this.contentEl.empty();
+	}
+
+	// Render the current flashcard within the provided card container
+	renderCard(cardContainer: HTMLElement) {
+		cardContainer.empty();
+
+		if (this.flashcards.length > 0) {
+			const cardContent = this.flashcards[this.currentIndex];
+
+			// Create a content wrapper
+			const contentWrapper = cardContainer.createDiv({
+				cls: "flashcard-content",
+			});
+
+			// Just show the entire content regardless of any dividers
+			MarkdownRenderer.renderMarkdown(
+				cardContent,
+				contentWrapper,
+				this.app.workspace.getActiveFile()?.path ?? "",
+				this.plugin
+			);
+		} else {
+			cardContainer.setText("No flashcards available.");
+		}
+	}
+
+	showPrevious() {
+		if (this.currentIndex > 0) {
+			this.currentIndex--;
+		}
+	}
+
+	showNext() {
+		if (this.currentIndex < this.flashcards.length - 1) {
+			this.currentIndex++;
+		}
+	}
+}
+
 /* ============================================================================
  * MAIN PLUGIN CLASS
  * ========================================================================== */
@@ -496,13 +664,54 @@ export default class MyPlugin extends Plugin {
 	async onload() {
 		await this.loadPluginData();
 
+		// Add ribbon icon for flashcards
+		const ribbonIconEl = this.addRibbonIcon(
+			"layers",
+			"Flashcards",
+			(evt: MouseEvent) => {
+				// Prevent default behavior
+				evt.preventDefault();
+				// Show the flashcards modal
+				this.showFlashcardsModal();
+			}
+		);
+
+		// Add tooltip to ribbon icon
+		ribbonIconEl.addClass("flashcard-ribbon-icon");
+
+		// Command to show flashcards modal
+		this.addCommand({
+			id: "show-flashcards-modal",
+			name: "Show Flashcards Modal",
+			callback: () => this.showFlashcardsModal(),
+		});
+
+		// Command to wrap selected text in [card][/card] delimiters
+		this.addCommand({
+			id: "wrap-text-as-flashcard",
+			name: "Wrap Selected Text as Flashcard",
+			editorCallback: (editor: Editor) => {
+				this.wrapSelectedTextAsFlashcard(editor);
+			},
+		});
+
+		// Register a Markdown postprocessor to remove the [card][/card] delimiters
+		// from the rendered view. This ensures they remain hidden in reading view.
+		this.registerMarkdownPostProcessor((el: HTMLElement) => {
+			el.innerHTML = el.innerHTML.replace(/\[\/?card\]/g, "");
+		});
+
+		// ---------------
+
 		document.documentElement.style.setProperty(
 			"--hidden-color",
 			this.settings.hiddenColor
 		);
 
-		this.addPluginRibbonIcon();
-		this.addStatusBar();
+		this.addRibbonIcon("check-square", "Review Current Note", () => {
+			this.openReviewModal();
+		});
+
 		this.registerCommands();
 		this.addSettingTab(new MyPluginSettingTab(this.app, this));
 
@@ -510,7 +719,6 @@ export default class MyPlugin extends Plugin {
 			this.toggleAllHidden();
 		});
 
-		// Register Markdown post-processor that calls both custom hidden text processing and our math block processor.
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
 			processMathBlocks(element);
@@ -620,20 +828,67 @@ export default class MyPlugin extends Plugin {
 		await this.savePluginData();
 	}
 
-	private addPluginRibbonIcon(): void {
-		const ribbonIconEl = this.addRibbonIcon(
-			"check-square",
-			"Review Current Note",
-			() => {
-				this.openReviewModal();
+	wrapSelectedTextAsFlashcard(editor: Editor) {
+		const selection = editor.getSelection();
+
+		if (selection) {
+			// Trim the selection to avoid extra whitespace
+			const trimmedSelection = selection.trim();
+
+			if (trimmedSelection.length > 0) {
+				// Replace the selection with the wrapped version
+				editor.replaceSelection(`[card]${trimmedSelection}[/card]`);
+				new Notice("Text wrapped as flashcard");
+			} else {
+				new Notice("Please select some text first");
 			}
-		);
-		ribbonIconEl.addClass("my-plugin-ribbon-class");
+		} else {
+			new Notice("Please select some text first");
+		}
 	}
 
-	private addStatusBar(): void {
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("Status Bar Text");
+	async showFlashcardsModal() {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) {
+			new Notice("No active file open.");
+			return;
+		}
+		const content = await this.app.vault.read(activeFile);
+		const flashcards = this.parseFlashcards(content);
+		if (flashcards.length > 0) {
+			new FlashcardModal(this.app, flashcards, this).open();
+		} else {
+			new Notice("No flashcards found.");
+		}
+	}
+
+	// Parse every [card]...[/card] pair (even nested ones) as separate flashcards.
+	parseFlashcards(content: string): string[] {
+		const flashcards: string[] = [];
+		const openTag = "[card]";
+		const closeTag = "[/card]";
+		const stack: number[] = [];
+		let pos = 0;
+
+		while (pos < content.length) {
+			const nextOpen = content.indexOf(openTag, pos);
+			const nextClose = content.indexOf(closeTag, pos);
+			if (nextOpen === -1 && nextClose === -1) break;
+			if (nextOpen !== -1 && (nextOpen < nextClose || nextClose === -1)) {
+				stack.push(nextOpen);
+				pos = nextOpen + openTag.length;
+			} else if (nextClose !== -1) {
+				if (stack.length > 0) {
+					const startIndex = stack.pop()!;
+					const cardContent = content
+						.substring(startIndex + openTag.length, nextClose)
+						.trim();
+					flashcards.push(cardContent);
+				}
+				pos = nextClose + closeTag.length;
+			}
+		}
+		return flashcards;
 	}
 
 	private openReviewModal(): void {
