@@ -22,11 +22,13 @@ import {
 interface MyPluginSettings {
 	mySetting: string;
 	hiddenColor: string;
+	randomizeFlashcards: boolean; // NEW setting for randomization
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	mySetting: "default",
 	hiddenColor: "#272c36",
+	randomizeFlashcards: false, // default is not randomizing flashcards
 };
 
 interface PluginData {
@@ -56,6 +58,20 @@ function truncateTitle(title: string, maxLength: number = 30): string {
 		: title;
 }
 
+// Helper function to shuffle an array in place using Fisher-Yates algorithm.
+function shuffleArray<T>(array: T[]): T[] {
+	let currentIndex = array.length;
+	while (currentIndex !== 0) {
+		const randomIndex = Math.floor(Math.random() * currentIndex);
+		currentIndex--;
+		[array[currentIndex], array[randomIndex]] = [
+			array[randomIndex],
+			array[currentIndex],
+		];
+	}
+	return array;
+}
+
 /* ============================================================================
  * SETTINGS TAB
  * ========================================================================== */
@@ -83,6 +99,21 @@ class MyPluginSettingTab extends PluginSettingTab {
 							"--hidden-color",
 							value
 						);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		// New toggle setting for randomizing flashcards.
+		new Setting(containerEl)
+			.setName("Randomize Flashcards")
+			.setDesc(
+				"If enabled, flashcards will be displayed in random order."
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.randomizeFlashcards)
+					.onChange(async (value) => {
+						this.plugin.settings.randomizeFlashcards = value;
 						await this.plugin.saveSettings();
 					})
 			);
@@ -587,7 +618,7 @@ class FlashcardModal extends Modal {
 				cls: "flashcard-content",
 			});
 
-			// Just show the entire content regardless of any dividers
+			// Render markdown into the content wrapper
 			MarkdownRenderer.renderMarkdown(
 				cardContent,
 				contentWrapper,
@@ -908,7 +939,13 @@ export default class MyPlugin extends Plugin {
 			return;
 		}
 		const content = await this.app.vault.read(activeFile);
-		const flashcards = this.parseFlashcards(content);
+		let flashcards = this.parseFlashcards(content);
+
+		// If the user wants randomized flashcards, shuffle the array.
+		if (this.settings.randomizeFlashcards) {
+			flashcards = shuffleArray(flashcards);
+		}
+
 		if (flashcards.length > 0) {
 			new FlashcardModal(this.app, flashcards, this).open();
 		} else {
