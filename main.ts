@@ -625,6 +625,23 @@ class FlashcardModal extends Modal {
 				this.app.workspace.getActiveFile()?.path ?? "",
 				this.plugin
 			);
+
+			// --- NEW: Attach click handler to internal links (Obsidian links) ---
+			// This ensures that if the flashcard content includes Obsidian links (i.e. [[note name]]),
+			// clicking them navigates to the note as expected.
+			const internalLinks =
+				contentWrapper.querySelectorAll("a.internal-link");
+			internalLinks.forEach((link) => {
+				link.addEventListener("click", (evt) => {
+					evt.preventDefault();
+					const href = link.getAttribute("href");
+					if (href) {
+						// Use Obsidian's default method to open internal links.
+						this.plugin.app.workspace.openLinkText(href, "", false);
+						this.close();
+					}
+				});
+			});
 		} else {
 			cardContainer.setText("No flashcards available.");
 		}
