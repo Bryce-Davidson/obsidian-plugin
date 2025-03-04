@@ -432,7 +432,7 @@ export class ReviewSidebarView extends BaseSidebarView {
 			hour12: false,
 		});
 		intervalEl.createEl("span", {
-			text: `Next: ${displayText} at ${lastReviewTime}`,
+			text: `Last: ${displayText} at ${lastReviewTime}`,
 		});
 
 		// Show Ease Factor
