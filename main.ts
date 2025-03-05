@@ -683,14 +683,14 @@ class FlashcardModal extends Modal {
 		this.contentEl.empty();
 	}
 
-	// Render the current flashcard within the provided card container
+	// Updated renderCard method for FlashcardModal class
 	renderCard(cardContainer: HTMLElement) {
 		cardContainer.empty();
 
 		if (this.flashcards.length > 0) {
 			const cardContent = this.flashcards[this.currentIndex];
 
-			// Create a content wrapper
+			// Create a content wrapper without enforcing center alignment
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
@@ -703,9 +703,7 @@ class FlashcardModal extends Modal {
 				this.plugin
 			);
 
-			// --- NEW: Attach click handler to internal links (Obsidian links) ---
-			// This ensures that if the flashcard content includes Obsidian links (i.e. [[note name]]),
-			// clicking them navigates to the note as expected.
+			// Attach click handler to internal links (Obsidian links)
 			const internalLinks =
 				contentWrapper.querySelectorAll("a.internal-link");
 			internalLinks.forEach((link) => {
