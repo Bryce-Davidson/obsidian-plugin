@@ -852,7 +852,7 @@ export default class MyPlugin extends Plugin {
 		// Wrap selected text as flashcard
 		this.addCommand({
 			id: "wrap-text-as-flashcard",
-			name: "Wrap Selected Text as Flashcard",
+			name: "Wrap Selected Text in [card][/card]",
 			editorCallback: (editor: Editor) =>
 				this.wrapSelectedTextAsFlashcard(editor),
 		});
