@@ -696,7 +696,8 @@ class FlashcardModal extends Modal {
 			});
 
 			// Render markdown into the content wrapper
-			MarkdownRenderer.renderMarkdown(
+			MarkdownRenderer.render(
+				this.app,
 				cardContent,
 				contentWrapper,
 				this.app.workspace.getActiveFile()?.path ?? "",
