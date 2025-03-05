@@ -12,9 +12,10 @@
 	cursor: pointer;
 }
 
+/* Only apply these rules when a hidden note contains an image */
 .hidden-note.toggle-hidden:has(img) {
 	position: relative;
-	display: inline-block; /* ensures container retains the image's dimensions */
+	display: inline-block; /* retains the image's dimensions */
 }
 
 .hidden-note.toggle-hidden:has(img) img {
@@ -38,17 +39,21 @@
 	z-index: 1;
 }
 
+/* General hidden toggle style for non-image content */
 .toggle-hidden,
 .toggle-hidden .MathJax {
 	color: transparent;
 	background-color: var(--hidden-color);
 	border-radius: 4px;
-	user-select: none; /* Standard */
-	-webkit-user-select: none; /* Safari */
-	-moz-user-select: none; /* Firefox */
-	-ms-user-select: none; /* IE10+ */
+	user-select: none;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
 }
 
+/* ============================
+   Inline Math Container
+=============================== */
 .inline-math-container {
 	display: flex;
 	justify-content: center;
@@ -186,10 +191,10 @@
 	margin-top: 8px;
 	font-size: 0.8rem;
 	color: var(--text-faint);
-	white-space: normal; /* Allow wrapping */
-	overflow-wrap: anywhere; /* Break long words */
-	word-break: break-all; /* Force breaks in long strings */
-	min-width: 0; /* Allow flex item to shrink */
+	white-space: normal; /* allow wrapping */
+	overflow-wrap: anywhere; /* break long words */
+	word-break: break-all; /* force breaks */
+	min-width: 0; /* allow flex item to shrink */
 }
 
 @media (max-width: 600px) {
@@ -239,7 +244,7 @@
 }
 
 /* ============================
-   Modern Flashcard Modal - Updated
+   Modern Flashcard Modal
 =============================== */
 .modern-flashcard-modal {
 	border-radius: 12px;
@@ -259,10 +264,10 @@
 	flex-direction: column;
 	padding: 16px;
 	gap: 20px;
-	height: 500px; /* Fixed height instead of min-height */
+	height: 500px; /* fixed height */
 	width: 500px;
 	max-width: 90vw;
-	margin: 0 auto; /* Center the container */
+	margin: 0 auto; /* center container */
 }
 
 .flashcard-progress-container {
@@ -293,8 +298,8 @@
 
 .flashcard-content {
 	width: 100%;
-	display: block; /* Changed from flex to block */
-	text-align: left; /* Changed from center to left */
+	display: block; /* changed from flex to block */
+	text-align: left; /* left-align text */
 }
 
 .flashcard-content * {
