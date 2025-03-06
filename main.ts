@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 
 interface PluginData {
 	settings: MyPluginSettings;
-	spacedRepetitionLog: { [filePath: string]: NoteState };
+	notes: { [filePath: string]: NoteState };
 }
 
 interface NoteState {
@@ -290,7 +290,7 @@ export abstract class BaseSidebarView extends ItemView {
 		validFiles.forEach(async (filePath) => {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			if (!file || !(file instanceof TFile)) return;
-			const noteState = this.plugin.spacedRepetitionLog[filePath];
+			const noteState = this.plugin.notes[filePath];
 
 			// Use metadata cache to extract frontmatter tags (if any)
 			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
@@ -395,8 +395,8 @@ export class ReviewSidebarView extends BaseSidebarView {
 	// Only include notes that are due (nextReviewDate is now or in the past)
 	filterFiles(now: Date): string[] {
 		const due: string[] = [];
-		for (const filePath in this.plugin.spacedRepetitionLog) {
-			const state = this.plugin.spacedRepetitionLog[filePath];
+		for (const filePath in this.plugin.notes) {
+			const state = this.plugin.notes[filePath];
 			if (
 				state.active &&
 				state.nextReviewDate &&
@@ -491,8 +491,8 @@ export class ScheduledSidebarView extends BaseSidebarView {
 	// Only include notes that are scheduled for the future.
 	filterFiles(now: Date): string[] {
 		const scheduled: string[] = [];
-		for (const filePath in this.plugin.spacedRepetitionLog) {
-			const state = this.plugin.spacedRepetitionLog[filePath];
+		for (const filePath in this.plugin.notes) {
+			const state = this.plugin.notes[filePath];
 			if (
 				state.active &&
 				state.nextReviewDate &&
@@ -503,12 +503,8 @@ export class ScheduledSidebarView extends BaseSidebarView {
 		}
 		// Sort by nextReviewDate ascending
 		return scheduled.sort((a, b) => {
-			const dateA = new Date(
-				this.plugin.spacedRepetitionLog[a].nextReviewDate!
-			);
-			const dateB = new Date(
-				this.plugin.spacedRepetitionLog[b].nextReviewDate!
-			);
+			const dateA = new Date(this.plugin.notes[a].nextReviewDate!);
+			const dateB = new Date(this.plugin.notes[b].nextReviewDate!);
 			return dateA.getTime() - dateB.getTime();
 		});
 	}
@@ -743,7 +739,7 @@ class FlashcardModal extends Modal {
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	visitLog: { [filePath: string]: string[] } = {};
-	spacedRepetitionLog: { [filePath: string]: NoteState } = {};
+	notes: { [filePath: string]: NoteState } = {};
 
 	private allHidden: boolean = true;
 	private refreshTimeout: number | null = null;
@@ -776,11 +772,11 @@ export default class MyPlugin extends Plugin {
 		const data = (await this.loadData()) as PluginData;
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
-			this.spacedRepetitionLog = data.spacedRepetitionLog || {};
+			this.notes = data.notes || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
 			this.visitLog = {};
-			this.spacedRepetitionLog = {};
+			this.notes = {};
 		}
 		// Apply settings (e.g. hidden color)
 		document.documentElement.style.setProperty(
@@ -792,7 +788,7 @@ export default class MyPlugin extends Plugin {
 	async savePluginData() {
 		const data: PluginData = {
 			settings: this.settings,
-			spacedRepetitionLog: this.spacedRepetitionLog,
+			notes: this.notes,
 		};
 		await this.saveData(data);
 	}
@@ -1053,7 +1049,7 @@ export default class MyPlugin extends Plugin {
 			return;
 		}
 		const filePath = file.path;
-		const currentState = this.spacedRepetitionLog[filePath];
+		const currentState = this.notes[filePath];
 		new RatingModal(this.app, currentState, (ratingStr: string) => {
 			if (!ratingStr) return;
 			if (ratingStr.toLowerCase() === "stop") {
@@ -1077,7 +1073,7 @@ export default class MyPlugin extends Plugin {
 		stopScheduling: boolean
 	) {
 		const now = new Date();
-		let noteState = this.spacedRepetitionLog[filePath];
+		let noteState = this.notes[filePath];
 		if (!noteState) {
 			noteState = {
 				repetition: 0,
@@ -1093,7 +1089,7 @@ export default class MyPlugin extends Plugin {
 			now,
 			stopScheduling
 		);
-		this.spacedRepetitionLog[filePath] = updated;
+		this.notes[filePath] = updated;
 		if (stopScheduling) {
 			new Notice(`Scheduling stopped for '${filePath}'`);
 		} else {
@@ -1112,10 +1108,9 @@ export default class MyPlugin extends Plugin {
 			this.visitLog[file.path] = this.visitLog[oldPath];
 			delete this.visitLog[oldPath];
 		}
-		if (this.spacedRepetitionLog[oldPath]) {
-			this.spacedRepetitionLog[file.path] =
-				this.spacedRepetitionLog[oldPath];
-			delete this.spacedRepetitionLog[oldPath];
+		if (this.notes[oldPath]) {
+			this.notes[file.path] = this.notes[oldPath];
+			delete this.notes[oldPath];
 		}
 		this.savePluginData();
 		console.log(`Updated logs from ${oldPath} to ${file.path}`);
@@ -1182,8 +1177,8 @@ export default class MyPlugin extends Plugin {
 		}
 		const now = new Date();
 		let earliestTime: number | null = null;
-		for (const filePath in this.spacedRepetitionLog) {
-			const state = this.spacedRepetitionLog[filePath];
+		for (const filePath in this.notes) {
+			const state = this.notes[filePath];
 			if (state.active && state.nextReviewDate) {
 				const nextTime = new Date(state.nextReviewDate).getTime();
 				if (
