@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 interface PluginData {
 	settings: MyPluginSettings;
 	notes: { [filePath: string]: NoteState };
+	visitLog: { [filePath: string]: string[] };
 }
 
 interface NoteState {
@@ -773,10 +774,11 @@ export default class MyPlugin extends Plugin {
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
 			this.notes = data.notes || {};
+			this.visitLog = data.visitLog || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
-			this.visitLog = {};
 			this.notes = {};
+			this.visitLog = {};
 		}
 		// Apply settings (e.g. hidden color)
 		document.documentElement.style.setProperty(
@@ -789,6 +791,7 @@ export default class MyPlugin extends Plugin {
 		const data: PluginData = {
 			settings: this.settings,
 			notes: this.notes,
+			visitLog: this.visitLog,
 		};
 		await this.saveData(data);
 	}
@@ -920,6 +923,24 @@ export default class MyPlugin extends Plugin {
 	   Event Registration
 	========================= */
 	private registerEvents(): void {
+		// Track note visits by recording the timestamp when a note is opened
+		this.registerEvent(
+			this.app.workspace.on("file-open", (file: TFile) => {
+				// Ensure the file exists and is a TFile instance
+				if (file && file instanceof TFile) {
+					const filePath = file.path;
+					const now = new Date().toISOString();
+					if (!this.visitLog[filePath]) {
+						this.visitLog[filePath] = [];
+					}
+					this.visitLog[filePath].push(now);
+					// Optionally, you could show a notice:
+					// new Notice(`Visited ${filePath} at ${now}`);
+					this.savePluginData();
+				}
+			})
+		);
+
 		// Handle file rename to update logs
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
@@ -941,6 +962,7 @@ export default class MyPlugin extends Plugin {
 			})
 		);
 
+		// Handle file delete to update logs and notes
 		this.registerEvent(
 			this.app.vault.on("delete", (file: TFile) => {
 				this.handleFileDelete(file);
@@ -1128,12 +1150,15 @@ export default class MyPlugin extends Plugin {
 	private handleFileDelete(file: TFile) {
 		if (this.notes[file.path]) {
 			delete this.notes[file.path];
-			this.savePluginData();
-			console.log(`Deleted note data for ${file.path}`);
-			this.refreshReviewQueue();
-			this.refreshScheduledQueue();
-			this.scheduleNextDueRefresh();
 		}
+		if (this.visitLog[file.path]) {
+			delete this.visitLog[file.path];
+		}
+		this.savePluginData();
+		console.log(`Deleted note data for ${file.path}`);
+		this.refreshReviewQueue();
+		this.refreshScheduledQueue();
+		this.scheduleNextDueRefresh();
 	}
 
 	/* =========================
