@@ -14,6 +14,7 @@ import {
 	ItemView,
 	MarkdownRenderer,
 } from "obsidian";
+import { v4 as uuidv4 } from "uuid"; // <-- NEW: Import the uuid library
 
 /* ============================================================================
  * PLUGIN DATA INTERFACES & CONSTANTS
@@ -33,7 +34,8 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 
 interface PluginData {
 	settings: MyPluginSettings;
-	spacedRepetitionLog: { [filePath: string]: NoteState };
+	spacedRepetitionLog: { [uuid: string]: NoteState };
+	uuidMapping: { [uuid: string]: string }; // maps uuid -> current file path
 }
 
 interface NoteState {
@@ -70,6 +72,39 @@ function shuffleArray<T>(array: T[]): T[] {
 		];
 	}
 	return array;
+}
+
+/**
+ * Given a file, returns its UUID.
+ * If no UUID exists yet for this file, one is generated and stored.
+ */
+function ensureUUIDForFile(plugin: MyPlugin, file: TFile): string {
+	// Try to find an existing UUID with matching file path.
+	for (const [uuid, path] of Object.entries(plugin.uuidMapping)) {
+		if (path === file.path) {
+			return uuid;
+		}
+	}
+	// None found, so create a new one.
+	const newUUID = uuidv4();
+	plugin.uuidMapping[newUUID] = file.path;
+	plugin.savePluginData();
+	return newUUID;
+}
+
+/**
+ * Get the UUID for a file (if it exists), else return undefined.
+ */
+function getUUIDForFile(
+	plugin: MyPlugin,
+	filePath: string
+): string | undefined {
+	for (const [uuid, path] of Object.entries(plugin.uuidMapping)) {
+		if (path === filePath) {
+			return uuid;
+		}
+	}
+	return undefined;
 }
 
 /* ============================================================================
@@ -122,7 +157,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 
 /* ============================================================================
  * SPACED REPETITION LOGIC (Unchanged)
- * ========================================================================== */
+ * ============================================================================ */
 
 function getNextReviewDate(lastReview: Date, interval: number): Date {
 	const nextReview = new Date(lastReview);
@@ -250,13 +285,14 @@ export abstract class BaseSidebarView extends ItemView {
 
 		const now = new Date();
 		// Get files according to the specific filtering criteria
-		const filePaths = this.filterFiles(now);
-		const validFiles: string[] = [];
+		const uuids = this.filterFiles(now);
+		const validUUIDs: string[] = [];
 
-		// Verify files exist
-		for (const filePath of filePaths) {
+		// Verify files exist using the uuidMapping to retrieve the file path.
+		for (const uuid of uuids) {
+			const filePath = this.plugin.uuidMapping[uuid];
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-			if (file && file instanceof TFile) validFiles.push(filePath);
+			if (file && file instanceof TFile) validUUIDs.push(uuid);
 		}
 
 		// Create header section
@@ -266,11 +302,11 @@ export abstract class BaseSidebarView extends ItemView {
 		header.createEl("h2", { text: this.getHeaderTitle() });
 		header.createEl("div", {
 			cls: "review-count",
-			text: this.getCountMessage(validFiles.length),
+			text: this.getCountMessage(validUUIDs.length),
 		});
 
 		// Empty state if no files
-		if (validFiles.length === 0) {
+		if (validUUIDs.length === 0) {
 			const emptyState = container.createEl("div", {
 				cls: "review-empty",
 			});
@@ -287,10 +323,11 @@ export abstract class BaseSidebarView extends ItemView {
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
 		});
-		validFiles.forEach(async (filePath) => {
+		validUUIDs.forEach(async (uuid) => {
+			const filePath = this.plugin.uuidMapping[uuid];
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			if (!file || !(file instanceof TFile)) return;
-			const noteState = this.plugin.spacedRepetitionLog[filePath];
+			const noteState = this.plugin.spacedRepetitionLog[uuid];
 
 			// Use metadata cache to extract frontmatter tags (if any)
 			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
@@ -395,14 +432,15 @@ export class ReviewSidebarView extends BaseSidebarView {
 	// Only include notes that are due (nextReviewDate is now or in the past)
 	filterFiles(now: Date): string[] {
 		const due: string[] = [];
-		for (const filePath in this.plugin.spacedRepetitionLog) {
-			const state = this.plugin.spacedRepetitionLog[filePath];
+		for (const [uuid, state] of Object.entries(
+			this.plugin.spacedRepetitionLog
+		)) {
 			if (
 				state.active &&
 				state.nextReviewDate &&
 				new Date(state.nextReviewDate) <= now
 			) {
-				due.push(filePath);
+				due.push(uuid);
 			}
 		}
 		return due;
@@ -491,14 +529,15 @@ export class ScheduledSidebarView extends BaseSidebarView {
 	// Only include notes that are scheduled for the future.
 	filterFiles(now: Date): string[] {
 		const scheduled: string[] = [];
-		for (const filePath in this.plugin.spacedRepetitionLog) {
-			const state = this.plugin.spacedRepetitionLog[filePath];
+		for (const [uuid, state] of Object.entries(
+			this.plugin.spacedRepetitionLog
+		)) {
 			if (
 				state.active &&
 				state.nextReviewDate &&
 				new Date(state.nextReviewDate) > now
 			) {
-				scheduled.push(filePath);
+				scheduled.push(uuid);
 			}
 		}
 		// Sort by nextReviewDate ascending
@@ -738,12 +777,15 @@ class FlashcardModal extends Modal {
 
 /* ============================================================================
  * MAIN PLUGIN CLASS
- * ========================================================================== */
+ * ============================================================================ */
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	visitLog: { [filePath: string]: string[] } = {};
-	spacedRepetitionLog: { [filePath: string]: NoteState } = {};
+	// Now spacedRepetitionLog is keyed by UUID
+	spacedRepetitionLog: { [uuid: string]: NoteState } = {};
+	// New: uuidMapping stores the mapping between UUID and the current file path
+	uuidMapping: { [uuid: string]: string } = {};
 
 	private allHidden: boolean = true;
 	private refreshTimeout: number | null = null;
@@ -777,10 +819,12 @@ export default class MyPlugin extends Plugin {
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
 			this.spacedRepetitionLog = data.spacedRepetitionLog || {};
+			this.uuidMapping = data.uuidMapping || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
 			this.visitLog = {};
 			this.spacedRepetitionLog = {};
+			this.uuidMapping = {};
 		}
 		// Apply settings (e.g. hidden color)
 		document.documentElement.style.setProperty(
@@ -793,6 +837,7 @@ export default class MyPlugin extends Plugin {
 		const data: PluginData = {
 			settings: this.settings,
 			spacedRepetitionLog: this.spacedRepetitionLog,
+			uuidMapping: this.uuidMapping,
 		};
 		await this.saveData(data);
 	}
@@ -924,7 +969,7 @@ export default class MyPlugin extends Plugin {
 	   Event Registration
 	========================= */
 	private registerEvents(): void {
-		// Handle file rename to update logs
+		// Handle file rename to update logs and the uuidMapping.
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
 				this.handleFileRename(file, oldPath);
@@ -942,6 +987,13 @@ export default class MyPlugin extends Plugin {
 						this.scheduleNextDueRefresh();
 					}, 100);
 				}
+			})
+		);
+
+		// Register deletion event to remove UUIDs and log data:
+		this.registerEvent(
+			this.app.vault.on("delete", (file: TFile) => {
+				this.handleFileDeletion(file);
 			})
 		);
 	}
@@ -1052,12 +1104,13 @@ export default class MyPlugin extends Plugin {
 			new Notice("No active Markdown file to review.");
 			return;
 		}
-		const filePath = file.path;
-		const currentState = this.spacedRepetitionLog[filePath];
+		// Ensure the file has a UUID.
+		const uuid = ensureUUIDForFile(this, file);
+		const currentState = this.spacedRepetitionLog[uuid];
 		new RatingModal(this.app, currentState, (ratingStr: string) => {
 			if (!ratingStr) return;
 			if (ratingStr.toLowerCase() === "stop") {
-				this.updateNoteWithQuality(filePath, 0, true);
+				this.updateNoteWithQuality(uuid, 0, true);
 			} else {
 				const rating = parseInt(ratingStr, 10);
 				if (isNaN(rating) || rating < 0 || rating > 5) {
@@ -1066,18 +1119,18 @@ export default class MyPlugin extends Plugin {
 					);
 					return;
 				}
-				this.updateNoteWithQuality(filePath, rating, false);
+				this.updateNoteWithQuality(uuid, rating, false);
 			}
 		}).open();
 	}
 
 	private async updateNoteWithQuality(
-		filePath: string,
+		uuid: string,
 		quality: number,
 		stopScheduling: boolean
 	) {
 		const now = new Date();
-		let noteState = this.spacedRepetitionLog[filePath];
+		let noteState = this.spacedRepetitionLog[uuid];
 		if (!noteState) {
 			noteState = {
 				repetition: 0,
@@ -1093,12 +1146,12 @@ export default class MyPlugin extends Plugin {
 			now,
 			stopScheduling
 		);
-		this.spacedRepetitionLog[filePath] = updated;
+		this.spacedRepetitionLog[uuid] = updated;
 		if (stopScheduling) {
-			new Notice(`Scheduling stopped for '${filePath}'`);
+			new Notice(`Scheduling stopped for '${this.uuidMapping[uuid]}'`);
 		} else {
 			new Notice(
-				`Updated SM-2 for '${filePath}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
+				`Updated SM-2 for '${this.uuidMapping[uuid]}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
 			);
 		}
 		await this.savePluginData();
@@ -1107,21 +1160,52 @@ export default class MyPlugin extends Plugin {
 		this.scheduleNextDueRefresh();
 	}
 
+	/**
+	 * Update the uuidMapping for a renamed file.
+	 */
 	private handleFileRename(file: TFile, oldPath: string) {
+		// Update any visitLog entries
 		if (this.visitLog[oldPath]) {
 			this.visitLog[file.path] = this.visitLog[oldPath];
 			delete this.visitLog[oldPath];
 		}
-		if (this.spacedRepetitionLog[oldPath]) {
-			this.spacedRepetitionLog[file.path] =
-				this.spacedRepetitionLog[oldPath];
-			delete this.spacedRepetitionLog[oldPath];
+		// Update the uuidMapping: find the uuid with oldPath and update its value.
+		for (const [uuid, path] of Object.entries(this.uuidMapping)) {
+			if (path === oldPath) {
+				this.uuidMapping[uuid] = file.path;
+				break;
+			}
 		}
+		// No need to update spacedRepetitionLog since it is keyed by UUID.
 		this.savePluginData();
 		console.log(`Updated logs from ${oldPath} to ${file.path}`);
 		this.refreshReviewQueue();
 		this.refreshScheduledQueue();
 		this.scheduleNextDueRefresh();
+	}
+
+	/**
+	 * Handle file deletion by removing its associated UUID and spaced repetition data.
+	 */
+	private handleFileDeletion(file: TFile) {
+		// Get the UUID for the file being deleted.
+		const uuid = getUUIDForFile(this, file.path);
+		if (uuid) {
+			// Remove the UUID from the mapping and spaced repetition log.
+			delete this.uuidMapping[uuid];
+			delete this.spacedRepetitionLog[uuid];
+
+			// Optionally, also remove any visitLog entries.
+			if (this.visitLog[file.path]) {
+				delete this.visitLog[file.path];
+			}
+
+			// Save the updated data.
+			this.savePluginData();
+
+			// Notify the user.
+			new Notice(`Deleted '${file.basename}' from review logs.`);
+		}
 	}
 
 	/* =========================
@@ -1182,8 +1266,7 @@ export default class MyPlugin extends Plugin {
 		}
 		const now = new Date();
 		let earliestTime: number | null = null;
-		for (const filePath in this.spacedRepetitionLog) {
-			const state = this.spacedRepetitionLog[filePath];
+		for (const state of Object.values(this.spacedRepetitionLog)) {
 			if (state.active && state.nextReviewDate) {
 				const nextTime = new Date(state.nextReviewDate).getTime();
 				if (
@@ -1220,7 +1303,7 @@ export default class MyPlugin extends Plugin {
 
 /* ============================================================================
  * CUSTOM MODALS
- * ========================================================================== */
+ * ============================================================================ */
 
 /**
  * Helper function to format the next review time as "YYYY-MM-DD:HH:mm" in 24hr format
@@ -1315,7 +1398,7 @@ class RatingModal extends Modal {
 
 /* ============================================================================
  * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT AND INLINE MATH
- * ========================================================================== */
+ * ============================================================================ */
 
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
