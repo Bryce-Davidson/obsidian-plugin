@@ -940,6 +940,12 @@ export default class MyPlugin extends Plugin {
 				}
 			})
 		);
+
+		this.registerEvent(
+			this.app.vault.on("delete", (file: TFile) => {
+				this.handleFileDelete(file);
+			})
+		);
 	}
 
 	/* =========================
@@ -1117,6 +1123,17 @@ export default class MyPlugin extends Plugin {
 		this.refreshReviewQueue();
 		this.refreshScheduledQueue();
 		this.scheduleNextDueRefresh();
+	}
+
+	private handleFileDelete(file: TFile) {
+		if (this.notes[file.path]) {
+			delete this.notes[file.path];
+			this.savePluginData();
+			console.log(`Deleted note data for ${file.path}`);
+			this.refreshReviewQueue();
+			this.refreshScheduledQueue();
+			this.scheduleNextDueRefresh();
+		}
 	}
 
 	/* =========================
