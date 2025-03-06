@@ -41,6 +41,7 @@ interface PluginData {
 	settings: MyPluginSettings;
 	spacedRepetitionLog: { [uuid: string]: NoteState };
 	uuidMapping: { [uuid: string]: string }; // maps uuid -> current file path
+	visitLog: { [filePath: string]: string[] }; // NEW: tracks visit times for each file
 }
 
 interface NoteState {
@@ -839,6 +840,7 @@ export default class MyPlugin extends Plugin {
 			this.settings = data.settings || DEFAULT_SETTINGS;
 			this.spacedRepetitionLog = data.spacedRepetitionLog || {};
 			this.uuidMapping = data.uuidMapping || {};
+			this.visitLog = data.visitLog || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
 			this.visitLog = {};
@@ -857,6 +859,7 @@ export default class MyPlugin extends Plugin {
 			settings: this.settings,
 			spacedRepetitionLog: this.spacedRepetitionLog,
 			uuidMapping: this.uuidMapping,
+			visitLog: this.visitLog,
 		};
 		await this.saveData(data);
 	}
@@ -1013,6 +1016,22 @@ export default class MyPlugin extends Plugin {
 		this.registerEvent(
 			this.app.vault.on("delete", (file: TFile) => {
 				this.handleFileDeletion(file);
+			})
+		);
+
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				if (!leaf) return;
+				const mdView = leaf.view as MarkdownView;
+				if (!mdView || !mdView.file) return;
+				const file = mdView.file;
+				if (file && file instanceof TFile) {
+					if (!this.visitLog[file.path]) {
+						this.visitLog[file.path] = [];
+					}
+					this.visitLog[file.path].push(new Date().toISOString());
+					this.savePluginData();
+				}
 			})
 		);
 	}
