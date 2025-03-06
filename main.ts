@@ -227,6 +227,11 @@ function updateNoteState(
 	if (!newState.efHistory) {
 		newState.efHistory = [];
 	}
+	// Add the current EF with a timestamp to the history
+	newState.efHistory.push({
+		timestamp: reviewDate.toISOString(),
+		ef: newState.ef,
+	});
 
 	return newState;
 }
