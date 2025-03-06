@@ -41,7 +41,7 @@ interface PluginData {
 	settings: MyPluginSettings;
 	spacedRepetitionLog: { [uuid: string]: NoteState };
 	uuidMapping: { [uuid: string]: string }; // maps uuid -> current file path
-	visitLog: { [filePath: string]: string[] }; // NEW: tracks visit times for each file
+	visitLog: { [uuid: string]: string[] }; // UPDATED: tracks visit times for each file keyed by UUID
 }
 
 interface NoteState {
@@ -801,7 +801,8 @@ class FlashcardModal extends Modal {
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
-	visitLog: { [filePath: string]: string[] } = {};
+	// UPDATED: visitLog is now keyed by UUID.
+	visitLog: { [uuid: string]: string[] } = {};
 	// Now spacedRepetitionLog is keyed by UUID
 	spacedRepetitionLog: { [uuid: string]: NoteState } = {};
 	// New: uuidMapping stores the mapping between UUID and the current file path
@@ -1019,6 +1020,7 @@ export default class MyPlugin extends Plugin {
 			})
 		);
 
+		// UPDATED: Use UUIDs for visit logging.
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
 				if (!leaf) return;
@@ -1026,10 +1028,12 @@ export default class MyPlugin extends Plugin {
 				if (!mdView || !mdView.file) return;
 				const file = mdView.file;
 				if (file && file instanceof TFile) {
-					if (!this.visitLog[file.path]) {
-						this.visitLog[file.path] = [];
+					// Ensure the file has a UUID and use that as the key
+					const uuid = ensureUUIDForFile(this, file);
+					if (!this.visitLog[uuid]) {
+						this.visitLog[uuid] = [];
 					}
-					this.visitLog[file.path].push(new Date().toISOString());
+					this.visitLog[uuid].push(new Date().toISOString());
 					this.savePluginData();
 				}
 			})
@@ -1202,12 +1206,9 @@ export default class MyPlugin extends Plugin {
 	 * Update the uuidMapping for a renamed file.
 	 */
 	private handleFileRename(file: TFile, oldPath: string) {
-		// Update any visitLog entries
-		if (this.visitLog[oldPath]) {
-			this.visitLog[file.path] = this.visitLog[oldPath];
-			delete this.visitLog[oldPath];
-		}
-		// Update the uuidMapping: find the uuid with oldPath and update its value.
+		// Since visitLog is now keyed by UUID, and the UUID remains unchanged when the file is renamed,
+		// there is no need to update visitLog entries.
+		// Only update the uuidMapping.
 		for (const [uuid, path] of Object.entries(this.uuidMapping)) {
 			if (path === oldPath) {
 				this.uuidMapping[uuid] = file.path;
@@ -1233,9 +1234,9 @@ export default class MyPlugin extends Plugin {
 			delete this.uuidMapping[uuid];
 			delete this.spacedRepetitionLog[uuid];
 
-			// Optionally, also remove any visitLog entries.
-			if (this.visitLog[file.path]) {
-				delete this.visitLog[file.path];
+			// Remove any visitLog entries associated with the UUID.
+			if (this.visitLog[uuid]) {
+				delete this.visitLog[uuid];
 			}
 
 			// Save the updated data.
