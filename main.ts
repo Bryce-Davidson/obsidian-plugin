@@ -31,12 +31,6 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 	randomizeFlashcards: false, // default is not randomizing flashcards
 };
 
-interface PluginData {
-	settings: MyPluginSettings;
-	notes: { [filePath: string]: NoteState };
-	visitLog: { [filePath: string]: string[] };
-}
-
 interface NoteState {
 	repetition: number;
 	interval: number;
@@ -47,6 +41,13 @@ interface NoteState {
 	isLearning?: boolean;
 	learningStep?: number;
 	efHistory?: { timestamp: string; ef: number }[]; // <-- New property for tracking EF history
+	visitLog: string[]; // <-- Moved visit log into NoteState
+}
+
+interface PluginData {
+	settings: MyPluginSettings;
+	notes: { [filePath: string]: NoteState };
+	// Removed separate visitLog property since it is now inside NoteState
 }
 
 /* ============================================================================
@@ -170,6 +171,7 @@ function updateNoteState(
 			lastReviewDate: reviewDate.toISOString(),
 			nextReviewDate: undefined,
 			active: false,
+			visitLog: state.visitLog, // preserve visit log
 		};
 	}
 
@@ -225,11 +227,6 @@ function updateNoteState(
 	if (!newState.efHistory) {
 		newState.efHistory = [];
 	}
-	// Add the current EF with a timestamp to the history
-	newState.efHistory.push({
-		timestamp: reviewDate.toISOString(),
-		ef: newState.ef,
-	});
 
 	return newState;
 }
@@ -750,7 +747,6 @@ class FlashcardModal extends Modal {
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
-	visitLog: { [filePath: string]: string[] } = {};
 	notes: { [filePath: string]: NoteState } = {};
 
 	private allHidden: boolean = true;
@@ -785,11 +781,9 @@ export default class MyPlugin extends Plugin {
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
 			this.notes = data.notes || {};
-			this.visitLog = data.visitLog || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
 			this.notes = {};
-			this.visitLog = {};
 		}
 		// Apply settings (e.g. hidden color)
 		document.documentElement.style.setProperty(
@@ -802,7 +796,6 @@ export default class MyPlugin extends Plugin {
 		const data: PluginData = {
 			settings: this.settings,
 			notes: this.notes,
-			visitLog: this.visitLog,
 		};
 		await this.saveData(data);
 	}
@@ -937,16 +930,28 @@ export default class MyPlugin extends Plugin {
 		// Track note visits by recording the timestamp when a note is opened
 		this.registerEvent(
 			this.app.workspace.on("file-open", (file: TFile) => {
-				// Ensure the file exists and is a TFile instance
 				if (file && file instanceof TFile) {
 					const filePath = file.path;
 					const now = new Date().toISOString();
-					if (!this.visitLog[filePath]) {
-						this.visitLog[filePath] = [];
+					let noteState = this.notes[filePath];
+
+					// If no note state exists yet, initialize it with a visit log
+					if (!noteState) {
+						noteState = {
+							repetition: 0,
+							interval: 0,
+							ef: 2.5,
+							lastReviewDate: now,
+							active: true,
+							efHistory: [],
+							visitLog: [], // Initialize the visit log array
+						};
 					}
-					this.visitLog[filePath].push(now);
-					// Optionally, you could show a notice:
-					// new Notice(`Visited ${filePath} at ${now}`);
+
+					// Add the current timestamp to the visit log within the note state
+					noteState.visitLog.push(now);
+					this.notes[filePath] = noteState;
+
 					this.savePluginData();
 				}
 			})
@@ -955,7 +960,17 @@ export default class MyPlugin extends Plugin {
 		// Handle file rename to update logs
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
-				this.handleFileRename(file, oldPath);
+				if (this.notes[oldPath]) {
+					this.notes[file.path] = this.notes[oldPath];
+					delete this.notes[oldPath];
+				}
+				this.savePluginData();
+				console.log(
+					`Updated note data from ${oldPath} to ${file.path}`
+				);
+				this.refreshReviewQueue();
+				this.refreshScheduledQueue();
+				this.scheduleNextDueRefresh();
 			})
 		);
 
@@ -976,7 +991,14 @@ export default class MyPlugin extends Plugin {
 		// Handle file delete to update logs and notes
 		this.registerEvent(
 			this.app.vault.on("delete", (file: TFile) => {
-				this.handleFileDelete(file);
+				if (this.notes[file.path]) {
+					delete this.notes[file.path];
+				}
+				this.savePluginData();
+				console.log(`Deleted note data for ${file.path}`);
+				this.refreshReviewQueue();
+				this.refreshScheduledQueue();
+				this.scheduleNextDueRefresh();
 			})
 		);
 	}
@@ -1120,7 +1142,8 @@ export default class MyPlugin extends Plugin {
 				ef: 2.5,
 				lastReviewDate: now.toISOString(),
 				active: true,
-				efHistory: [{ timestamp: now.toISOString(), ef: 2.5 }], // <-- Initialize EF history
+				efHistory: [],
+				visitLog: [now.toISOString()],
 			};
 		}
 		const updated = updateNoteState(
@@ -1138,36 +1161,6 @@ export default class MyPlugin extends Plugin {
 			);
 		}
 		await this.savePluginData();
-		this.refreshReviewQueue();
-		this.refreshScheduledQueue();
-		this.scheduleNextDueRefresh();
-	}
-
-	private handleFileRename(file: TFile, oldPath: string) {
-		if (this.visitLog[oldPath]) {
-			this.visitLog[file.path] = this.visitLog[oldPath];
-			delete this.visitLog[oldPath];
-		}
-		if (this.notes[oldPath]) {
-			this.notes[file.path] = this.notes[oldPath];
-			delete this.notes[oldPath];
-		}
-		this.savePluginData();
-		console.log(`Updated logs from ${oldPath} to ${file.path}`);
-		this.refreshReviewQueue();
-		this.refreshScheduledQueue();
-		this.scheduleNextDueRefresh();
-	}
-
-	private handleFileDelete(file: TFile) {
-		if (this.notes[file.path]) {
-			delete this.notes[file.path];
-		}
-		if (this.visitLog[file.path]) {
-			delete this.visitLog[file.path];
-		}
-		this.savePluginData();
-		console.log(`Deleted note data for ${file.path}`);
 		this.refreshReviewQueue();
 		this.refreshScheduledQueue();
 		this.scheduleNextDueRefresh();
