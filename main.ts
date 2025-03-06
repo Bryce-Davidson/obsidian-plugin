@@ -14,7 +14,9 @@ import {
 	ItemView,
 	MarkdownRenderer,
 } from "obsidian";
-import { v4 as uuidv4 } from "uuid"; // <-- NEW: Import the uuid library
+
+// Removed uuid import since we no longer need persistent UUIDs.
+// import { v4 as uuidv4 } from "uuid";
 
 /* ============================================================================
  * PLUGIN DATA INTERFACES & CONSTANTS
@@ -28,20 +30,24 @@ interface EFHistoryEntry {
 interface MyPluginSettings {
 	mySetting: string;
 	hiddenColor: string;
-	randomizeFlashcards: boolean; // NEW setting for randomization
+	randomizeFlashcards: boolean;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	mySetting: "default",
 	hiddenColor: "#272c36",
-	randomizeFlashcards: false, // default is not randomizing flashcards
+	randomizeFlashcards: false,
 };
+
+// New interface to hold all note data keyed by file path.
+interface NoteData {
+	spacedRepetitionLog: NoteState;
+	visitLog: string[];
+}
 
 interface PluginData {
 	settings: MyPluginSettings;
-	spacedRepetitionLog: { [uuid: string]: NoteState };
-	uuidMapping: { [uuid: string]: string }; // maps uuid -> current file path
-	visitLog: { [uuid: string]: string[] }; // UPDATED: tracks visit times for each file keyed by UUID
+	noteData: { [filePath: string]: NoteData };
 }
 
 interface NoteState {
@@ -53,7 +59,7 @@ interface NoteState {
 	active: boolean;
 	isLearning?: boolean;
 	learningStep?: number;
-	efHistory?: EFHistoryEntry[]; // NEW: Track EF rating over time
+	efHistory?: EFHistoryEntry[];
 }
 
 /* ============================================================================
@@ -67,7 +73,7 @@ function truncateTitle(title: string, maxLength: number = 30): string {
 		: title;
 }
 
-// Helper function to shuffle an array in place using Fisher-Yates algorithm.
+// Helper function to shuffle an array in place using the Fisher-Yates algorithm.
 function shuffleArray<T>(array: T[]): T[] {
 	let currentIndex = array.length;
 	while (currentIndex !== 0) {
@@ -82,40 +88,30 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 /**
- * Given a file, returns its UUID.
- * If no UUID exists yet for this file, one is generated and stored.
+ * Ensure that there is a noteData entry for a given file.
+ * Returns the file path (which is used as the key).
  */
-function ensureUUIDForFile(plugin: MyPlugin, file: TFile): string {
-	// Try to find an existing UUID with matching file path.
-	for (const [uuid, path] of Object.entries(plugin.uuidMapping)) {
-		if (path === file.path) {
-			return uuid;
-		}
+function ensureNoteDataForFile(plugin: MyPlugin, file: TFile): string {
+	const key = file.path;
+	if (!plugin.noteData[key]) {
+		plugin.noteData[key] = {
+			// Initialize a default spaced repetition log
+			spacedRepetitionLog: {
+				repetition: 0,
+				interval: 0,
+				ef: 2.5,
+				lastReviewDate: new Date().toISOString(),
+				active: true,
+			},
+			visitLog: [],
+		};
+		plugin.savePluginData();
 	}
-	// None found, so create a new one.
-	const newUUID = uuidv4();
-	plugin.uuidMapping[newUUID] = file.path;
-	plugin.savePluginData();
-	return newUUID;
+	return key;
 }
 
 /**
- * Get the UUID for a file (if it exists), else return undefined.
- */
-function getUUIDForFile(
-	plugin: MyPlugin,
-	filePath: string
-): string | undefined {
-	for (const [uuid, path] of Object.entries(plugin.uuidMapping)) {
-		if (path === filePath) {
-			return uuid;
-		}
-	}
-	return undefined;
-}
-
-/**
- * NEW: Helper to add a new EF history entry to a note’s state.
+ * Helper to add a new EF history entry to a note’s state.
  */
 function updateEFHistoryEntry(state: NoteState, reviewDate: Date): NoteState {
 	if (!state.efHistory) state.efHistory = [];
@@ -154,7 +150,6 @@ class MyPluginSettingTab extends PluginSettingTab {
 					})
 			);
 
-		// New toggle setting for randomizing flashcards.
 		new Setting(containerEl)
 			.setName("Randomize Flashcards")
 			.setDesc(
@@ -173,7 +168,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 
 /* ============================================================================
  * SPACED REPETITION LOGIC (Updated to track EF history)
- * ============================================================================ */
+ * ========================================================================== */
 
 function getNextReviewDate(lastReview: Date, interval: number): Date {
 	const nextReview = new Date(lastReview);
@@ -222,7 +217,6 @@ function updateNoteState(
 			nextReviewDate: undefined,
 			active: false,
 		};
-		// Log EF event even when stopping scheduling.
 		return updateEFHistoryEntry(newState, reviewDate);
 	}
 
@@ -244,7 +238,6 @@ function updateNoteState(
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
 		newState.active = true;
-		// Log EF event (EF remains unchanged in learning mode)
 		return updateEFHistoryEntry(newState, reviewDate);
 	} else {
 		if (newState.isLearning) {
@@ -272,7 +265,6 @@ function updateNoteState(
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
 		newState.active = true;
-		// Log the new EF rating along with the review time.
 		return updateEFHistoryEntry(newState, reviewDate);
 	}
 }
@@ -286,7 +278,6 @@ export abstract class BaseSidebarView extends ItemView {
 		this.plugin = plugin;
 	}
 
-	// Abstract methods to provide specifics for each sidebar
 	abstract getViewType(): string;
 	abstract getDisplayText(): string;
 	abstract getIcon(): string;
@@ -298,35 +289,38 @@ export abstract class BaseSidebarView extends ItemView {
 	abstract filterFiles(now: Date): string[];
 
 	async onOpen() {
-		// Get container element and set the common class
 		const container = this.containerEl.children[1] || this.containerEl;
 		container.empty();
 		container.addClass("review-sidebar-container");
 
 		const now = new Date();
-		// Get files according to the specific filtering criteria
-		const uuids = this.filterFiles(now);
-		const validUUIDs: string[] = [];
-
-		// Verify files exist using the uuidMapping to retrieve the file path.
-		for (const uuid of uuids) {
-			const filePath = this.plugin.uuidMapping[uuid];
-			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-			if (file && file instanceof TFile) validUUIDs.push(uuid);
+		// Filter based on our noteData keys (file paths)
+		const validPaths: string[] = [];
+		for (const filePath in this.plugin.noteData) {
+			const noteState =
+				this.plugin.noteData[filePath].spacedRepetitionLog;
+			if (
+				noteState.active &&
+				noteState.nextReviewDate &&
+				new Date(noteState.nextReviewDate) <= now
+			) {
+				// Verify file exists in vault.
+				const file =
+					this.plugin.app.vault.getAbstractFileByPath(filePath);
+				if (file && file instanceof TFile) validPaths.push(filePath);
+			}
 		}
 
-		// Create header section
 		const spacer = container.createEl("div", { cls: "header-spacer" });
 		spacer.setAttr("style", "height: 12px;");
 		const header = container.createEl("div", { cls: "review-header" });
 		header.createEl("h2", { text: this.getHeaderTitle() });
 		header.createEl("div", {
 			cls: "review-count",
-			text: this.getCountMessage(validUUIDs.length),
+			text: this.getCountMessage(validPaths.length),
 		});
 
-		// Empty state if no files
-		if (validUUIDs.length === 0) {
+		if (validPaths.length === 0) {
 			const emptyState = container.createEl("div", {
 				cls: "review-empty",
 			});
@@ -339,17 +333,15 @@ export abstract class BaseSidebarView extends ItemView {
 			return;
 		}
 
-		// Create card container and add cards for each file.
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
 		});
-		validUUIDs.forEach(async (uuid) => {
-			const filePath = this.plugin.uuidMapping[uuid];
+		validPaths.forEach(async (filePath) => {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			if (!file || !(file instanceof TFile)) return;
-			const noteState = this.plugin.spacedRepetitionLog[uuid];
+			const noteState =
+				this.plugin.noteData[filePath].spacedRepetitionLog;
 
-			// Use metadata cache to extract frontmatter tags (if any)
 			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
 			const tags = fileCache?.frontmatter?.tags;
 			const firstTag = Array.isArray(tags) ? tags[0] : tags;
@@ -374,14 +366,12 @@ export abstract class BaseSidebarView extends ItemView {
 		});
 	}
 
-	// Default behavior: subclasses may override this method if needed.
 	protected addCardMeta(
 		card: HTMLElement,
 		noteState: NoteState,
 		now: Date
 	): void {
 		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
-		// For a review card, show last review info; subclasses can change as needed.
 		const intervalEl = card.createEl("div", { cls: "review-interval" });
 		const lastReviewDate = new Date(noteState.lastReviewDate);
 		const daysSinceReview = Math.floor(
@@ -396,7 +386,6 @@ export abstract class BaseSidebarView extends ItemView {
 					: `${daysSinceReview} days ago`,
 		});
 
-		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
 		const efValue = noteState.ef.toFixed(2);
@@ -449,18 +438,18 @@ export class ReviewSidebarView extends BaseSidebarView {
 		return "0 notes due for review.";
 	}
 
-	// Only include notes that are due (nextReviewDate is now or in the past)
+	// Only include notes that are due.
 	filterFiles(now: Date): string[] {
 		const due: string[] = [];
-		for (const [uuid, state] of Object.entries(
-			this.plugin.spacedRepetitionLog
-		)) {
+		for (const filePath in this.plugin.noteData) {
+			const noteState =
+				this.plugin.noteData[filePath].spacedRepetitionLog;
 			if (
-				state.active &&
-				state.nextReviewDate &&
-				new Date(state.nextReviewDate) <= now
+				noteState.active &&
+				noteState.nextReviewDate &&
+				new Date(noteState.nextReviewDate) <= now
 			) {
-				due.push(uuid);
+				due.push(filePath);
 			}
 		}
 		return due;
@@ -483,7 +472,6 @@ export class ReviewSidebarView extends BaseSidebarView {
 				: daysSinceReview === 1
 				? "Yesterday"
 				: `${daysSinceReview} days ago`;
-		// Format the time in 24h format (HH:mm)
 		const lastReviewTime = lastReviewDate.toLocaleTimeString("en-GB", {
 			hour: "2-digit",
 			minute: "2-digit",
@@ -493,7 +481,6 @@ export class ReviewSidebarView extends BaseSidebarView {
 			text: `Last: ${displayText} at ${lastReviewTime}`,
 		});
 
-		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
 		const efValue = noteState.ef.toFixed(2);
@@ -549,24 +536,23 @@ export class ScheduledSidebarView extends BaseSidebarView {
 	// Only include notes that are scheduled for the future.
 	filterFiles(now: Date): string[] {
 		const scheduled: string[] = [];
-		for (const [uuid, state] of Object.entries(
-			this.plugin.spacedRepetitionLog
-		)) {
+		for (const filePath in this.plugin.noteData) {
+			const noteState =
+				this.plugin.noteData[filePath].spacedRepetitionLog;
 			if (
-				state.active &&
-				state.nextReviewDate &&
-				new Date(state.nextReviewDate) > now
+				noteState.active &&
+				noteState.nextReviewDate &&
+				new Date(noteState.nextReviewDate) > now
 			) {
-				scheduled.push(uuid);
+				scheduled.push(filePath);
 			}
 		}
-		// Sort by nextReviewDate ascending
 		return scheduled.sort((a, b) => {
 			const dateA = new Date(
-				this.plugin.spacedRepetitionLog[a].nextReviewDate!
+				this.plugin.noteData[a].spacedRepetitionLog.nextReviewDate!
 			);
 			const dateB = new Date(
-				this.plugin.spacedRepetitionLog[b].nextReviewDate!
+				this.plugin.noteData[b].spacedRepetitionLog.nextReviewDate!
 			);
 			return dateA.getTime() - dateB.getTime();
 		});
@@ -589,7 +575,6 @@ export class ScheduledSidebarView extends BaseSidebarView {
 					: diffDays === 1
 					? "Tomorrow"
 					: `in ${diffDays} days`;
-			// Format the time in 24h format (HH:mm)
 			const nextReviewTime = nextReviewDate.toLocaleTimeString("en-GB", {
 				hour: "2-digit",
 				minute: "2-digit",
@@ -600,7 +585,6 @@ export class ScheduledSidebarView extends BaseSidebarView {
 			});
 		}
 
-		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
 		const efValue = noteState.ef.toFixed(2);
@@ -630,16 +614,12 @@ class FlashcardModal extends Modal {
 	onOpen() {
 		const { contentEl, modalEl } = this;
 		contentEl.empty();
-
-		// Apply modern styling to modal
 		modalEl.addClass("modern-flashcard-modal");
 
-		// Container for the entire modal content
 		const container = contentEl.createDiv({
 			cls: "flashcard-content-container",
 		});
 
-		// Progress bar
 		const progressContainer = container.createDiv({
 			cls: "flashcard-progress-container",
 		});
@@ -648,17 +628,13 @@ class FlashcardModal extends Modal {
 		});
 		this.updateProgressBar(progressBar);
 
-		// Card container with shadow and rounded corners
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
 		this.cardEl = cardContainer;
 
-		// Render initial card
 		this.renderCard(cardContainer);
 
-		// Navigation controls
 		const controls = container.createDiv({ cls: "flashcard-controls" });
 
-		// Previous button
 		const prevBtn = new ButtonComponent(controls)
 			.setClass("flashcard-nav-button")
 			.setClass("flashcard-prev-button")
@@ -676,13 +652,11 @@ class FlashcardModal extends Modal {
 
 		setIcon(prevBtn.buttonEl, "arrow-left");
 
-		// Counter
 		const counter = controls.createDiv({
 			cls: "flashcard-counter",
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
 		});
 
-		// Next button
 		this.nextBtn = new ButtonComponent(controls)
 			.setClass("flashcard-nav-button")
 			.setClass("flashcard-next-button")
@@ -696,15 +670,12 @@ class FlashcardModal extends Modal {
 						`${this.currentIndex + 1} / ${this.flashcards.length}`
 					);
 				} else if (this.currentIndex === this.flashcards.length - 1) {
-					// Close the modal when clicking the green checkmark on the last card
 					this.close();
 				}
 			});
 
-		// Set initial icon state
 		this.updateNextButtonIcon();
 
-		// Add keyboard shortcuts
 		this.scope.register([], "ArrowLeft", () => {
 			prevBtn.buttonEl.click();
 			return false;
@@ -722,11 +693,9 @@ class FlashcardModal extends Modal {
 		if (!this.nextBtn) return;
 
 		if (this.currentIndex === this.flashcards.length - 1) {
-			// Last card - show checkmark
 			setIcon(this.nextBtn.buttonEl, "check");
 			this.nextBtn.buttonEl.addClass("last-card-button");
 		} else {
-			// Not last card - show arrow
 			setIcon(this.nextBtn.buttonEl, "arrow-right");
 			this.nextBtn.buttonEl.removeClass("last-card-button");
 		}
@@ -742,19 +711,13 @@ class FlashcardModal extends Modal {
 		this.contentEl.empty();
 	}
 
-	// Updated renderCard method for FlashcardModal class
 	renderCard(cardContainer: HTMLElement) {
 		cardContainer.empty();
-
 		if (this.flashcards.length > 0) {
 			const cardContent = this.flashcards[this.currentIndex];
-
-			// Create a content wrapper without enforcing center alignment
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
-
-			// Render markdown into the content wrapper
 			MarkdownRenderer.render(
 				this.app,
 				cardContent,
@@ -763,7 +726,6 @@ class FlashcardModal extends Modal {
 				this.plugin
 			);
 
-			// Attach click handler to internal links (Obsidian links)
 			const internalLinks =
 				contentWrapper.querySelectorAll("a.internal-link");
 			internalLinks.forEach((link) => {
@@ -771,7 +733,6 @@ class FlashcardModal extends Modal {
 					evt.preventDefault();
 					const href = link.getAttribute("href");
 					if (href) {
-						// Use Obsidian's default method to open internal links.
 						this.plugin.app.workspace.openLinkText(href, "", false);
 						this.close();
 					}
@@ -797,23 +758,15 @@ class FlashcardModal extends Modal {
 
 /* ============================================================================
  * MAIN PLUGIN CLASS
- * ============================================================================ */
+ * ========================================================================== */
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
-	// UPDATED: visitLog is now keyed by UUID.
-	visitLog: { [uuid: string]: string[] } = {};
-	// Now spacedRepetitionLog is keyed by UUID
-	spacedRepetitionLog: { [uuid: string]: NoteState } = {};
-	// New: uuidMapping stores the mapping between UUID and the current file path
-	uuidMapping: { [uuid: string]: string } = {};
-
+	// All note-related data is stored in noteData, keyed by file path.
+	noteData: { [filePath: string]: NoteData } = {};
 	private allHidden: boolean = true;
 	private refreshTimeout: number | null = null;
 
-	/* =========================
-	   Plugin Lifecycle Methods
-	========================= */
 	async onload() {
 		await this.loadPluginData();
 		this.initializeUI();
@@ -832,23 +785,15 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	/* =========================
-	   Data Loading & Saving
-	========================= */
 	async loadPluginData() {
 		const data = (await this.loadData()) as PluginData;
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
-			this.spacedRepetitionLog = data.spacedRepetitionLog || {};
-			this.uuidMapping = data.uuidMapping || {};
-			this.visitLog = data.visitLog || {};
+			this.noteData = data.noteData || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
-			this.visitLog = {};
-			this.spacedRepetitionLog = {};
-			this.uuidMapping = {};
+			this.noteData = {};
 		}
-		// Apply settings (e.g. hidden color)
 		document.documentElement.style.setProperty(
 			"--hidden-color",
 			this.settings.hiddenColor
@@ -858,9 +803,7 @@ export default class MyPlugin extends Plugin {
 	async savePluginData() {
 		const data: PluginData = {
 			settings: this.settings,
-			spacedRepetitionLog: this.spacedRepetitionLog,
-			uuidMapping: this.uuidMapping,
-			visitLog: this.visitLog,
+			noteData: this.noteData,
 		};
 		await this.saveData(data);
 	}
@@ -869,11 +812,7 @@ export default class MyPlugin extends Plugin {
 		await this.savePluginData();
 	}
 
-	/* =========================
-	   UI Initialization
-	========================= */
 	private initializeUI(): void {
-		// Add ribbon icons
 		this.addRibbonIcon("layers", "Flashcards", (evt: MouseEvent) => {
 			evt.preventDefault();
 			this.showFlashcardsModal();
@@ -895,9 +834,7 @@ export default class MyPlugin extends Plugin {
 			this.activateScheduledSidebar();
 		});
 
-		// Markdown post processors
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
-			// Remove flashcard tags
 			el.innerHTML = el.innerHTML.replace(/\[\/?card\]/g, "");
 		});
 
@@ -907,18 +844,13 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
-	/* =========================
-	   Command Registration
-	========================= */
 	private registerCommands(): void {
-		// Flashcard modal
 		this.addCommand({
 			id: "show-flashcards-modal",
 			name: "Show Flashcards Modal",
 			callback: () => this.showFlashcardsModal(),
 		});
 
-		// Wrap selected text as flashcard
 		this.addCommand({
 			id: "wrap-text-as-flashcard",
 			name: "Wrap Selected Text in [card][/card]",
@@ -926,7 +858,6 @@ export default class MyPlugin extends Plugin {
 				this.wrapSelectedTextAsFlashcard(editor),
 		});
 
-		// Sample editor command
 		this.addCommand({
 			id: "sample-editor-command",
 			name: "Sample editor command",
@@ -936,28 +867,24 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// Review current note (Spaced Repetition)
 		this.addCommand({
 			id: "review-current-note",
 			name: "Review Current Note (Spaced Repetition)",
 			callback: () => this.openReviewModal(),
 		});
 
-		// Open review queue
 		this.addCommand({
 			id: "open-review-queue",
 			name: "Open Review Queue",
 			callback: () => this.activateReviewSidebar(),
 		});
 
-		// Open scheduled queue
 		this.addCommand({
 			id: "open-scheduled-queue",
 			name: "Open Scheduled Queue",
 			callback: () => this.activateScheduledSidebar(),
 		});
 
-		// Wrap selected text with hide tags
 		this.addCommand({
 			id: "wrap-selected-text-with-hide",
 			name: "Wrap Selected Text in [hide][/hide]",
@@ -971,14 +898,12 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// Toggle all hidden content
 		this.addCommand({
 			id: "toggle-all-hidden",
 			name: "Toggle All Hidden Content",
 			callback: () => this.toggleAllHidden(),
 		});
 
-		// Delete hide wrappers
 		this.addCommand({
 			id: "delete-hide-wrappers",
 			name: "Delete [hide][/hide] wrappers",
@@ -988,18 +913,23 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
-	/* =========================
-	   Event Registration
-	========================= */
 	private registerEvents(): void {
-		// Handle file rename to update logs and the uuidMapping.
+		// Update noteData when a file is renamed.
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
-				this.handleFileRename(file, oldPath);
+				// Move the noteData entry from oldPath to the new file.path.
+				if (this.noteData[oldPath]) {
+					this.noteData[file.path] = this.noteData[oldPath];
+					delete this.noteData[oldPath];
+					this.savePluginData();
+				}
+				console.log(`Updated data from ${oldPath} to ${file.path}`);
+				this.refreshReviewQueue();
+				this.refreshScheduledQueue();
+				this.scheduleNextDueRefresh();
 			})
 		);
 
-		// Handle file modifications for active file
 		this.registerEvent(
 			this.app.vault.on("modify", (file: TFile) => {
 				const activeFile = this.app.workspace.getActiveFile();
@@ -1013,14 +943,18 @@ export default class MyPlugin extends Plugin {
 			})
 		);
 
-		// Register deletion event to remove UUIDs and log data:
+		// Remove noteData when a file is deleted.
 		this.registerEvent(
 			this.app.vault.on("delete", (file: TFile) => {
-				this.handleFileDeletion(file);
+				if (this.noteData[file.path]) {
+					delete this.noteData[file.path];
+					this.savePluginData();
+					new Notice(`Deleted '${file.basename}' from review logs.`);
+				}
 			})
 		);
 
-		// UPDATED: Use UUIDs for visit logging.
+		// Log visits using the file path as the key.
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
 				if (!leaf) return;
@@ -1028,21 +962,14 @@ export default class MyPlugin extends Plugin {
 				if (!mdView || !mdView.file) return;
 				const file = mdView.file;
 				if (file && file instanceof TFile) {
-					// Ensure the file has a UUID and use that as the key
-					const uuid = ensureUUIDForFile(this, file);
-					if (!this.visitLog[uuid]) {
-						this.visitLog[uuid] = [];
-					}
-					this.visitLog[uuid].push(new Date().toISOString());
+					const key = ensureNoteDataForFile(this, file);
+					this.noteData[key].visitLog.push(new Date().toISOString());
 					this.savePluginData();
 				}
 			})
 		);
 	}
 
-	/* =========================
-	   Custom Views Registration
-	========================= */
 	private registerCustomViews(): void {
 		this.registerView(
 			REVIEW_VIEW_TYPE,
@@ -1054,9 +981,6 @@ export default class MyPlugin extends Plugin {
 		);
 	}
 
-	/* =========================
-	   Command Handlers & Utilities
-	========================= */
 	wrapSelectedTextAsFlashcard(editor: Editor) {
 		const selection = editor.getSelection();
 		if (selection && selection.trim().length > 0) {
@@ -1127,12 +1051,9 @@ export default class MyPlugin extends Plugin {
 		}
 		const content = await this.app.vault.read(activeFile);
 		let flashcards = this.parseFlashcards(content);
-
-		// If the user wants randomized flashcards, shuffle the array.
 		if (this.settings.randomizeFlashcards) {
 			flashcards = shuffleArray(flashcards);
 		}
-
 		if (flashcards.length > 0) {
 			new FlashcardModal(this.app, flashcards, this).open();
 		} else {
@@ -1146,13 +1067,12 @@ export default class MyPlugin extends Plugin {
 			new Notice("No active Markdown file to review.");
 			return;
 		}
-		// Ensure the file has a UUID.
-		const uuid = ensureUUIDForFile(this, file);
-		const currentState = this.spacedRepetitionLog[uuid];
+		const key = ensureNoteDataForFile(this, file);
+		const currentState = this.noteData[key].spacedRepetitionLog;
 		new RatingModal(this.app, currentState, (ratingStr: string) => {
 			if (!ratingStr) return;
 			if (ratingStr.toLowerCase() === "stop") {
-				this.updateNoteWithQuality(uuid, 0, true);
+				this.updateNoteWithQuality(key, 0, true);
 			} else {
 				const rating = parseInt(ratingStr, 10);
 				if (isNaN(rating) || rating < 0 || rating > 5) {
@@ -1161,18 +1081,18 @@ export default class MyPlugin extends Plugin {
 					);
 					return;
 				}
-				this.updateNoteWithQuality(uuid, rating, false);
+				this.updateNoteWithQuality(key, rating, false);
 			}
 		}).open();
 	}
 
 	private async updateNoteWithQuality(
-		uuid: string,
+		key: string,
 		quality: number,
 		stopScheduling: boolean
 	) {
 		const now = new Date();
-		let noteState = this.spacedRepetitionLog[uuid];
+		let noteState = this.noteData[key].spacedRepetitionLog;
 		if (!noteState) {
 			noteState = {
 				repetition: 0,
@@ -1188,12 +1108,12 @@ export default class MyPlugin extends Plugin {
 			now,
 			stopScheduling
 		);
-		this.spacedRepetitionLog[uuid] = updated;
+		this.noteData[key].spacedRepetitionLog = updated;
 		if (stopScheduling) {
-			new Notice(`Scheduling stopped for '${this.uuidMapping[uuid]}'`);
+			new Notice(`Scheduling stopped for '${key}'`);
 		} else {
 			new Notice(
-				`Updated SM-2 for '${this.uuidMapping[uuid]}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
+				`Updated SM-2 for '${key}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
 			);
 		}
 		await this.savePluginData();
@@ -1202,54 +1122,6 @@ export default class MyPlugin extends Plugin {
 		this.scheduleNextDueRefresh();
 	}
 
-	/**
-	 * Update the uuidMapping for a renamed file.
-	 */
-	private handleFileRename(file: TFile, oldPath: string) {
-		// Since visitLog is now keyed by UUID, and the UUID remains unchanged when the file is renamed,
-		// there is no need to update visitLog entries.
-		// Only update the uuidMapping.
-		for (const [uuid, path] of Object.entries(this.uuidMapping)) {
-			if (path === oldPath) {
-				this.uuidMapping[uuid] = file.path;
-				break;
-			}
-		}
-		// No need to update spacedRepetitionLog since it is keyed by UUID.
-		this.savePluginData();
-		console.log(`Updated logs from ${oldPath} to ${file.path}`);
-		this.refreshReviewQueue();
-		this.refreshScheduledQueue();
-		this.scheduleNextDueRefresh();
-	}
-
-	/**
-	 * Handle file deletion by removing its associated UUID and spaced repetition data.
-	 */
-	private handleFileDeletion(file: TFile) {
-		// Get the UUID for the file being deleted.
-		const uuid = getUUIDForFile(this, file.path);
-		if (uuid) {
-			// Remove the UUID from the mapping and spaced repetition log.
-			delete this.uuidMapping[uuid];
-			delete this.spacedRepetitionLog[uuid];
-
-			// Remove any visitLog entries associated with the UUID.
-			if (this.visitLog[uuid]) {
-				delete this.visitLog[uuid];
-			}
-
-			// Save the updated data.
-			this.savePluginData();
-
-			// Notify the user.
-			new Notice(`Deleted '${file.basename}' from review logs.`);
-		}
-	}
-
-	/* =========================
-	   Sidebar Activation & Refreshing
-	========================= */
 	async activateReviewSidebar() {
 		let leaf = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE)[0];
 		if (!leaf) {
@@ -1295,9 +1167,6 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
-	/* =========================
-	   Scheduling Refreshes
-	========================= */
 	private scheduleNextDueRefresh(): void {
 		if (this.refreshTimeout !== null) {
 			clearTimeout(this.refreshTimeout);
@@ -1305,7 +1174,8 @@ export default class MyPlugin extends Plugin {
 		}
 		const now = new Date();
 		let earliestTime: number | null = null;
-		for (const state of Object.values(this.spacedRepetitionLog)) {
+		for (const key in this.noteData) {
+			const state = this.noteData[key].spacedRepetitionLog;
 			if (state.active && state.nextReviewDate) {
 				const nextTime = new Date(state.nextReviewDate).getTime();
 				if (
@@ -1326,9 +1196,6 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	/* =========================
-	   Toggle Hidden Content
-	========================= */
 	private toggleAllHidden(): void {
 		const textEls = document.querySelectorAll(".hidden-note");
 		if (this.allHidden) {
@@ -1342,11 +1209,8 @@ export default class MyPlugin extends Plugin {
 
 /* ============================================================================
  * CUSTOM MODALS
- * ============================================================================ */
+ * ========================================================================== */
 
-/**
- * Helper function to format the next review time as "YYYY-MM-DD:HH:mm" in 24hr format
- */
 function formatNextReviewTime(dateString: string): string {
 	const date = new Date(dateString);
 	const year = date.getFullYear();
@@ -1372,7 +1236,6 @@ class RatingModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
-		// Create the container for rating buttons with the defined class
 		const buttonContainer = contentEl.createEl("div", {
 			cls: "rating-button-container",
 		});
@@ -1416,7 +1279,6 @@ class RatingModal extends Modal {
 				"No review data available for this note.";
 		}
 		contentEl.appendChild(statsContainer);
-		// Create the stop container with its class
 		const stopContainer = contentEl.createEl("div", {
 			cls: "stop-container",
 		});
@@ -1437,7 +1299,7 @@ class RatingModal extends Modal {
 
 /* ============================================================================
  * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT AND INLINE MATH
- * ============================================================================ */
+ * ========================================================================== */
 
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
@@ -1491,10 +1353,6 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	});
 }
 
-/**
- * Processes paragraphs to detect multiple block-level math expressions and wraps them in a div.
- * Assumes that math blocks are rendered with the class "math-block".
- */
 function processMathBlocks(rootEl: HTMLElement): void {
 	rootEl.querySelectorAll("p").forEach((paragraph) => {
 		const mathBlocks = Array.from(
