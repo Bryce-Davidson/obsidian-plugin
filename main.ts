@@ -20,6 +20,11 @@ import { v4 as uuidv4 } from "uuid"; // <-- NEW: Import the uuid library
  * PLUGIN DATA INTERFACES & CONSTANTS
  * ========================================================================== */
 
+interface EFHistoryEntry {
+	timestamp: string;
+	ef: number;
+}
+
 interface MyPluginSettings {
 	mySetting: string;
 	hiddenColor: string;
@@ -47,6 +52,7 @@ interface NoteState {
 	active: boolean;
 	isLearning?: boolean;
 	learningStep?: number;
+	efHistory?: EFHistoryEntry[]; // NEW: Track EF rating over time
 }
 
 /* ============================================================================
@@ -107,6 +113,15 @@ function getUUIDForFile(
 	return undefined;
 }
 
+/**
+ * NEW: Helper to add a new EF history entry to a note’s state.
+ */
+function updateEFHistoryEntry(state: NoteState, reviewDate: Date): NoteState {
+	if (!state.efHistory) state.efHistory = [];
+	state.efHistory.push({ timestamp: reviewDate.toISOString(), ef: state.ef });
+	return state;
+}
+
 /* ============================================================================
  * SETTINGS TAB
  * ========================================================================== */
@@ -156,7 +171,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 }
 
 /* ============================================================================
- * SPACED REPETITION LOGIC (Unchanged)
+ * SPACED REPETITION LOGIC (Updated to track EF history)
  * ============================================================================ */
 
 function getNextReviewDate(lastReview: Date, interval: number): Date {
@@ -197,16 +212,18 @@ function updateNoteState(
 	reviewDate: Date,
 	stopScheduling: boolean = false
 ): NoteState {
+	let newState = { ...state };
+
 	if (stopScheduling) {
-		return {
-			...state,
+		newState = {
+			...newState,
 			lastReviewDate: reviewDate.toISOString(),
 			nextReviewDate: undefined,
 			active: false,
 		};
+		// Log EF event even when stopping scheduling.
+		return updateEFHistoryEntry(newState, reviewDate);
 	}
-
-	let newState = { ...state };
 
 	if (quality < 3) {
 		if (!newState.isLearning) {
@@ -226,7 +243,8 @@ function updateNoteState(
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
 		newState.active = true;
-		return newState;
+		// Log EF event (EF remains unchanged in learning mode)
+		return updateEFHistoryEntry(newState, reviewDate);
 	} else {
 		if (newState.isLearning) {
 			newState.isLearning = false;
@@ -253,7 +271,8 @@ function updateNoteState(
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
 		newState.active = true;
-		return newState;
+		// Log the new EF rating along with the review time.
+		return updateEFHistoryEntry(newState, reviewDate);
 	}
 }
 
