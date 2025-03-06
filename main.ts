@@ -46,6 +46,7 @@ interface NoteState {
 	active: boolean;
 	isLearning?: boolean;
 	learningStep?: number;
+	efHistory?: { timestamp: string; ef: number }[]; // <-- New property for tracking EF history
 }
 
 /* ============================================================================
@@ -122,7 +123,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 }
 
 /* ============================================================================
- * SPACED REPETITION LOGIC (Unchanged)
+ * SPACED REPETITION LOGIC (Unchanged except for EF history update)
  * ========================================================================== */
 
 function getNextReviewDate(lastReview: Date, interval: number): Date {
@@ -192,7 +193,6 @@ function updateNoteState(
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
 		newState.active = true;
-		return newState;
 	} else {
 		if (newState.isLearning) {
 			newState.isLearning = false;
@@ -219,8 +219,19 @@ function updateNoteState(
 		newState.lastReviewDate = reviewDate.toISOString();
 		newState.nextReviewDate = nextReview.toISOString();
 		newState.active = true;
-		return newState;
 	}
+
+	// Initialize the efHistory array if it doesn't exist
+	if (!newState.efHistory) {
+		newState.efHistory = [];
+	}
+	// Add the current EF with a timestamp to the history
+	newState.efHistory.push({
+		timestamp: reviewDate.toISOString(),
+		ef: newState.ef,
+	});
+
+	return newState;
 }
 
 // BaseSidebarView.ts
@@ -1109,6 +1120,7 @@ export default class MyPlugin extends Plugin {
 				ef: 2.5,
 				lastReviewDate: now.toISOString(),
 				active: true,
+				efHistory: [{ timestamp: now.toISOString(), ef: 2.5 }], // <-- Initialize EF history
 			};
 		}
 		const updated = updateNoteState(
