@@ -235,6 +235,33 @@ function updateNoteState(
 	return newState;
 }
 
+function updateNoteStateFlashcard(
+	state: NoteState,
+	quality: number,
+	reviewDate: Date,
+	totalCards: number
+): NoteState {
+	if (quality < 3) {
+		// For ratings below 3, use the full update (learning branch)
+		return updateNoteState(state, quality, reviewDate, false);
+	} else {
+		// For ratings ≥3, compute the delta and apply only 1/N of it.
+		let delta = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02);
+		let fractionalDelta = delta / totalCards;
+		let newEF = state.ef + fractionalDelta;
+		if (newEF < 1.3) newEF = 1.3;
+		state.ef = parseFloat(newEF.toFixed(2));
+		if (!state.efHistory) state.efHistory = [];
+		state.efHistory.push({
+			timestamp: reviewDate.toISOString(),
+			ef: state.ef,
+		});
+		// Note: We are not updating repetition and interval on each flashcard.
+		// They remain unchanged until the user’s next overall review.
+		return state;
+	}
+}
+
 // BaseSidebarView.ts
 export abstract class BaseSidebarView extends ItemView {
 	plugin: MyPlugin;
@@ -578,8 +605,7 @@ class FlashcardModal extends Modal {
 	flashcards: string[];
 	currentIndex: number = 0;
 	plugin: Plugin;
-	cardEl: HTMLElement | null = null;
-	nextBtn: ButtonComponent | null = null;
+	feedbackContainer: HTMLElement | null = null;
 
 	constructor(app: App, flashcards: string[], plugin: Plugin) {
 		super(app);
@@ -610,86 +636,38 @@ class FlashcardModal extends Modal {
 
 		// Card container with shadow and rounded corners
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
-		this.cardEl = cardContainer;
-
-		// Render initial card
 		this.renderCard(cardContainer);
 
-		// Navigation controls
-		const controls = container.createDiv({ cls: "flashcard-controls" });
+		// Create feedback container for user updates
+		this.feedbackContainer = container.createDiv({
+			cls: "flashcard-feedback",
+		});
+		// Initialize feedback (if available, otherwise empty)
+		this.updateFeedback("");
 
-		// Previous button
-		const prevBtn = new ButtonComponent(controls)
-			.setClass("flashcard-nav-button")
-			.setClass("flashcard-prev-button")
-			.onClick(() => {
-				if (this.currentIndex > 0) {
-					this.showPrevious();
-					this.renderCard(cardContainer);
-					this.updateProgressBar(progressBar);
-					this.updateNextButtonIcon();
-					counter.setText(
-						`${this.currentIndex + 1} / ${this.flashcards.length}`
-					);
-				}
+		// Create rating button tray
+		const ratingTray = container.createDiv({
+			cls: "flashcard-rating-tray",
+		});
+		// Define five rating options.
+		// Ratings below 3 (here 0 and 2) will trigger learning mode.
+		// Ratings 3 and above will update EF fractionally.
+		const ratings = [
+			{ value: 0, color: "#FF4C4C" },
+			{ value: 2, color: "#FFA500" },
+			{ value: 3, color: "#FFFF66" },
+			{ value: 4, color: "#ADFF2F" },
+			{ value: 5, color: "#7CFC00" },
+		];
+		ratings.forEach((rating) => {
+			const btn = ratingTray.createEl("button", {
+				cls: "rating-button",
 			});
-
-		setIcon(prevBtn.buttonEl, "arrow-left");
-
-		// Counter
-		const counter = controls.createDiv({
-			cls: "flashcard-counter",
-			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
-		});
-
-		// Next button
-		this.nextBtn = new ButtonComponent(controls)
-			.setClass("flashcard-nav-button")
-			.setClass("flashcard-next-button")
-			.onClick(() => {
-				if (this.currentIndex < this.flashcards.length - 1) {
-					this.showNext();
-					this.renderCard(cardContainer);
-					this.updateProgressBar(progressBar);
-					this.updateNextButtonIcon();
-					counter.setText(
-						`${this.currentIndex + 1} / ${this.flashcards.length}`
-					);
-				} else if (this.currentIndex === this.flashcards.length - 1) {
-					// Close the modal when clicking the green checkmark on the last card
-					this.close();
-				}
+			btn.style.backgroundColor = rating.color;
+			btn.addEventListener("click", () => {
+				this.handleRating(rating.value);
 			});
-
-		// Set initial icon state
-		this.updateNextButtonIcon();
-
-		// Add keyboard shortcuts
-		this.scope.register([], "ArrowLeft", () => {
-			prevBtn.buttonEl.click();
-			return false;
 		});
-
-		this.scope.register([], "ArrowRight", () => {
-			if (this.nextBtn) {
-				this.nextBtn.buttonEl.click();
-			}
-			return false;
-		});
-	}
-
-	updateNextButtonIcon() {
-		if (!this.nextBtn) return;
-
-		if (this.currentIndex === this.flashcards.length - 1) {
-			// Last card - show checkmark
-			setIcon(this.nextBtn.buttonEl, "check");
-			this.nextBtn.buttonEl.addClass("last-card-button");
-		} else {
-			// Not last card - show arrow
-			setIcon(this.nextBtn.buttonEl, "arrow-right");
-			this.nextBtn.buttonEl.removeClass("last-card-button");
-		}
 	}
 
 	updateProgressBar(progressBar: HTMLElement) {
@@ -698,23 +676,16 @@ class FlashcardModal extends Modal {
 		progressBar.style.width = `${progress}%`;
 	}
 
-	onClose() {
-		this.contentEl.empty();
-	}
-
-	// Updated renderCard method for FlashcardModal class
 	renderCard(cardContainer: HTMLElement) {
 		cardContainer.empty();
-
-		if (this.flashcards.length > 0) {
+		if (
+			this.flashcards.length > 0 &&
+			this.currentIndex < this.flashcards.length
+		) {
 			const cardContent = this.flashcards[this.currentIndex];
-
-			// Create a content wrapper without enforcing center alignment
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
-
-			// Render markdown into the content wrapper
 			MarkdownRenderer.render(
 				this.app,
 				cardContent,
@@ -731,7 +702,6 @@ class FlashcardModal extends Modal {
 					evt.preventDefault();
 					const href = link.getAttribute("href");
 					if (href) {
-						// Use Obsidian's default method to open internal links.
 						this.plugin.app.workspace.openLinkText(href, "", false);
 						this.close();
 					}
@@ -742,16 +712,89 @@ class FlashcardModal extends Modal {
 		}
 	}
 
-	showPrevious() {
-		if (this.currentIndex > 0) {
-			this.currentIndex--;
+	// Updates the feedback container with the provided text.
+	updateFeedback(message: string) {
+		if (this.feedbackContainer) {
+			this.feedbackContainer.textContent = message;
 		}
 	}
 
-	showNext() {
+	// Called when a rating button is clicked.
+	async handleRating(rating: number) {
+		const now = new Date();
+		// Get active file to identify the note
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) {
+			new Notice("No active file found.");
+			return;
+		}
+		const filePath = activeFile.path;
+		// Access the plugin's note state (assuming this.plugin is our MyPlugin instance)
+		const myPlugin = this.plugin as any; // cast if necessary
+		let noteState: NoteState = myPlugin.notes[filePath];
+		if (!noteState) {
+			noteState = {
+				repetition: 0,
+				interval: 0,
+				ef: 2.5,
+				lastReviewDate: now.toISOString(),
+				active: true,
+				efHistory: [],
+				visitLog: [now.toISOString()],
+			};
+		}
+
+		const totalCards = this.flashcards.length;
+		// For ratings < 3, use the full update (learning branch).
+		// For ratings ≥ 3, update EF by adding only 1/N of the computed delta.
+		if (rating < 3) {
+			noteState = updateNoteState(noteState, rating, now, false);
+		} else {
+			noteState = updateNoteStateFlashcard(
+				noteState,
+				rating,
+				now,
+				totalCards
+			);
+		}
+
+		// Save the updated note state.
+		myPlugin.notes[filePath] = noteState;
+		await myPlugin.savePluginData();
+
+		// Provide feedback to the user showing the effect of their rating.
+		const feedbackMessage = `Rating applied. New EF: ${
+			noteState.ef
+		}. Next review: ${
+			noteState.nextReviewDate
+				? new Date(noteState.nextReviewDate).toLocaleString("en-GB", {
+						hour: "2-digit",
+						minute: "2-digit",
+						hour12: false,
+				  })
+				: "N/A"
+		}.`;
+		this.updateFeedback(feedbackMessage);
+
+		// Move to next card or close modal if finished.
 		if (this.currentIndex < this.flashcards.length - 1) {
 			this.currentIndex++;
+			const cardContainer = this.contentEl.querySelector(
+				".flashcard-card"
+			) as HTMLElement;
+			this.renderCard(cardContainer);
+			const progressBar = this.contentEl.querySelector(
+				".flashcard-progress-bar"
+			) as HTMLElement;
+			this.updateProgressBar(progressBar);
+		} else {
+			new Notice(`Flashcard review completed. Final EF: ${noteState.ef}`);
+			this.close();
 		}
+	}
+
+	onClose() {
+		this.contentEl.empty();
 	}
 }
 

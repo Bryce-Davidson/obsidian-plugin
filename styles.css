@@ -326,41 +326,40 @@
 	max-width: 100%;
 }
 
-.flashcard-controls {
+/* ----------------------------
+   New Rating Tray for Flashcard Modal
+----------------------------- */
+.flashcard-rating-tray {
 	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	width: 100%;
-}
-
-.flashcard-counter {
-	font-size: 14px;
-	color: var(--text-muted);
-	font-weight: 500;
-}
-
-.flashcard-nav-button {
-	background-color: var(--background-secondary);
-	border-radius: 50%;
-	width: 40px;
-	height: 40px;
-	display: flex;
-	align-items: center;
 	justify-content: center;
+	gap: 10px;
+	margin-top: 10px;
+}
+
+.flashcard-rating-tray .rating-button {
+	padding: 10px 15px;
+	border: none;
+	border-radius: 5px;
+	font-size: 14px;
 	cursor: pointer;
+	color: #fff;
+	transition: transform 0.1s ease;
 }
 
-.flashcard-nav-button .clickable-icon {
-	font-size: 20px;
+.flashcard-rating-tray .rating-button:hover {
+	transform: scale(1.05);
 }
 
-.flashcard-nav-button.last-card-button {
-	background-color: #4caf50;
+/* ----------------------------
+   (Old Navigation Controls removed for flashcard modal)
+----------------------------- */
+/*
+.flashcard-controls,
+.flashcard-nav-button,
+.flashcard-counter {
+	display: none;
 }
-
-.flashcard-nav-button.last-card-button .clickable-icon {
-	color: white;
-}
+*/
 
 /* ============================
    Rating Modal
