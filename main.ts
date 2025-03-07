@@ -214,7 +214,7 @@ function updateNoteState(
 		let newEF =
 			newState.ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
 		if (newEF < 1.3) newEF = 1.3;
-		newState.ef = parseFloat(newEF.toFixed(3));
+		newState.ef = parseFloat(newEF.toFixed(2));
 
 		const nextReview = getNextReviewDate(reviewDate, newState.interval);
 		newState.lastReviewDate = reviewDate.toISOString();
@@ -358,7 +358,7 @@ export abstract class BaseSidebarView extends ItemView {
 		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
-		const efValue = noteState.ef.toFixed(3);
+		const efValue = noteState.ef.toFixed(2);
 		const efClass =
 			noteState.ef >= 2.5
 				? "ef-high"
@@ -457,7 +457,7 @@ export class ReviewSidebarView extends BaseSidebarView {
 		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
-		const efValue = noteState.ef.toFixed(3);
+		const efValue = noteState.ef.toFixed(2);
 		const efClass =
 			noteState.ef >= 2.5
 				? "ef-high"
@@ -572,7 +572,7 @@ export class ScheduledSidebarView extends BaseSidebarView {
 		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
-		const efValue = noteState.ef.toFixed(3);
+		const efValue = noteState.ef.toFixed(2);
 		const efClass =
 			noteState.ef >= 2.5
 				? "ef-high"
@@ -1362,7 +1362,7 @@ class RatingModal extends Modal {
 			statsContainer.innerHTML = `<strong>Current Statistics:</strong>
       <br/>Repetitions: ${this.currentState.repetition}
       <br/>Interval: ${intervalDisplay} - ${formattedTime}
-      <br/>EF: ${this.currentState.ef.toFixed(3)}
+      <br/>EF: ${this.currentState.ef.toFixed(2)}
       <br/>Next Review: ${formattedTime}`;
 		} else {
 			statsContainer.textContent =
