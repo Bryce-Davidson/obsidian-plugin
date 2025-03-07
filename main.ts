@@ -736,6 +736,10 @@ class FlashcardModal extends Modal {
 		myPlugin.notes[filePath] = noteState;
 		await myPlugin.savePluginData();
 
+		// Refresh the side bar panels
+		(myPlugin as any).refreshReviewQueue();
+		(myPlugin as any).refreshScheduledQueue();
+
 		// Provide feedback to the user showing the effect of their rating.
 		const feedbackMessage = `Rating applied. New EF: ${
 			noteState.ef
