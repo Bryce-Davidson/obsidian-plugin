@@ -235,34 +235,10 @@ function updateNoteState(
 	return newState;
 }
 
-function updateNoteStateFlashcard(
-	state: NoteState,
-	quality: number,
-	reviewDate: Date,
-	totalCards: number
-): NoteState {
-	if (quality < 3) {
-		// For ratings below 3, use the full update (learning branch)
-		return updateNoteState(state, quality, reviewDate, false);
-	} else {
-		// For ratings ≥3, compute the delta and apply only 1/N of it.
-		let delta = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02);
-		let fractionalDelta = delta / totalCards;
-		let newEF = state.ef + fractionalDelta;
-		if (newEF < 1.3) newEF = 1.3;
-		state.ef = parseFloat(newEF.toFixed(3));
-		if (!state.efHistory) state.efHistory = [];
-		state.efHistory.push({
-			timestamp: reviewDate.toISOString(),
-			ef: state.ef,
-		});
-		// Note: We are not updating repetition and interval on each flashcard.
-		// They remain unchanged until the user’s next overall review.
-		return state;
-	}
-}
+/* ============================================================================
+ * BASE SIDEBAR VIEW
+ * ========================================================================== */
 
-// BaseSidebarView.ts
 export abstract class BaseSidebarView extends ItemView {
 	plugin: MyPlugin;
 
@@ -393,7 +369,10 @@ export abstract class BaseSidebarView extends ItemView {
 	}
 }
 
-// ReviewSidebarView.ts
+/* ============================================================================
+ * REVIEW SIDEBAR VIEW
+ * ========================================================================== */
+
 export const REVIEW_VIEW_TYPE = "review-sidebar";
 export class ReviewSidebarView extends BaseSidebarView {
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
@@ -489,7 +468,10 @@ export class ReviewSidebarView extends BaseSidebarView {
 	}
 }
 
-// ScheduledSidebarView.ts
+/* ============================================================================
+ * SCHEDULED SIDEBAR VIEW
+ * ========================================================================== */
+
 export const SCHEDULED_VIEW_TYPE = "scheduled-sidebar";
 export class ScheduledSidebarView extends BaseSidebarView {
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
@@ -601,6 +583,10 @@ export class ScheduledSidebarView extends BaseSidebarView {
 	}
 }
 
+/* ============================================================================
+ * FLASHCARD MODAL
+ * ========================================================================== */
+
 class FlashcardModal extends Modal {
 	flashcards: string[];
 	currentIndex: number = 0;
@@ -650,8 +636,7 @@ class FlashcardModal extends Modal {
 			cls: "flashcard-rating-tray",
 		});
 		// Define five rating options.
-		// Ratings below 3 (here 0 and 2) will trigger learning mode.
-		// Ratings 3 and above will update EF fractionally.
+		// All ratings now update the note normally.
 		const ratings = [
 			{ value: 0, color: "#FF4C4C" },
 			{ value: 2, color: "#FFA500" },
@@ -744,19 +729,8 @@ class FlashcardModal extends Modal {
 			};
 		}
 
-		const totalCards = this.flashcards.length;
-		// For ratings < 3, use the full update (learning branch).
-		// For ratings ≥ 3, update EF by adding only 1/N of the computed delta.
-		if (rating < 3) {
-			noteState = updateNoteState(noteState, rating, now, false);
-		} else {
-			noteState = updateNoteStateFlashcard(
-				noteState,
-				rating,
-				now,
-				totalCards
-			);
-		}
+		// Update the note state normally using the full SM‑2 update.
+		noteState = updateNoteState(noteState, rating, now, false);
 
 		// Save the updated note state.
 		myPlugin.notes[filePath] = noteState;
