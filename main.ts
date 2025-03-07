@@ -40,14 +40,13 @@ interface NoteState {
 	active: boolean;
 	isLearning?: boolean;
 	learningStep?: number;
-	efHistory?: { timestamp: string; ef: number }[]; // <-- New property for tracking EF history
-	visitLog: string[]; // <-- Moved visit log into NoteState
+	efHistory?: { timestamp: string; ef: number }[];
+	visitLog: string[];
 }
 
 interface PluginData {
 	settings: MyPluginSettings;
 	notes: { [filePath: string]: NoteState };
-	// Removed separate visitLog property since it is now inside NoteState
 }
 
 /* ============================================================================

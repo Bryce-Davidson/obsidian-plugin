@@ -12,10 +12,9 @@
 	cursor: pointer;
 }
 
-/* Only apply these rules when a hidden note contains an image */
 .hidden-note.toggle-hidden:has(img) {
 	position: relative;
-	display: inline-block; /* retains the image's dimensions */
+	display: inline-block;
 }
 
 .hidden-note.toggle-hidden:has(img) img {
@@ -58,12 +57,33 @@
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	gap: 0.5em; /* Adjust spacing as needed */
+	gap: 0.5em;
 	flex-wrap: wrap;
 }
 
 .inline-math-container .math-block {
 	display: inline-block;
+}
+
+/* ============================
+   MathJax Styling
+=============================== */
+
+.el-div {
+	overflow-x: auto;
+	max-width: 100%;
+}
+
+.math.math-block.is-loaded {
+	overflow-x: auto;
+	display: block;
+	white-space: nowrap;
+	max-width: 100%;
+}
+
+.mjx-container {
+	display: inline-block;
+	white-space: nowrap;
 }
 
 /* ============================
