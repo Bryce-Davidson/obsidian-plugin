@@ -19,19 +19,11 @@ import {
  * PLUGIN DATA INTERFACES & CONSTANTS
  * ========================================================================== */
 
-interface MyPluginSettings {
-	mySetting: string;
-	hiddenColor: string;
-	randomizeFlashcards: boolean; // NEW setting for randomization
-}
-
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: "default",
-	hiddenColor: "#272c36",
-	randomizeFlashcards: false, // default is not randomizing flashcards
-};
-
-interface NoteState {
+// Change from NoteState to CardState for per‐flashcard tracking.
+interface CardState {
+	filePath: string;
+	cardUUID: string;
+	cardContent: string;
 	repetition: number;
 	interval: number;
 	ef: number;
@@ -44,9 +36,22 @@ interface NoteState {
 	visitLog: string[];
 }
 
+interface MyPluginSettings {
+	mySetting: string;
+	hiddenColor: string;
+	randomizeFlashcards: boolean; // NEW setting for randomization
+}
+
+const DEFAULT_SETTINGS: MyPluginSettings = {
+	mySetting: "default",
+	hiddenColor: "#272c36",
+	randomizeFlashcards: false, // default is not randomizing flashcards
+};
+
+// Update PluginData to store cards rather than notes.
 interface PluginData {
 	settings: MyPluginSettings;
-	notes: { [filePath: string]: NoteState };
+	cards: { [cardUUID: string]: CardState };
 }
 
 /* ============================================================================
@@ -60,7 +65,7 @@ function truncateTitle(title: string, maxLength: number = 30): string {
 		: title;
 }
 
-// Helper function to shuffle an array in place using Fisher-Yates algorithm.
+// Helper function to shuffle an array in place using the Fisher-Yates algorithm.
 function shuffleArray<T>(array: T[]): T[] {
 	let currentIndex = array.length;
 	while (currentIndex !== 0) {
@@ -74,56 +79,104 @@ function shuffleArray<T>(array: T[]): T[] {
 	return array;
 }
 
-/* ============================================================================
- * SETTINGS TAB
- * ========================================================================== */
+// Generate a UUID (v4-ish)
+function generateUUID(): string {
+	return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+		/[xy]/g,
+		function (c) {
+			const r = (Math.random() * 16) | 0;
+			const v = c === "x" ? r : (r & 0x3) | 0x8;
+			return v.toString(16);
+		}
+	);
+}
 
-class MyPluginSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
+/**
+ * A flashcard is now an object with a UUID and its markdown content.
+ */
+interface Flashcard {
+	uuid: string;
+	content: string;
+}
+
+/**
+ * Scans a note’s content for [card] blocks.
+ * If a block is missing a UUID (i.e. not of the form [card=uuid]), one is generated.
+ * The note content is updated with the new UUIDs.
+ */
+function ensureCardUUIDs(content: string): {
+	updatedContent: string;
+	flashcards: Flashcard[];
+} {
+	const flashcards: Flashcard[] = [];
+	// This regex captures [card] or [card=uuid] blocks
+	const regex = /\[card(?:=([a-f0-9\-]+))?\]([\s\S]*?)\[\/card\]/gi;
+	let updatedContent = content;
+	updatedContent = updatedContent.replace(
+		regex,
+		(match, uuid, innerContent) => {
+			let cardUUID = uuid;
+			if (!cardUUID) {
+				cardUUID = generateUUID();
+			}
+			flashcards.push({ uuid: cardUUID, content: innerContent.trim() });
+			// Always reformat the block so it includes the UUID.
+			return `[card=${cardUUID}]${innerContent}[/card]`;
+		}
+	);
+	return { updatedContent, flashcards };
+}
+
+/**
+ * For a given file, read its content, ensure all flashcards have UUIDs,
+ * update the file if necessary, and sync the plugin’s card store.
+ */
+async function syncFlashcardsForFile(
+	plugin: MyPlugin,
+	file: TFile
+): Promise<Flashcard[]> {
+	const content = await plugin.app.vault.read(file);
+	const { updatedContent, flashcards } = ensureCardUUIDs(content);
+	if (updatedContent !== content) {
+		await plugin.app.vault.modify(file, updatedContent);
 	}
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName("Hidden Text Background Color")
-			.setDesc("Set the background color for hidden text")
-			.addText((text) =>
-				text
-					.setPlaceholder("Color")
-					.setValue(this.plugin.settings.hiddenColor)
-					.onChange(async (value) => {
-						this.plugin.settings.hiddenColor = value;
-						document.documentElement.style.setProperty(
-							"--hidden-color",
-							value
-						);
-						await this.plugin.saveSettings();
-					})
-			);
-
-		// New toggle setting for randomizing flashcards.
-		new Setting(containerEl)
-			.setName("Randomize Flashcards")
-			.setDesc(
-				"If enabled, flashcards will be displayed in random order."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.randomizeFlashcards)
-					.onChange(async (value) => {
-						this.plugin.settings.randomizeFlashcards = value;
-						await this.plugin.saveSettings();
-					})
-			);
+	// Remove any existing card states for this file that are no longer present.
+	const existingCardUUIDs = Object.values(plugin.cards)
+		.filter((card) => card.filePath === file.path)
+		.map((card) => card.cardUUID);
+	const newCardUUIDs = flashcards.map((card) => card.uuid);
+	for (const cardUUID of existingCardUUIDs) {
+		if (!newCardUUIDs.includes(cardUUID)) {
+			delete plugin.cards[cardUUID];
+		}
 	}
+	// Add new card states for flashcards that are not present,
+	// or update the cardContent if it has changed.
+	const now = new Date().toISOString();
+	flashcards.forEach((flashcard) => {
+		if (!plugin.cards[flashcard.uuid]) {
+			plugin.cards[flashcard.uuid] = {
+				filePath: file.path,
+				cardUUID: flashcard.uuid,
+				cardContent: flashcard.content,
+				repetition: 0,
+				interval: 0,
+				ef: 2.5,
+				lastReviewDate: now,
+				active: true,
+				efHistory: [],
+				visitLog: [now],
+			};
+		} else {
+			plugin.cards[flashcard.uuid].cardContent = flashcard.content;
+		}
+	});
+	await plugin.savePluginData();
+	return flashcards;
 }
 
 /* ============================================================================
- * SPACED REPETITION LOGIC (Unchanged except for EF history update)
+ * SPACED REPETITION LOGIC (Update per flashcard via updateCardState)
  * ========================================================================== */
 
 function getNextReviewDate(lastReview: Date, interval: number): Date {
@@ -158,12 +211,12 @@ function formatInterval(
 
 const LEARNING_STEPS: number[] = [10, 30];
 
-function updateNoteState(
-	state: NoteState,
+function updateCardState(
+	state: CardState,
 	quality: number,
 	reviewDate: Date,
 	stopScheduling: boolean = false
-): NoteState {
+): CardState {
 	if (stopScheduling) {
 		return {
 			...state,
@@ -171,6 +224,12 @@ function updateNoteState(
 			nextReviewDate: undefined,
 			active: false,
 			visitLog: state.visitLog, // preserve visit log
+			cardContent: state.cardContent,
+			cardUUID: state.cardUUID,
+			filePath: state.filePath,
+			repetition: state.repetition,
+			interval: state.interval,
+			ef: state.ef,
 		};
 	}
 
@@ -222,11 +281,9 @@ function updateNoteState(
 		newState.active = true;
 	}
 
-	// Initialize the efHistory array if it doesn't exist
 	if (!newState.efHistory) {
 		newState.efHistory = [];
 	}
-	// Add the current EF with a timestamp to the history
 	newState.efHistory.push({
 		timestamp: reviewDate.toISOString(),
 		ef: newState.ef,
@@ -236,7 +293,54 @@ function updateNoteState(
 }
 
 /* ============================================================================
- * BASE SIDEBAR VIEW
+ * SETTINGS TAB
+ * ========================================================================== */
+
+class MyPluginSettingTab extends PluginSettingTab {
+	plugin: MyPlugin;
+	constructor(app: App, plugin: MyPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName("Hidden Text Background Color")
+			.setDesc("Set the background color for hidden text")
+			.addText((text) =>
+				text
+					.setPlaceholder("Color")
+					.setValue(this.plugin.settings.hiddenColor)
+					.onChange(async (value) => {
+						this.plugin.settings.hiddenColor = value;
+						document.documentElement.style.setProperty(
+							"--hidden-color",
+							value
+						);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Randomize Flashcards")
+			.setDesc(
+				"If enabled, flashcards will be displayed in random order."
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.randomizeFlashcards)
+					.onChange(async (value) => {
+						this.plugin.settings.randomizeFlashcards = value;
+						await this.plugin.saveSettings();
+					})
+			);
+	}
+}
+
+/* ============================================================================
+ * BASE SIDEBAR VIEW (Now displaying individual cards)
  * ========================================================================== */
 
 export abstract class BaseSidebarView extends ItemView {
@@ -247,7 +351,6 @@ export abstract class BaseSidebarView extends ItemView {
 		this.plugin = plugin;
 	}
 
-	// Abstract methods to provide specifics for each sidebar
 	abstract getViewType(): string;
 	abstract getDisplayText(): string;
 	abstract getIcon(): string;
@@ -256,37 +359,17 @@ export abstract class BaseSidebarView extends ItemView {
 	abstract getEmptyStateIcon(): string;
 	abstract getEmptyStateTitle(): string;
 	abstract getEmptyStateMessage(): string;
-	abstract filterFiles(now: Date): string[];
+	abstract filterCards(now: Date): CardState[];
 
 	async onOpen() {
-		// Get container element and set the common class
 		const container = this.containerEl.children[1] || this.containerEl;
 		container.empty();
 		container.addClass("review-sidebar-container");
 
 		const now = new Date();
-		// Get files according to the specific filtering criteria
-		const filePaths = this.filterFiles(now);
-		const validFiles: string[] = [];
-
-		// Verify files exist
-		for (const filePath of filePaths) {
-			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-			if (file && file instanceof TFile) validFiles.push(filePath);
-		}
-
-		// Create header section
-		const spacer = container.createEl("div", { cls: "header-spacer" });
-		spacer.setAttr("style", "height: 12px;");
-		const header = container.createEl("div", { cls: "review-header" });
-		header.createEl("h2", { text: this.getHeaderTitle() });
-		header.createEl("div", {
-			cls: "review-count",
-			text: this.getCountMessage(validFiles.length),
-		});
-
-		// Empty state if no files
-		if (validFiles.length === 0) {
+		const cards = this.filterCards(now);
+		// If no cards to review
+		if (cards.length === 0) {
 			const emptyState = container.createEl("div", {
 				cls: "review-empty",
 			});
@@ -299,22 +382,28 @@ export abstract class BaseSidebarView extends ItemView {
 			return;
 		}
 
-		// Create card container and add cards for each file.
+		// Create header
+		const spacer = container.createEl("div", { cls: "header-spacer" });
+		spacer.setAttr("style", "height: 12px;");
+		const header = container.createEl("div", { cls: "review-header" });
+		header.createEl("h2", { text: this.getHeaderTitle() });
+		header.createEl("div", {
+			cls: "review-count",
+			text: this.getCountMessage(cards.length),
+		});
+
+		// Create card container – note that multiple cards from the same file may be shown.
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
 		});
-		validFiles.forEach(async (filePath) => {
-			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+		cards.forEach((cardState) => {
+			const file = this.plugin.app.vault.getAbstractFileByPath(
+				cardState.filePath
+			);
 			if (!file || !(file instanceof TFile)) return;
-			const noteState = this.plugin.notes[filePath];
-
-			// Use metadata cache to extract frontmatter tags (if any)
-			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
-			const tags = fileCache?.frontmatter?.tags;
-			const firstTag = Array.isArray(tags) ? tags[0] : tags;
-
 			const card = cardContainer.createEl("div", { cls: "review-card" });
 			card.addEventListener("click", () => {
+				// Open the file containing the flashcard.
 				this.plugin.app.workspace.getLeaf().openFile(file);
 			});
 
@@ -323,26 +412,22 @@ export abstract class BaseSidebarView extends ItemView {
 				text: file.basename,
 				title: file.basename,
 			});
+			// Show a preview of the flashcard content (truncate if needed)
+			const preview = truncateTitle(cardState.cardContent, 50);
+			card.createEl("p", { text: preview });
 
-			if (firstTag) {
-				const tagEl = titleRow.createEl("div", { cls: "review-tag" });
-				tagEl.createEl("span", { text: `#${firstTag}` });
-			}
-
-			this.addCardMeta(card, noteState, now);
+			this.addCardMeta(card, cardState, now);
 		});
 	}
 
-	// Default behavior: subclasses may override this method if needed.
 	protected addCardMeta(
 		card: HTMLElement,
-		noteState: NoteState,
+		cardState: CardState,
 		now: Date
 	): void {
 		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
-		// For a review card, show last review info; subclasses can change as needed.
 		const intervalEl = card.createEl("div", { cls: "review-interval" });
-		const lastReviewDate = new Date(noteState.lastReviewDate);
+		const lastReviewDate = new Date(cardState.lastReviewDate);
 		const daysSinceReview = Math.floor(
 			(now.getTime() - lastReviewDate.getTime()) / (1000 * 60 * 60 * 24)
 		);
@@ -358,11 +443,11 @@ export abstract class BaseSidebarView extends ItemView {
 		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
-		const efValue = noteState.ef.toFixed(2);
+		const efValue = cardState.ef.toFixed(2);
 		const efClass =
-			noteState.ef >= 2.5
+			cardState.ef >= 2.5
 				? "ef-high"
-				: noteState.ef >= 1.8
+				: cardState.ef >= 1.8
 				? "ef-medium"
 				: "ef-low";
 		efEl.createEl("span", { text: efValue, cls: `ef-value ${efClass}` });
@@ -370,7 +455,7 @@ export abstract class BaseSidebarView extends ItemView {
 }
 
 /* ============================================================================
- * REVIEW SIDEBAR VIEW
+ * REVIEW SIDEBAR VIEW (Now for flashcards)
  * ========================================================================== */
 
 export const REVIEW_VIEW_TYPE = "review-sidebar";
@@ -396,7 +481,7 @@ export class ReviewSidebarView extends BaseSidebarView {
 	}
 
 	getCountMessage(count: number): string {
-		return `${count} note${count === 1 ? "" : "s"} to review`;
+		return `${count} flashcard${count === 1 ? "" : "s"} to review`;
 	}
 
 	getEmptyStateIcon(): string {
@@ -408,33 +493,27 @@ export class ReviewSidebarView extends BaseSidebarView {
 	}
 
 	getEmptyStateMessage(): string {
-		return "0 notes due for review.";
+		return "0 flashcards due for review.";
 	}
 
-	// Only include notes that are due (nextReviewDate is now or in the past)
-	filterFiles(now: Date): string[] {
-		const due: string[] = [];
-		for (const filePath in this.plugin.notes) {
-			const state = this.plugin.notes[filePath];
-			if (
-				state.active &&
-				state.nextReviewDate &&
-				new Date(state.nextReviewDate) <= now
-			) {
-				due.push(filePath);
-			}
-		}
-		return due;
+	// Only include cards that are due (nextReviewDate is now or in the past)
+	filterCards(now: Date): CardState[] {
+		return Object.values(this.plugin.cards).filter(
+			(card) =>
+				card.active &&
+				card.nextReviewDate &&
+				new Date(card.nextReviewDate) <= now
+		);
 	}
 
 	protected addCardMeta(
 		card: HTMLElement,
-		noteState: NoteState,
+		cardState: CardState,
 		now: Date
 	): void {
 		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
 		const intervalEl = card.createEl("div", { cls: "review-interval" });
-		const lastReviewDate = new Date(noteState.lastReviewDate);
+		const lastReviewDate = new Date(cardState.lastReviewDate);
 		const daysSinceReview = Math.floor(
 			(now.getTime() - lastReviewDate.getTime()) / (1000 * 60 * 60 * 24)
 		);
@@ -444,7 +523,6 @@ export class ReviewSidebarView extends BaseSidebarView {
 				: daysSinceReview === 1
 				? "Yesterday"
 				: `${daysSinceReview} days ago`;
-		// Format the time in 24h format (HH:mm)
 		const lastReviewTime = lastReviewDate.toLocaleTimeString("en-GB", {
 			hour: "2-digit",
 			minute: "2-digit",
@@ -457,11 +535,11 @@ export class ReviewSidebarView extends BaseSidebarView {
 		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
-		const efValue = noteState.ef.toFixed(2);
+		const efValue = cardState.ef.toFixed(2);
 		const efClass =
-			noteState.ef >= 2.5
+			cardState.ef >= 2.5
 				? "ef-high"
-				: noteState.ef >= 1.8
+				: cardState.ef >= 1.8
 				? "ef-medium"
 				: "ef-low";
 		efEl.createEl("span", { text: efValue, cls: `ef-value ${efClass}` });
@@ -469,7 +547,7 @@ export class ReviewSidebarView extends BaseSidebarView {
 }
 
 /* ============================================================================
- * SCHEDULED SIDEBAR VIEW
+ * SCHEDULED SIDEBAR VIEW (Now for flashcards)
  * ========================================================================== */
 
 export const SCHEDULED_VIEW_TYPE = "scheduled-sidebar";
@@ -495,7 +573,7 @@ export class ScheduledSidebarView extends BaseSidebarView {
 	}
 
 	getCountMessage(count: number): string {
-		return `${count} note${count === 1 ? "" : "s"} scheduled`;
+		return `${count} flashcard${count === 1 ? "" : "s"} scheduled`;
 	}
 
 	getEmptyStateIcon(): string {
@@ -507,41 +585,35 @@ export class ScheduledSidebarView extends BaseSidebarView {
 	}
 
 	getEmptyStateMessage(): string {
-		return "0 notes scheduled for review.";
+		return "0 flashcards scheduled for review.";
 	}
 
-	// Only include notes that are scheduled for the future.
-	filterFiles(now: Date): string[] {
-		const scheduled: string[] = [];
-		for (const filePath in this.plugin.notes) {
-			const state = this.plugin.notes[filePath];
-			if (
-				state.active &&
-				state.nextReviewDate &&
-				new Date(state.nextReviewDate) > now
-			) {
-				scheduled.push(filePath);
-			}
-		}
-		// Sort by nextReviewDate ascending
-		return scheduled.sort((a, b) => {
-			const dateA = new Date(this.plugin.notes[a].nextReviewDate!);
-			const dateB = new Date(this.plugin.notes[b].nextReviewDate!);
-			return dateA.getTime() - dateB.getTime();
-		});
+	// Only include cards scheduled for the future.
+	filterCards(now: Date): CardState[] {
+		return Object.values(this.plugin.cards)
+			.filter(
+				(card) =>
+					card.active &&
+					card.nextReviewDate &&
+					new Date(card.nextReviewDate) > now
+			)
+			.sort(
+				(a, b) =>
+					new Date(a.nextReviewDate!).getTime() -
+					new Date(b.nextReviewDate!).getTime()
+			);
 	}
 
 	protected addCardMeta(
 		card: HTMLElement,
-		noteState: NoteState,
+		cardState: CardState,
 		now: Date
 	): void {
 		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
 		const intervalEl = card.createEl("div", { cls: "review-interval" });
-		if (noteState.nextReviewDate) {
-			const nextReviewDate = new Date(noteState.nextReviewDate);
+		if (cardState.nextReviewDate) {
+			const nextReviewDate = new Date(cardState.nextReviewDate);
 			const nowLocal = new Date();
-
 			let displayText = "";
 			if (
 				nowLocal.getFullYear() === nextReviewDate.getFullYear() &&
@@ -550,33 +622,28 @@ export class ScheduledSidebarView extends BaseSidebarView {
 			) {
 				displayText = "Today";
 			} else {
-				// Calculate local difference in days
 				const diffTime = nextReviewDate.getTime() - nowLocal.getTime();
 				const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 				displayText =
 					diffDays === 1 ? "Tomorrow" : `in ${diffDays} days`;
 			}
-
-			// Format the time in 24h format (HH:mm) using local time
 			const nextReviewTime = nextReviewDate.toLocaleTimeString("en-GB", {
 				hour: "2-digit",
 				minute: "2-digit",
 				hour12: false,
 			});
-
 			intervalEl.createEl("span", {
 				text: `Next: ${displayText} at ${nextReviewTime}`,
 			});
 		}
 
-		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
-		const efValue = noteState.ef.toFixed(2);
+		const efValue = cardState.ef.toFixed(2);
 		const efClass =
-			noteState.ef >= 2.5
+			cardState.ef >= 2.5
 				? "ef-high"
-				: noteState.ef >= 1.8
+				: cardState.ef >= 1.8
 				? "ef-medium"
 				: "ef-low";
 		efEl.createEl("span", { text: efValue, cls: `ef-value ${efClass}` });
@@ -584,16 +651,16 @@ export class ScheduledSidebarView extends BaseSidebarView {
 }
 
 /* ============================================================================
- * FLASHCARD MODAL
+ * FLASHCARD MODAL (Now operates on individual card states)
  * ========================================================================== */
 
 class FlashcardModal extends Modal {
-	flashcards: string[];
+	flashcards: Flashcard[];
 	currentIndex: number = 0;
-	plugin: Plugin;
+	plugin: MyPlugin;
 	feedbackContainer: HTMLElement | null = null;
 
-	constructor(app: App, flashcards: string[], plugin: Plugin) {
+	constructor(app: App, flashcards: Flashcard[], plugin: MyPlugin) {
 		super(app);
 		this.flashcards = flashcards;
 		this.plugin = plugin;
@@ -602,16 +669,11 @@ class FlashcardModal extends Modal {
 	onOpen() {
 		const { contentEl, modalEl } = this;
 		contentEl.empty();
-
-		// Apply modern styling to modal
 		modalEl.addClass("modern-flashcard-modal");
 
-		// Container for the entire modal content
 		const container = contentEl.createDiv({
 			cls: "flashcard-content-container",
 		});
-
-		// Progress bar
 		const progressContainer = container.createDiv({
 			cls: "flashcard-progress-container",
 		});
@@ -620,23 +682,17 @@ class FlashcardModal extends Modal {
 		});
 		this.updateProgressBar(progressBar);
 
-		// Card container with shadow and rounded corners
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
 		this.renderCard(cardContainer);
 
-		// Create feedback container for user updates
 		this.feedbackContainer = container.createDiv({
 			cls: "flashcard-feedback",
 		});
-		// Initialize feedback (if available, otherwise empty)
 		this.updateFeedback("");
 
-		// Create rating button tray
 		const ratingTray = container.createDiv({
 			cls: "flashcard-rating-tray",
 		});
-		// Define five rating options.
-		// All ratings now update the note normally.
 		const ratings = [
 			{ value: 0, color: "#FF4C4C" },
 			{ value: 2, color: "#FFA500" },
@@ -645,9 +701,7 @@ class FlashcardModal extends Modal {
 			{ value: 5, color: "#7CFC00" },
 		];
 		ratings.forEach((rating) => {
-			const btn = ratingTray.createEl("button", {
-				cls: "rating-button",
-			});
+			const btn = ratingTray.createEl("button", { cls: "rating-button" });
 			btn.style.backgroundColor = rating.color;
 			btn.addEventListener("click", () => {
 				this.handleRating(rating.value);
@@ -667,7 +721,7 @@ class FlashcardModal extends Modal {
 			this.flashcards.length > 0 &&
 			this.currentIndex < this.flashcards.length
 		) {
-			const cardContent = this.flashcards[this.currentIndex];
+			const cardContent = this.flashcards[this.currentIndex].content;
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
@@ -678,8 +732,6 @@ class FlashcardModal extends Modal {
 				this.app.workspace.getActiveFile()?.path ?? "",
 				this.plugin
 			);
-
-			// Attach click handler to internal links (Obsidian links)
 			const internalLinks =
 				contentWrapper.querySelectorAll("a.internal-link");
 			internalLinks.forEach((link) => {
@@ -697,55 +749,32 @@ class FlashcardModal extends Modal {
 		}
 	}
 
-	// Updates the feedback container with the provided text.
 	updateFeedback(message: string) {
 		if (this.feedbackContainer) {
 			this.feedbackContainer.textContent = message;
 		}
 	}
 
-	// Called when a rating button is clicked.
+	// When a rating is clicked, update the specific card’s state.
 	async handleRating(rating: number) {
 		const now = new Date();
-		// Get active file to identify the note
-		const activeFile = this.app.workspace.getActiveFile();
-		if (!activeFile) {
-			new Notice("No active file found.");
+		const currentCard = this.flashcards[this.currentIndex];
+		const cardState = this.plugin.cards[currentCard.uuid];
+		if (!cardState) {
+			new Notice("Card state not found.");
 			return;
 		}
-		const filePath = activeFile.path;
-		// Access the plugin's note state (assuming this.plugin is our MyPlugin instance)
-		const myPlugin = this.plugin as any; // cast if necessary
-		let noteState: NoteState = myPlugin.notes[filePath];
-		if (!noteState) {
-			noteState = {
-				repetition: 0,
-				interval: 0,
-				ef: 2.5,
-				lastReviewDate: now.toISOString(),
-				active: true,
-				efHistory: [],
-				visitLog: [now.toISOString()],
-			};
-		}
 
-		// Update the note state normally using the full SM‑2 update.
-		noteState = updateNoteState(noteState, rating, now, false);
+		const updated = updateCardState(cardState, rating, now, false);
+		this.plugin.cards[currentCard.uuid] = updated;
+		await this.plugin.savePluginData();
+		// Refresh sidebars
+		(this.plugin as any).refreshReviewQueue();
+		(this.plugin as any).refreshScheduledQueue();
 
-		// Save the updated note state.
-		myPlugin.notes[filePath] = noteState;
-		await myPlugin.savePluginData();
-
-		// Refresh the side bar panels
-		(myPlugin as any).refreshReviewQueue();
-		(myPlugin as any).refreshScheduledQueue();
-
-		// Provide feedback to the user showing the effect of their rating.
-		const feedbackMessage = `Rating applied. New EF: ${
-			noteState.ef
-		}. Next review: ${
-			noteState.nextReviewDate
-				? new Date(noteState.nextReviewDate).toLocaleString("en-GB", {
+		const feedbackMessage = `EF: ${updated.ef}. Next review: ${
+			updated.nextReviewDate
+				? new Date(updated.nextReviewDate).toLocaleString("en-GB", {
 						hour: "2-digit",
 						minute: "2-digit",
 						hour12: false,
@@ -754,7 +783,6 @@ class FlashcardModal extends Modal {
 		}.`;
 		this.updateFeedback(feedbackMessage);
 
-		// Move to next card or close modal if finished.
 		if (this.currentIndex < this.flashcards.length - 1) {
 			this.currentIndex++;
 			const cardContainer = this.contentEl.querySelector(
@@ -766,7 +794,7 @@ class FlashcardModal extends Modal {
 			) as HTMLElement;
 			this.updateProgressBar(progressBar);
 		} else {
-			new Notice(`Flashcard review completed. Final EF: ${noteState.ef}`);
+			new Notice(`Flashcard review completed. Final EF: ${updated.ef}`);
 			this.close();
 		}
 	}
@@ -782,14 +810,12 @@ class FlashcardModal extends Modal {
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
-	notes: { [filePath: string]: NoteState } = {};
+	// Use cards (keyed by card UUID) instead of notes.
+	cards: { [cardUUID: string]: CardState } = {};
 
 	private allHidden: boolean = true;
 	private refreshTimeout: number | null = null;
 
-	/* =========================
-	   Plugin Lifecycle Methods
-	========================= */
 	async onload() {
 		await this.loadPluginData();
 		this.initializeUI();
@@ -808,19 +834,15 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	/* =========================
-	   Data Loading & Saving
-	========================= */
 	async loadPluginData() {
 		const data = (await this.loadData()) as PluginData;
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
-			this.notes = data.notes || {};
+			this.cards = data.cards || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
-			this.notes = {};
+			this.cards = {};
 		}
-		// Apply settings (e.g. hidden color)
 		document.documentElement.style.setProperty(
 			"--hidden-color",
 			this.settings.hiddenColor
@@ -830,7 +852,7 @@ export default class MyPlugin extends Plugin {
 	async savePluginData() {
 		const data: PluginData = {
 			settings: this.settings,
-			notes: this.notes,
+			cards: this.cards,
 		};
 		await this.saveData(data);
 	}
@@ -839,11 +861,7 @@ export default class MyPlugin extends Plugin {
 		await this.savePluginData();
 	}
 
-	/* =========================
-	   UI Initialization
-	========================= */
 	private initializeUI(): void {
-		// Add ribbon icons
 		this.addRibbonIcon("layers", "Flashcards", (evt: MouseEvent) => {
 			evt.preventDefault();
 			this.showFlashcardsModal();
@@ -865,10 +883,12 @@ export default class MyPlugin extends Plugin {
 			this.activateScheduledSidebar();
 		});
 
-		// Markdown post processors
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
-			// Remove flashcard tags
-			el.innerHTML = el.innerHTML.replace(/\[\/?card\]/g, "");
+			// Remove flashcard tags for display.
+			el.innerHTML = el.innerHTML.replace(
+				/\[\/?card(?:=[a-f0-9\-]+)?\]/g,
+				""
+			);
 		});
 
 		this.registerMarkdownPostProcessor((element, context) => {
@@ -877,18 +897,13 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
-	/* =========================
-	   Command Registration
-	========================= */
 	private registerCommands(): void {
-		// Flashcard modal
 		this.addCommand({
 			id: "show-flashcards-modal",
 			name: "Show Flashcards Modal",
 			callback: () => this.showFlashcardsModal(),
 		});
 
-		// Wrap selected text as flashcard
 		this.addCommand({
 			id: "wrap-text-as-flashcard",
 			name: "Wrap Selected Text in [card][/card]",
@@ -896,7 +911,6 @@ export default class MyPlugin extends Plugin {
 				this.wrapSelectedTextAsFlashcard(editor),
 		});
 
-		// Sample editor command
 		this.addCommand({
 			id: "sample-editor-command",
 			name: "Sample editor command",
@@ -906,28 +920,25 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// Review current note (Spaced Repetition)
+		// This command now opens the review modal on the current note’s flashcards.
 		this.addCommand({
 			id: "review-current-note",
-			name: "Review Current Note (Spaced Repetition)",
+			name: "Review Current Note (Flashcards)",
 			callback: () => this.openReviewModal(),
 		});
 
-		// Open review queue
 		this.addCommand({
 			id: "open-review-queue",
 			name: "Open Review Queue",
 			callback: () => this.activateReviewSidebar(),
 		});
 
-		// Open scheduled queue
 		this.addCommand({
 			id: "open-scheduled-queue",
 			name: "Open Scheduled Queue",
 			callback: () => this.activateScheduledSidebar(),
 		});
 
-		// Wrap selected text with hide tags
 		this.addCommand({
 			id: "wrap-selected-text-with-hide",
 			name: "Wrap Selected Text in [hide][/hide]",
@@ -941,14 +952,12 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// Toggle all hidden content
 		this.addCommand({
 			id: "toggle-all-hidden",
 			name: "Toggle All Hidden Content",
 			callback: () => this.toggleAllHidden(),
 		});
 
-		// Delete hide wrappers
 		this.addCommand({
 			id: "delete-hide-wrappers",
 			name: "Delete [hide][/hide] wrappers",
@@ -958,63 +967,38 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
-	/* =========================
-	   Event Registration
-	========================= */
 	private registerEvents(): void {
-		// Track note visits by recording the timestamp when a note is opened
+		// When a file is opened, sync its flashcards.
 		this.registerEvent(
-			this.app.workspace.on("file-open", (file: TFile) => {
+			this.app.workspace.on("file-open", async (file: TFile) => {
 				if (file && file instanceof TFile) {
-					const filePath = file.path;
-					const now = new Date().toISOString();
-					let noteState = this.notes[filePath];
-
-					// If no note state exists yet, initialize it with a visit log
-					if (!noteState) {
-						noteState = {
-							repetition: 0,
-							interval: 0,
-							ef: 2.5,
-							lastReviewDate: now,
-							active: true,
-							efHistory: [],
-							visitLog: [], // Initialize the visit log array
-						};
-					}
-
-					// Add the current timestamp to the visit log within the note state
-					noteState.visitLog.push(now);
-					this.notes[filePath] = noteState;
-
-					this.savePluginData();
+					await syncFlashcardsForFile(this, file);
 				}
 			})
 		);
 
-		// Handle file rename to update logs
+		// On file rename, update filePath for all card states in that file.
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
-				if (this.notes[oldPath]) {
-					this.notes[file.path] = this.notes[oldPath];
-					delete this.notes[oldPath];
-				}
+				Object.values(this.cards).forEach((card) => {
+					if (card.filePath === oldPath) {
+						card.filePath = file.path;
+					}
+				});
 				this.savePluginData();
-				console.log(
-					`Updated note data from ${oldPath} to ${file.path}`
-				);
 				this.refreshReviewQueue();
 				this.refreshScheduledQueue();
 				this.scheduleNextDueRefresh();
 			})
 		);
 
-		// Handle file modifications for active file
+		// On file modify, if it is the active file, sync its flashcards.
 		this.registerEvent(
-			this.app.vault.on("modify", (file: TFile) => {
+			this.app.vault.on("modify", async (file: TFile) => {
 				const activeFile = this.app.workspace.getActiveFile();
 				if (activeFile && file.path === activeFile.path) {
-					setTimeout(() => {
+					setTimeout(async () => {
+						await syncFlashcardsForFile(this, file);
 						this.refreshReviewQueue();
 						this.refreshScheduledQueue();
 						this.scheduleNextDueRefresh();
@@ -1023,14 +1007,15 @@ export default class MyPlugin extends Plugin {
 			})
 		);
 
-		// Handle file delete to update logs and notes
+		// On file delete, remove all card states belonging to that file.
 		this.registerEvent(
 			this.app.vault.on("delete", (file: TFile) => {
-				if (this.notes[file.path]) {
-					delete this.notes[file.path];
-				}
+				Object.values(this.cards).forEach((card) => {
+					if (card.filePath === file.path) {
+						delete this.cards[card.cardUUID];
+					}
+				});
 				this.savePluginData();
-				console.log(`Deleted note data for ${file.path}`);
 				this.refreshReviewQueue();
 				this.refreshScheduledQueue();
 				this.scheduleNextDueRefresh();
@@ -1038,9 +1023,6 @@ export default class MyPlugin extends Plugin {
 		);
 	}
 
-	/* =========================
-	   Custom Views Registration
-	========================= */
 	private registerCustomViews(): void {
 		this.registerView(
 			REVIEW_VIEW_TYPE,
@@ -1052,12 +1034,10 @@ export default class MyPlugin extends Plugin {
 		);
 	}
 
-	/* =========================
-	   Command Handlers & Utilities
-	========================= */
 	wrapSelectedTextAsFlashcard(editor: Editor) {
 		const selection = editor.getSelection();
 		if (selection && selection.trim().length > 0) {
+			// Wrap with [card][/card] (UUIDs will be added on sync)
 			editor.replaceSelection(`[card]${selection.trim()}[/card]`);
 			new Notice("Text wrapped as flashcard");
 		} else {
@@ -1090,47 +1070,18 @@ export default class MyPlugin extends Plugin {
 		new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
 	}
 
-	parseFlashcards(content: string): string[] {
-		const flashcards: string[] = [];
-		const openTag = "[card]";
-		const closeTag = "[/card]";
-		const stack: number[] = [];
-		let pos = 0;
-		while (pos < content.length) {
-			const nextOpen = content.indexOf(openTag, pos);
-			const nextClose = content.indexOf(closeTag, pos);
-			if (nextOpen === -1 && nextClose === -1) break;
-			if (nextOpen !== -1 && (nextOpen < nextClose || nextClose === -1)) {
-				stack.push(nextOpen);
-				pos = nextOpen + openTag.length;
-			} else if (nextClose !== -1) {
-				if (stack.length > 0) {
-					const startIndex = stack.pop()!;
-					const cardContent = content
-						.substring(startIndex + openTag.length, nextClose)
-						.trim();
-					flashcards.push(cardContent);
-				}
-				pos = nextClose + closeTag.length;
-			}
-		}
-		return flashcards;
-	}
-
+	// Instead of a simple parse, flashcards are now processed via syncFlashcardsForFile.
 	async showFlashcardsModal() {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (!activeFile) {
 			new Notice("No active file open.");
 			return;
 		}
-		const content = await this.app.vault.read(activeFile);
-		let flashcards = this.parseFlashcards(content);
-
-		// If the user wants randomized flashcards, shuffle the array.
+		// Sync flashcards and update the file content as needed.
+		let flashcards = await syncFlashcardsForFile(this, activeFile);
 		if (this.settings.randomizeFlashcards) {
 			flashcards = shuffleArray(flashcards);
 		}
-
 		if (flashcards.length > 0) {
 			new FlashcardModal(this.app, flashcards, this).open();
 		} else {
@@ -1144,34 +1095,23 @@ export default class MyPlugin extends Plugin {
 			new Notice("No active Markdown file to review.");
 			return;
 		}
-		const filePath = file.path;
-		const currentState = this.notes[filePath];
-		new RatingModal(this.app, currentState, (ratingStr: string) => {
-			if (!ratingStr) return;
-			if (ratingStr.toLowerCase() === "stop") {
-				this.updateNoteWithQuality(filePath, 0, true);
-			} else {
-				const rating = parseInt(ratingStr, 10);
-				if (isNaN(rating) || rating < 0 || rating > 5) {
-					new Notice(
-						"Invalid rating. Please choose a rating between 0 and 5."
-					);
-					return;
-				}
-				this.updateNoteWithQuality(filePath, rating, false);
-			}
-		}).open();
+		// For simplicity, open the flashcard modal for the current file.
+		this.showFlashcardsModal();
 	}
 
-	private async updateNoteWithQuality(
-		filePath: string,
+	private async updateCardWithQuality(
+		cardUUID: string,
 		quality: number,
 		stopScheduling: boolean
 	) {
 		const now = new Date();
-		let noteState = this.notes[filePath];
-		if (!noteState) {
-			noteState = {
+		let cardState = this.cards[cardUUID];
+		if (!cardState) {
+			// This should not happen because syncFlashcardsForFile should have created the state.
+			cardState = {
+				filePath: "",
+				cardUUID,
+				cardContent: "",
 				repetition: 0,
 				interval: 0,
 				ef: 2.5,
@@ -1181,18 +1121,18 @@ export default class MyPlugin extends Plugin {
 				visitLog: [now.toISOString()],
 			};
 		}
-		const updated = updateNoteState(
-			noteState,
+		const updated = updateCardState(
+			cardState,
 			quality,
 			now,
 			stopScheduling
 		);
-		this.notes[filePath] = updated;
+		this.cards[cardUUID] = updated;
 		if (stopScheduling) {
-			new Notice(`Scheduling stopped for '${filePath}'`);
+			new Notice(`Scheduling stopped for card '${cardUUID}'`);
 		} else {
 			new Notice(
-				`Updated SM-2 for '${filePath}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
+				`Updated SM‑2 for card '${cardUUID}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
 			);
 		}
 		await this.savePluginData();
@@ -1201,9 +1141,6 @@ export default class MyPlugin extends Plugin {
 		this.scheduleNextDueRefresh();
 	}
 
-	/* =========================
-	   Sidebar Activation & Refreshing
-	========================= */
 	async activateReviewSidebar() {
 		let leaf = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE)[0];
 		if (!leaf) {
@@ -1249,9 +1186,6 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
-	/* =========================
-	   Scheduling Refreshes
-	========================= */
 	private scheduleNextDueRefresh(): void {
 		if (this.refreshTimeout !== null) {
 			clearTimeout(this.refreshTimeout);
@@ -1259,10 +1193,9 @@ export default class MyPlugin extends Plugin {
 		}
 		const now = new Date();
 		let earliestTime: number | null = null;
-		for (const filePath in this.notes) {
-			const state = this.notes[filePath];
-			if (state.active && state.nextReviewDate) {
-				const nextTime = new Date(state.nextReviewDate).getTime();
+		Object.values(this.cards).forEach((card) => {
+			if (card.active && card.nextReviewDate) {
+				const nextTime = new Date(card.nextReviewDate).getTime();
 				if (
 					nextTime > now.getTime() &&
 					(earliestTime === null || nextTime < earliestTime)
@@ -1270,7 +1203,7 @@ export default class MyPlugin extends Plugin {
 					earliestTime = nextTime;
 				}
 			}
-		}
+		});
 		if (earliestTime !== null) {
 			const delay = earliestTime - now.getTime() + 100;
 			this.refreshTimeout = window.setTimeout(() => {
@@ -1281,9 +1214,6 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	/* =========================
-	   Toggle Hidden Content
-	========================= */
 	private toggleAllHidden(): void {
 		const textEls = document.querySelectorAll(".hidden-note");
 		if (this.allHidden) {
@@ -1296,12 +1226,9 @@ export default class MyPlugin extends Plugin {
 }
 
 /* ============================================================================
- * CUSTOM MODALS
+ * CUSTOM MODALS & POST-PROCESSORS (RatingModal unchanged except for variable names)
  * ========================================================================== */
 
-/**
- * Helper function to format the next review time as "YYYY-MM-DD:HH:mm" in 24hr format
- */
 function formatNextReviewTime(dateString: string): string {
 	const date = new Date(dateString);
 	return date.toLocaleString("en-GB", {
@@ -1316,10 +1243,10 @@ function formatNextReviewTime(dateString: string): string {
 
 class RatingModal extends Modal {
 	private onSubmit: (input: string) => void;
-	private currentState?: NoteState;
+	private currentState?: CardState;
 	constructor(
 		app: App,
-		currentState: NoteState | undefined,
+		currentState: CardState | undefined,
 		onSubmit: (input: string) => void
 	) {
 		super(app);
@@ -1329,7 +1256,6 @@ class RatingModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
-		// Create the container for rating buttons with the defined class
 		const buttonContainer = contentEl.createEl("div", {
 			cls: "rating-button-container",
 		});
@@ -1370,10 +1296,9 @@ class RatingModal extends Modal {
       <br/>Next Review: ${formattedTime}`;
 		} else {
 			statsContainer.textContent =
-				"No review data available for this note.";
+				"No review data available for this flashcard.";
 		}
 		contentEl.appendChild(statsContainer);
-		// Create the stop container with its class
 		const stopContainer = contentEl.createEl("div", {
 			cls: "stop-container",
 		});
@@ -1387,14 +1312,9 @@ class RatingModal extends Modal {
 		});
 	}
 	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+		this.contentEl.empty();
 	}
 }
-
-/* ============================================================================
- * MARKDOWN POST-PROCESSORS FOR HIDDEN CONTENT AND INLINE MATH
- * ========================================================================== */
 
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
@@ -1448,10 +1368,6 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	});
 }
 
-/**
- * Processes paragraphs to detect multiple block-level math expressions and wraps them in a div.
- * Assumes that math blocks are rendered with the class "math-block".
- */
 function processMathBlocks(rootEl: HTMLElement): void {
 	rootEl.querySelectorAll("p").forEach((paragraph) => {
 		const mathBlocks = Array.from(
