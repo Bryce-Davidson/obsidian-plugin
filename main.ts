@@ -3,17 +3,14 @@ import {
 	Editor,
 	MarkdownView,
 	Modal,
-	setIcon,
 	Notice,
 	Plugin,
 	PluginSettingTab,
 	Setting,
-	ButtonComponent,
 	TFile,
 	WorkspaceLeaf,
 	ItemView,
 	MarkdownRenderer,
-	TAbstractFile,
 } from "obsidian";
 
 /* ============================================================================
@@ -21,8 +18,8 @@ import {
  * ========================================================================== */
 
 // The card state now tracks individual flashcards.
+// Note: filePath has been removed from CardState.
 interface CardState {
-	filePath: string;
 	cardUUID: string;
 	cardContent: string;
 	repetition: number;
@@ -165,7 +162,6 @@ async function syncFlashcardsForFile(
 	flashcards.forEach((flashcard) => {
 		if (!fileCards[flashcard.uuid]) {
 			fileCards[flashcard.uuid] = {
-				filePath: file.path,
 				cardUUID: flashcard.uuid,
 				cardContent: flashcard.content,
 				repetition: 0,
@@ -239,7 +235,6 @@ function updateCardState(
 			visitLog: state.visitLog, // preserve visit log
 			cardContent: state.cardContent,
 			cardUUID: state.cardUUID,
-			filePath: state.filePath,
 			repetition: state.repetition,
 			interval: state.interval,
 			ef: state.ef,
@@ -416,8 +411,13 @@ export abstract class BaseSidebarView extends ItemView {
 			cls: "card-container",
 		});
 		cards.forEach((cardState) => {
+			// Retrieve the file via each card’s grouping.
+			// Since CardState no longer contains filePath, we need to find the file.
 			const file = this.plugin.app.vault.getAbstractFileByPath(
-				cardState.filePath
+				// Loop through keys to find the card.
+				Object.keys(this.plugin.cards).find(
+					(fp) => cardState.cardUUID in this.plugin.cards[fp]
+				) || ""
 			);
 			if (!file || !(file instanceof TFile)) return;
 			const card = cardContainer.createEl("div", { cls: "review-card" });
@@ -517,12 +517,14 @@ export class ReviewSidebarView extends BaseSidebarView {
 
 	// Filter cards that are due.
 	filterCards(now: Date, allCards: CardState[]): CardState[] {
-		return allCards.filter(
-			(card) =>
-				card.active &&
-				card.nextReviewDate &&
-				new Date(card.nextReviewDate) <= now
-		);
+		return allCards
+			.filter(
+				(card) =>
+					card.active &&
+					card.nextReviewDate &&
+					new Date(card.nextReviewDate) <= now
+			)
+			.sort((a, b) => a.ef - b.ef); // Sort by EF ascending
 	}
 
 	protected addCardMeta(
@@ -616,11 +618,14 @@ export class ScheduledSidebarView extends BaseSidebarView {
 					card.nextReviewDate &&
 					new Date(card.nextReviewDate) > now
 			)
-			.sort(
-				(a, b) =>
+			.sort((a, b) => {
+				const dateDiff =
 					new Date(a.nextReviewDate!).getTime() -
-					new Date(b.nextReviewDate!).getTime()
-			);
+					new Date(b.nextReviewDate!).getTime();
+				if (dateDiff !== 0) return dateDiff;
+				// If review dates are the same, sort by EF ascending.
+				return a.ef - b.ef;
+			});
 	}
 
 	protected addCardMeta(
@@ -678,6 +683,7 @@ class FlashcardModal extends Modal {
 	currentIndex: number = 0;
 	plugin: MyPlugin;
 	feedbackContainer: HTMLElement | null = null;
+	progressCounter: HTMLElement | null = null; // New progress counter element
 
 	constructor(app: App, flashcards: Flashcard[], plugin: MyPlugin) {
 		super(app);
@@ -693,13 +699,22 @@ class FlashcardModal extends Modal {
 		const container = contentEl.createDiv({
 			cls: "flashcard-content-container",
 		});
+
+		// Create the progress bar container
 		const progressContainer = container.createDiv({
 			cls: "flashcard-progress-container",
 		});
 		const progressBar = progressContainer.createDiv({
 			cls: "flashcard-progress-bar",
 		});
-		this.updateProgressBar(progressBar);
+		// Set initial width to 0% so that the transition can animate
+		progressBar.style.width = "0%";
+
+		// Create the progress counter outside the progress container
+		this.progressCounter = container.createDiv({
+			cls: "flashcard-progress-counter",
+			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
+		});
 
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
 		this.renderCard(cardContainer);
@@ -707,7 +722,6 @@ class FlashcardModal extends Modal {
 		this.feedbackContainer = container.createDiv({
 			cls: "flashcard-feedback",
 		});
-		this.updateFeedback("");
 
 		const ratingTray = container.createDiv({
 			cls: "flashcard-rating-tray",
@@ -726,12 +740,22 @@ class FlashcardModal extends Modal {
 				this.handleRating(rating.value);
 			});
 		});
+
+		// Animate the progress bar to the initial progress (should animate from 0% to the starting value)
+		this.updateProgressBar(progressBar);
 	}
 
 	updateProgressBar(progressBar: HTMLElement) {
-		const progress =
-			((this.currentIndex + 1) / this.flashcards.length) * 100;
-		progressBar.style.width = `${progress}%`;
+		requestAnimationFrame(() => {
+			const progress =
+				((this.currentIndex + 1) / this.flashcards.length) * 100;
+			progressBar.style.width = `${progress}%`;
+			if (this.progressCounter) {
+				this.progressCounter.textContent = `${
+					this.currentIndex + 1
+				} / ${this.flashcards.length}`;
+			}
+		});
 	}
 
 	renderCard(cardContainer: HTMLElement) {
@@ -778,42 +802,26 @@ class FlashcardModal extends Modal {
 		}
 	}
 
-	updateFeedback(message: string) {
-		if (this.feedbackContainer) {
-			this.feedbackContainer.textContent = message;
-		}
-	}
-
 	// When a rating is clicked, update the specific card’s state.
 	async handleRating(rating: number) {
 		const now = new Date();
 		const currentCard = this.flashcards[this.currentIndex];
-		// Use the helper to locate the card state from nested cards.
-		const cardState = findCardState(this.plugin, currentCard.uuid);
-		if (!cardState) {
+		// Locate the card state along with its file key.
+		const found = findCardStateAndFile(this.plugin, currentCard.uuid);
+		if (!found) {
 			new Notice("Card state not found.");
 			return;
 		}
+		const { filePath, card } = found;
 
-		const updated = updateCardState(cardState, rating, now, false);
+		const updated = updateCardState(card, rating, now, false);
 		// Reassign the updated state back into the plugin’s cards store.
-		this.plugin.cards[cardState.filePath][cardState.cardUUID] = updated;
+		this.plugin.cards[filePath][card.cardUUID] = updated;
 
 		await this.plugin.savePluginData();
 		// Refresh sidebars
 		this.plugin.refreshReviewQueue();
 		this.plugin.refreshScheduledQueue();
-
-		const feedbackMessage = `EF: ${updated.ef}. Next review: ${
-			updated.nextReviewDate
-				? new Date(updated.nextReviewDate).toLocaleString("en-GB", {
-						hour: "2-digit",
-						minute: "2-digit",
-						hour12: false,
-				  })
-				: "N/A"
-		}.`;
-		this.updateFeedback(feedbackMessage);
 
 		if (this.currentIndex < this.flashcards.length - 1) {
 			this.currentIndex++;
@@ -837,15 +845,16 @@ class FlashcardModal extends Modal {
 }
 
 /* ============================================================================
- * HELPER: Find Card State from Nested Structure
+ * HELPER: Find Card State and File from Nested Structure
  * ========================================================================== */
-function findCardState(
+// This helper iterates over plugin.cards and returns both the file path and card state.
+function findCardStateAndFile(
 	plugin: MyPlugin,
 	cardUUID: string
-): CardState | undefined {
-	for (const fileCards of Object.values(plugin.cards)) {
+): { filePath: string; card: CardState } | undefined {
+	for (const [filePath, fileCards] of Object.entries(plugin.cards)) {
 		if (cardUUID in fileCards) {
-			return fileCards[cardUUID];
+			return { filePath, card: fileCards[cardUUID] };
 		}
 	}
 	return undefined;
@@ -951,6 +960,22 @@ export default class MyPlugin extends Plugin {
 			id: "show-flashcards-modal",
 			name: "Show Flashcards Modal",
 			callback: () => this.showAllDueFlashcardsModal(),
+		});
+
+		this.addCommand({
+			id: "delete-all-card-wrappers",
+			name: "Delete all [card][/card] wrappers",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.deleteAllCardWrappers(editor);
+			},
+		});
+
+		this.addCommand({
+			id: "delete-card-wrappers",
+			name: "Delete [card][/card] wrappers",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.deleteCardWrappers(editor);
+			},
 		});
 
 		this.addCommand({
@@ -1089,6 +1114,49 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	// Add this method to your MyPlugin class:
+	deleteAllCardWrappers(editor: Editor) {
+		const content = editor.getValue();
+		// Replace all [card] or [card=...] wrappers with their inner content.
+		const updatedContent = content.replace(
+			/\[card(?:=[a-f0-9\-]+)?\]([\s\S]*?)\[\/card\]/g,
+			"$1"
+		);
+		editor.setValue(updatedContent);
+		new Notice("Removed all [card][/card] wrappers from the note.");
+	}
+
+	// Add this method to your plugin class (MyPlugin)
+	deleteCardWrappers(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		// Find the last opening [card] (or [card=uuid]) tag before the cursor
+		const startMatches = [
+			...line
+				.substring(0, cursor.ch)
+				.matchAll(/\[card(?:=[a-f0-9\-]+)?\]/g),
+		];
+		const startMatch =
+			startMatches.length > 0
+				? startMatches[startMatches.length - 1]
+				: null;
+		const startIndex = startMatch ? startMatch.index : -1;
+		// Find the closing [/card] tag after the cursor
+		const endIndex = line.indexOf("[/card]", cursor.ch);
+		if (startIndex === -1 || endIndex === -1) {
+			new Notice("Cursor is not inside a [card]...[/card] block.");
+			return;
+		}
+		const cardTag = startMatch ? startMatch[0] : "[card]";
+		// Remove the delimiters but keep the inner content
+		const newLine =
+			line.slice(0, startIndex) +
+			line.slice(startIndex + cardTag.length, endIndex) +
+			line.slice(endIndex + "[/card]".length);
+		editor.setLine(cursor.line, newLine);
+		new Notice(`Removed ${cardTag}...[/card] wrappers.`);
+	}
+
 	deleteHideWrappers(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
@@ -1137,7 +1205,7 @@ export default class MyPlugin extends Plugin {
 	async showAllDueFlashcardsModal() {
 		const now = new Date();
 		let allDueFlashcards: Flashcard[] = [];
-		// Iterate over each file's cards.
+		// First, collect due flashcards.
 		for (const filePath in this.cards) {
 			for (const cardUUID in this.cards[filePath]) {
 				const card = this.cards[filePath][cardUUID];
@@ -1147,7 +1215,6 @@ export default class MyPlugin extends Plugin {
 					new Date(card.nextReviewDate) <= now
 				) {
 					const file = this.app.vault.getAbstractFileByPath(filePath);
-					// Check if file is a TFile before accessing basename.
 					const noteTitle =
 						file && file instanceof TFile
 							? file.basename
@@ -1161,13 +1228,43 @@ export default class MyPlugin extends Plugin {
 				}
 			}
 		}
+		// If no due flashcards, use scheduled ones.
+		if (allDueFlashcards.length === 0) {
+			for (const filePath in this.cards) {
+				for (const cardUUID in this.cards[filePath]) {
+					const card = this.cards[filePath][cardUUID];
+					if (
+						card.active &&
+						card.nextReviewDate &&
+						new Date(card.nextReviewDate) > now
+					) {
+						const file =
+							this.app.vault.getAbstractFileByPath(filePath);
+						const noteTitle =
+							file && file instanceof TFile
+								? file.basename
+								: "Unknown Note";
+						allDueFlashcards.push({
+							uuid: cardUUID,
+							content: card.cardContent,
+							noteTitle,
+							filePath,
+						});
+					}
+				}
+			}
+			new Notice(
+				"No due flashcards; starting scheduled flashcards review."
+			);
+		}
+
 		if (this.settings.randomizeFlashcards) {
 			allDueFlashcards = shuffleArray(allDueFlashcards);
 		}
 		if (allDueFlashcards.length > 0) {
 			new FlashcardModal(this.app, allDueFlashcards, this).open();
 		} else {
-			new Notice("No flashcards due for review.");
+			new Notice("No flashcards due or scheduled for review.");
 		}
 	}
 
@@ -1183,19 +1280,15 @@ export default class MyPlugin extends Plugin {
 		stopScheduling: boolean
 	) {
 		const now = new Date();
-		let cardState = findCardState(this, cardUUID);
-		if (!cardState) {
+		const found = findCardStateAndFile(this, cardUUID);
+		if (!found) {
 			new Notice("Card state not found.");
 			return;
 		}
-		const updated = updateCardState(
-			cardState,
-			quality,
-			now,
-			stopScheduling
-		);
+		const { filePath, card } = found;
+		const updated = updateCardState(card, quality, now, stopScheduling);
 		// Reassign the updated state into the plugin's store.
-		this.cards[cardState.filePath][cardState.cardUUID] = updated;
+		this.cards[filePath][card.cardUUID] = updated;
 
 		new Notice(
 			`Updated SM‑2 for card '${cardUUID}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
@@ -1295,93 +1388,6 @@ export default class MyPlugin extends Plugin {
 /* ============================================================================
  * CUSTOM MODALS & POST-PROCESSORS (RatingModal unchanged except for variable names)
  * ========================================================================== */
-
-function formatNextReviewTime(dateString: string): string {
-	const date = new Date(dateString);
-	return date.toLocaleString("en-GB", {
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		hour12: false,
-	});
-}
-
-class RatingModal extends Modal {
-	private onSubmit: (input: string) => void;
-	private currentState?: CardState;
-	constructor(
-		app: App,
-		currentState: CardState | undefined,
-		onSubmit: (input: string) => void
-	) {
-		super(app);
-		this.currentState = currentState;
-		this.onSubmit = onSubmit;
-	}
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.empty();
-		const buttonContainer = contentEl.createEl("div", {
-			cls: "rating-button-container",
-		});
-		const ratings = [
-			{ value: "0", text: "Forgot Completely", color: "#FF4C4C" },
-			{ value: "1", text: "Barely Remembered", color: "#FF7F50" },
-			{ value: "2", text: "Struggled to Recall", color: "#FFA500" },
-			{ value: "3", text: "Correct with Difficulty", color: "#FFFF66" },
-			{ value: "4", text: "Good Recall", color: "#ADFF2F" },
-			{ value: "5", text: "Perfect Recall", color: "#7CFC00" },
-		];
-		ratings.forEach((rating) => {
-			const btn = buttonContainer.createEl("button", {
-				text: rating.text,
-				cls: "rating-button",
-			});
-			btn.style.backgroundColor = rating.color;
-			btn.addEventListener("click", () => {
-				this.onSubmit(rating.value);
-				this.close();
-			});
-		});
-		const statsContainer = contentEl.createEl("div", {
-			cls: "stats-container",
-		});
-		if (this.currentState && this.currentState.nextReviewDate) {
-			const intervalDisplay = formatInterval(
-				this.currentState.lastReviewDate,
-				this.currentState.nextReviewDate
-			);
-			const formattedTime = formatNextReviewTime(
-				this.currentState.nextReviewDate
-			);
-			statsContainer.innerHTML = `<strong>Current Statistics:</strong>
-      <br/>Repetitions: ${this.currentState.repetition}
-      <br/>Interval: ${intervalDisplay} - ${formattedTime}
-      <br/>EF: ${this.currentState.ef.toFixed(2)}
-      <br/>Next Review: ${formattedTime}`;
-		} else {
-			statsContainer.textContent =
-				"No review data available for this flashcard.";
-		}
-		contentEl.appendChild(statsContainer);
-		const stopContainer = contentEl.createEl("div", {
-			cls: "stop-container",
-		});
-		const stopButton = stopContainer.createEl("button", {
-			text: "Stop Scheduling",
-			cls: "mod-cta stop-button",
-		});
-		stopButton.addEventListener("click", () => {
-			this.onSubmit("stop");
-			this.close();
-		});
-	}
-	onClose() {
-		this.contentEl.empty();
-	}
-}
 
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");

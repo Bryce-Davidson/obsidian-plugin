@@ -405,3 +405,12 @@
 	width: 80%;
 	color: black !important;
 }
+
+.flashcard-progress-counter {
+	font-size: 14px;
+	color: var(--text-normal);
+	text-align: center;
+	margin-top: 8px;
+	width: 100%;
+	display: block;
+}
