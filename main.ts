@@ -412,9 +412,7 @@ export abstract class BaseSidebarView extends ItemView {
 		});
 		cards.forEach((cardState) => {
 			// Retrieve the file via each card’s grouping.
-			// Since CardState no longer contains filePath, we need to find the file.
 			const file = this.plugin.app.vault.getAbstractFileByPath(
-				// Loop through keys to find the card.
 				Object.keys(this.plugin.cards).find(
 					(fp) => cardState.cardUUID in this.plugin.cards[fp]
 				) || ""
@@ -431,6 +429,16 @@ export abstract class BaseSidebarView extends ItemView {
 				text: file.basename,
 				title: file.basename,
 			});
+
+			// Retrieve frontmatter tags from the file cache.
+			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
+			const tags = fileCache?.frontmatter?.tags;
+			const firstTag = Array.isArray(tags) ? tags[0] : tags;
+			if (firstTag) {
+				const tagEl = titleRow.createEl("div", { cls: "review-tag" });
+				tagEl.createEl("span", { text: `#${firstTag}` });
+			}
+
 			// Show a preview of the flashcard content (truncate if needed)
 			const preview = truncateTitle(cardState.cardContent, 50);
 			card.createEl("p", { text: preview });
