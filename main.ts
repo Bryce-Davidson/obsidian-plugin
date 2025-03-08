@@ -430,7 +430,6 @@ export abstract class BaseSidebarView extends ItemView {
 				title: file.basename,
 			});
 
-			// Retrieve frontmatter tags from the file cache.
 			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
 			const tags = fileCache?.frontmatter?.tags;
 			const firstTag = Array.isArray(tags) ? tags[0] : tags;
@@ -438,10 +437,6 @@ export abstract class BaseSidebarView extends ItemView {
 				const tagEl = titleRow.createEl("div", { cls: "review-tag" });
 				tagEl.createEl("span", { text: `#${firstTag}` });
 			}
-
-			// Show a preview of the flashcard content (truncate if needed)
-			const preview = truncateTitle(cardState.cardContent, 50);
-			card.createEl("p", { text: preview });
 
 			this.addCardMeta(card, cardState, now);
 		});
