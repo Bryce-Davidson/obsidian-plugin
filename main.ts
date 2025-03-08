@@ -144,8 +144,7 @@ function ensureCardUUIDs(content: string): {
  * For a given file, read its content, ensure all flashcards have UUIDs,
  * update the file if necessary, and sync the plugin’s card store.
  *
- * This version detects if a new card has been added and then immediately
- * refreshes the sidebars.
+ * If a new card is detected, refresh the sidebars.
  */
 async function syncFlashcardsForFile(
 	plugin: MyPlugin,
@@ -185,6 +184,11 @@ async function syncFlashcardsForFile(
 				interval: 0,
 				ef: 2.5,
 				lastReviewDate: now,
+				// Initialize nextReviewDate to now plus the first learning step (10 minutes).
+				nextReviewDate: addMinutes(
+					new Date(now),
+					LEARNING_STEPS[0]
+				).toISOString(),
 				active: true,
 				efHistory: [],
 				visitLog: [now],
@@ -195,14 +199,13 @@ async function syncFlashcardsForFile(
 			fileCards[flashcard.uuid].cardContent = flashcard.content;
 			fileCards[flashcard.uuid].cardTitle = flashcard.cardTitle;
 		}
-		// Also attach note information to the flashcard.
+		// Attach note info to flashcard.
 		flashcard.noteTitle = file.basename;
 		flashcard.filePath = file.path;
 	});
 
 	await plugin.savePluginData();
 	if (newCardAdded) {
-		// Immediately refresh the sidebars when a new card is added.
 		plugin.refreshReviewQueue();
 		plugin.refreshScheduledQueue();
 	}
@@ -257,7 +260,7 @@ function updateCardState(
 			lastReviewDate: reviewDate.toISOString(),
 			nextReviewDate: undefined,
 			active: false,
-			visitLog: state.visitLog, // preserve visit log
+			visitLog: state.visitLog,
 			cardContent: state.cardContent,
 			cardUUID: state.cardUUID,
 			repetition: state.repetition,
@@ -713,7 +716,7 @@ class FlashcardModal extends Modal {
 	currentIndex: number = 0;
 	plugin: MyPlugin;
 	feedbackContainer: HTMLElement | null = null;
-	progressCounter: HTMLElement | null = null; // New progress counter element
+	progressCounter: HTMLElement | null = null;
 
 	constructor(app: App, flashcards: Flashcard[], plugin: MyPlugin) {
 		super(app);
@@ -737,10 +740,9 @@ class FlashcardModal extends Modal {
 		const progressBar = progressContainer.createDiv({
 			cls: "flashcard-progress-bar",
 		});
-		// Set initial width to 0% so that the transition can animate
 		progressBar.style.width = "0%";
 
-		// Create the progress counter outside the progress container
+		// Create the progress counter
 		this.progressCounter = container.createDiv({
 			cls: "flashcard-progress-counter",
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
@@ -771,7 +773,6 @@ class FlashcardModal extends Modal {
 			});
 		});
 
-		// Animate the progress bar to the initial progress (should animate from 0% to the starting value)
 		this.updateProgressBar(progressBar);
 	}
 
@@ -795,8 +796,6 @@ class FlashcardModal extends Modal {
 			this.currentIndex < this.flashcards.length
 		) {
 			const currentFlashcard = this.flashcards[this.currentIndex];
-
-			// Use custom card title if available; otherwise, fall back to the note title.
 			const titleToShow =
 				currentFlashcard.cardTitle || currentFlashcard.noteTitle;
 			if (titleToShow) {
@@ -805,8 +804,6 @@ class FlashcardModal extends Modal {
 					text: titleToShow,
 				});
 			}
-
-			// Render the card content.
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
@@ -834,24 +831,18 @@ class FlashcardModal extends Modal {
 		}
 	}
 
-	// When a rating is clicked, update the specific card’s state.
 	async handleRating(rating: number) {
 		const now = new Date();
 		const currentCard = this.flashcards[this.currentIndex];
-		// Locate the card state along with its file key.
 		const found = findCardStateAndFile(this.plugin, currentCard.uuid);
 		if (!found) {
 			new Notice("Card state not found.");
 			return;
 		}
 		const { filePath, card } = found;
-
 		const updated = updateCardState(card, rating, now, false);
-		// Reassign the updated state back into the plugin’s cards store.
 		this.plugin.cards[filePath][card.cardUUID] = updated;
-
 		await this.plugin.savePluginData();
-		// Refresh sidebars
 		this.plugin.refreshReviewQueue();
 		this.plugin.refreshScheduledQueue();
 
@@ -879,7 +870,6 @@ class FlashcardModal extends Modal {
 /* ============================================================================
  * HELPER: Find Card State and File from Nested Structure
  * ========================================================================== */
-// This helper iterates over plugin.cards and returns both the file path and card state.
 function findCardStateAndFile(
 	plugin: MyPlugin,
 	cardUUID: string
@@ -895,7 +885,6 @@ function findCardStateAndFile(
 /* ============================================================================
  * MAIN PLUGIN CLASS
  * ========================================================================== */
-
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	// Cards are now stored by file path.
@@ -950,13 +939,11 @@ export default class MyPlugin extends Plugin {
 	}
 
 	private initializeUI(): void {
-		// The "Flashcards" ribbon now shows ALL due flashcards.
 		this.addRibbonIcon("layers", "Flashcards", (evt: MouseEvent) => {
 			evt.preventDefault();
 			this.showAllDueFlashcardsModal();
 		}).addClass("flashcard-ribbon-icon");
 
-		// "Review Current Note" remains.
 		this.addRibbonIcon("check-square", "Review Current Note", () => {
 			this.openReviewModal();
 		});
@@ -973,8 +960,6 @@ export default class MyPlugin extends Plugin {
 			this.activateScheduledSidebar();
 		});
 
-		// Updated markdown post processor to remove all card delimiters,
-		// regardless of their contents.
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
 			el.innerHTML = el.innerHTML.replace(/\[\/?card(?:=[^\]]+)?\]/g, "");
 		});
@@ -1014,11 +999,26 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
+		// Modified command: after wrapping text, immediately sync flashcards and refresh the sidebars.
 		this.addCommand({
 			id: "wrap-text-as-flashcard",
 			name: "Wrap Selected Text in [card][/card]",
-			editorCallback: (editor: Editor) =>
-				this.wrapSelectedTextAsFlashcard(editor),
+			editorCallback: async (editor: Editor) => {
+				const selection = editor.getSelection();
+				if (selection && selection.trim().length > 0) {
+					editor.replaceSelection(`[card]${selection.trim()}[/card]`);
+					new Notice("Text wrapped as flashcard");
+					// Force a sync and refresh.
+					const activeFile = this.app.workspace.getActiveFile();
+					if (activeFile && activeFile instanceof TFile) {
+						await syncFlashcardsForFile(this, activeFile);
+						this.refreshReviewQueue();
+						this.refreshScheduledQueue();
+					}
+				} else {
+					new Notice("Please select some text first");
+				}
+			},
 		});
 
 		this.addCommand({
@@ -1062,7 +1062,6 @@ export default class MyPlugin extends Plugin {
 	}
 
 	private registerEvents(): void {
-		// When a file is opened, sync its flashcards.
 		this.registerEvent(
 			this.app.workspace.on("file-open", async (file: TFile) => {
 				if (file && file instanceof TFile) {
@@ -1071,7 +1070,6 @@ export default class MyPlugin extends Plugin {
 			})
 		);
 
-		// On file rename, update filePath for all card states in that file.
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
 				if (this.cards[oldPath]) {
@@ -1085,7 +1083,6 @@ export default class MyPlugin extends Plugin {
 			})
 		);
 
-		// On file modify, if it is the active file, sync its flashcards.
 		this.registerEvent(
 			this.app.vault.on("modify", async (file: TFile) => {
 				const activeFile = this.app.workspace.getActiveFile();
@@ -1100,7 +1097,6 @@ export default class MyPlugin extends Plugin {
 			})
 		);
 
-		// On file delete, remove all card states belonging to that file.
 		this.registerEvent(
 			this.app.vault.on("delete", (file: TFile) => {
 				delete this.cards[file.path];
@@ -1124,20 +1120,11 @@ export default class MyPlugin extends Plugin {
 	}
 
 	wrapSelectedTextAsFlashcard(editor: Editor) {
-		const selection = editor.getSelection();
-		if (selection && selection.trim().length > 0) {
-			// Wrap with [card][/card] (UUIDs will be added on sync)
-			editor.replaceSelection(`[card]${selection.trim()}[/card]`);
-			new Notice("Text wrapped as flashcard");
-		} else {
-			new Notice("Please select some text first");
-		}
+		// (This command is now handled in the command registration above.)
 	}
 
-	// Add this method to your MyPlugin class:
 	deleteAllCardWrappers(editor: Editor) {
 		const content = editor.getValue();
-		// Replace all [card] or [card=...] wrappers with their inner content.
 		const updatedContent = content.replace(
 			/\[card(?:=[^\]]+)?\]([\s\S]*?)\[\/card\]/g,
 			"$1"
@@ -1146,11 +1133,9 @@ export default class MyPlugin extends Plugin {
 		new Notice("Removed all [card][/card] wrappers from the note.");
 	}
 
-	// Add this method to your plugin class (MyPlugin)
 	deleteCardWrappers(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		// Find the last opening [card] (or [card=uuid,...]) tag before the cursor
 		const startMatches = [
 			...line.substring(0, cursor.ch).matchAll(/\[card(?:=[^\]]+)?\]/g),
 		];
@@ -1159,14 +1144,12 @@ export default class MyPlugin extends Plugin {
 				? startMatches[startMatches.length - 1]
 				: null;
 		const startIndex = startMatch ? startMatch.index : -1;
-		// Find the closing [/card] tag after the cursor
 		const endIndex = line.indexOf("[/card]", cursor.ch);
 		if (startIndex === -1 || endIndex === -1) {
 			new Notice("Cursor is not inside a [card]...[/card] block.");
 			return;
 		}
 		const cardTag = startMatch ? startMatch[0] : "[card]";
-		// Remove the delimiters but keep the inner content
 		const newLine =
 			line.slice(0, startIndex) +
 			line.slice(startIndex + cardTag.length, endIndex) +
@@ -1196,18 +1179,16 @@ export default class MyPlugin extends Plugin {
 			line.slice(0, startIndex) +
 			line.slice(startIndex + hideTag.length, endIndex) +
 			line.slice(endIndex + "[/hide]".length);
-		editor.setLine(cursor.line, newLine);
+		editor.setValue(newLine);
 		new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
 	}
 
-	// Show flashcards for the active file (used by "Review Current Note").
 	async showFlashcardsModal() {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (!activeFile) {
 			new Notice("No active file open.");
 			return;
 		}
-		// Sync flashcards and update the file content as needed.
 		let flashcards = await syncFlashcardsForFile(this, activeFile);
 		if (this.settings.randomizeFlashcards) {
 			flashcards = shuffleArray(flashcards);
@@ -1219,11 +1200,9 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	// Show all due flashcards from across the vault.
 	async showAllDueFlashcardsModal() {
 		const now = new Date();
 		let allDueFlashcards: Flashcard[] = [];
-		// First, collect due flashcards.
 		for (const filePath in this.cards) {
 			for (const cardUUID in this.cards[filePath]) {
 				const card = this.cards[filePath][cardUUID];
@@ -1247,7 +1226,6 @@ export default class MyPlugin extends Plugin {
 				}
 			}
 		}
-		// If no due flashcards, use scheduled ones.
 		if (allDueFlashcards.length === 0) {
 			for (const filePath in this.cards) {
 				for (const cardUUID in this.cards[filePath]) {
@@ -1289,11 +1267,9 @@ export default class MyPlugin extends Plugin {
 	}
 
 	private openReviewModal(): void {
-		// For current note review.
 		this.showFlashcardsModal();
 	}
 
-	// Update a card's state based on quality.
 	private async updateCardWithQuality(
 		cardUUID: string,
 		quality: number,
@@ -1307,7 +1283,6 @@ export default class MyPlugin extends Plugin {
 		}
 		const { filePath, card } = found;
 		const updated = updateCardState(card, quality, now, stopScheduling);
-		// Reassign the updated state into the plugin's store.
 		this.cards[filePath][card.cardUUID] = updated;
 
 		new Notice(
@@ -1408,7 +1383,6 @@ export default class MyPlugin extends Plugin {
 /* ============================================================================
  * CUSTOM MODALS & POST-PROCESSORS (RatingModal unchanged except for variable names)
  * ========================================================================== */
-
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
 	elements.forEach((element) => {
