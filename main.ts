@@ -971,6 +971,12 @@ export default class MyPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "review-current-note",
+			name: "Review Current Note (Flashcards)",
+			callback: () => this.openReviewModal(),
+		});
+
+		this.addCommand({
 			id: "delete-all-card-wrappers",
 			name: "Delete all [card][/card] wrappers",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
@@ -991,22 +997,6 @@ export default class MyPlugin extends Plugin {
 			name: "Wrap Selected Text in [card][/card]",
 			editorCallback: (editor: Editor) =>
 				this.wrapSelectedTextAsFlashcard(editor),
-		});
-
-		this.addCommand({
-			id: "sample-editor-command",
-			name: "Sample editor command",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log("Selected text:", editor.getSelection());
-				editor.replaceSelection("Sample Editor Command");
-			},
-		});
-
-		// This command now opens the review modal on the current note’s flashcards.
-		this.addCommand({
-			id: "review-current-note",
-			name: "Review Current Note (Flashcards)",
-			callback: () => this.openReviewModal(),
 		});
 
 		this.addCommand({
