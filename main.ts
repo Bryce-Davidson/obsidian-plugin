@@ -143,6 +143,9 @@ function ensureCardUUIDs(content: string): {
 /**
  * For a given file, read its content, ensure all flashcards have UUIDs,
  * update the file if necessary, and sync the plugin’s card store.
+ *
+ * This version detects if a new card has been added and then immediately
+ * refreshes the sidebars.
  */
 async function syncFlashcardsForFile(
 	plugin: MyPlugin,
@@ -169,10 +172,12 @@ async function syncFlashcardsForFile(
 		}
 	}
 
-	// Add new card states or update changed ones.
+	// Flag to check if any new card was added.
+	let newCardAdded = false;
 	const now = new Date().toISOString();
 	flashcards.forEach((flashcard) => {
 		if (!fileCards[flashcard.uuid]) {
+			newCardAdded = true;
 			fileCards[flashcard.uuid] = {
 				cardUUID: flashcard.uuid,
 				cardContent: flashcard.content,
@@ -196,6 +201,11 @@ async function syncFlashcardsForFile(
 	});
 
 	await plugin.savePluginData();
+	if (newCardAdded) {
+		// Immediately refresh the sidebars when a new card is added.
+		plugin.refreshReviewQueue();
+		plugin.refreshScheduledQueue();
+	}
 	return flashcards;
 }
 
