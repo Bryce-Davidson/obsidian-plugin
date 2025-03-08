@@ -350,17 +350,6 @@
 	transform: scale(1.05);
 }
 
-/* ----------------------------
-   (Old Navigation Controls removed for flashcard modal)
------------------------------ */
-/*
-.flashcard-controls,
-.flashcard-nav-button,
-.flashcard-counter {
-	display: none;
-}
-*/
-
 /* ============================
    Rating Modal
 =============================== */
@@ -413,4 +402,13 @@
 	margin-top: 8px;
 	width: 100%;
 	display: block;
+}
+
+/* ============================
+   Disable Image Fullscreen on Mobile
+=============================== */
+@media (max-width: 768px) {
+	.markdown-preview-view img {
+		pointer-events: none !important;
+	}
 }

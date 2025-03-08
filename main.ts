@@ -18,7 +18,6 @@ import {
  * ========================================================================== */
 
 // The card state now tracks individual flashcards.
-// Note: filePath has been removed from CardState.
 interface CardState {
 	cardUUID: string;
 	cardContent: string;
@@ -32,6 +31,8 @@ interface CardState {
 	learningStep?: number;
 	efHistory?: { timestamp: string; ef: number }[];
 	visitLog: string[];
+	// New optional title property for the card.
+	cardTitle?: string;
 }
 
 // Settings remain unchanged.
@@ -98,31 +99,42 @@ interface Flashcard {
 	content: string;
 	noteTitle?: string;
 	filePath?: string;
+	// New optional card title.
+	cardTitle?: string;
 }
 
 /**
  * Scans a note’s content for [card] blocks.
- * If a block is missing a UUID (i.e. not of the form [card=uuid]), one is generated.
+ * If a block is missing a UUID (i.e. not of the form [card=uuid,...]), one is generated.
  * The note content is updated with the new UUIDs.
+ *
+ * Updated to support a comma-delimited optional title.
  */
 function ensureCardUUIDs(content: string): {
 	updatedContent: string;
 	flashcards: Flashcard[];
 } {
 	const flashcards: Flashcard[] = [];
-	// This regex captures [card] or [card=uuid] blocks
-	const regex = /\[card(?:=([a-f0-9\-]+))?\]([\s\S]*?)\[\/card\]/gi;
+	// Updated regex: captures an optional UUID and, if provided, a comma followed by a title.
+	const regex =
+		/\[card(?:=([a-f0-9\-]+)(?:,([^\]]+))?)?\]([\s\S]*?)\[\/card\]/gi;
 	let updatedContent = content;
 	updatedContent = updatedContent.replace(
 		regex,
-		(match, uuid, innerContent) => {
+		(match, uuid, cardTitle, innerContent) => {
 			let cardUUID = uuid;
 			if (!cardUUID) {
 				cardUUID = generateUUID();
 			}
-			flashcards.push({ uuid: cardUUID, content: innerContent.trim() });
-			// Always reformat the block so it includes the UUID.
-			return `[card=${cardUUID}]${innerContent}[/card]`;
+			flashcards.push({
+				uuid: cardUUID,
+				content: innerContent.trim(),
+				cardTitle: cardTitle ? cardTitle.trim() : undefined,
+			});
+			// Always reformat the block so it includes the UUID (and title if provided).
+			return `[card=${cardUUID}${
+				cardTitle ? "," + cardTitle.trim() : ""
+			}]${innerContent}[/card]`;
 		}
 	);
 	return { updatedContent, flashcards };
@@ -171,9 +183,12 @@ async function syncFlashcardsForFile(
 				active: true,
 				efHistory: [],
 				visitLog: [now],
+				// Store the title if provided.
+				cardTitle: flashcard.cardTitle,
 			};
 		} else {
 			fileCards[flashcard.uuid].cardContent = flashcard.content;
+			fileCards[flashcard.uuid].cardTitle = flashcard.cardTitle;
 		}
 		// Also attach note information to the flashcard.
 		flashcard.noteTitle = file.basename;
@@ -238,6 +253,7 @@ function updateCardState(
 			repetition: state.repetition,
 			interval: state.interval,
 			ef: state.ef,
+			cardTitle: state.cardTitle,
 		};
 	}
 
@@ -351,7 +367,6 @@ class MyPluginSettingTab extends PluginSettingTab {
  * BASE SIDEBAR VIEW (Now displaying individual cards)
  * ========================================================================== */
 
-// Updated abstract signature to accept both current time and a list of all cards.
 export abstract class BaseSidebarView extends ItemView {
 	plugin: MyPlugin;
 
@@ -425,9 +440,11 @@ export abstract class BaseSidebarView extends ItemView {
 			});
 
 			const titleRow = card.createEl("div", { cls: "title-row" });
+			// Use custom card title if provided, otherwise fallback to file.basename.
+			const displayTitle = cardState.cardTitle || file.basename;
 			titleRow.createEl("h3", {
-				text: file.basename,
-				title: file.basename,
+				text: displayTitle,
+				title: displayTitle,
 			});
 
 			const fileCache = this.plugin.app.metadataCache.getFileCache(file);
@@ -769,11 +786,13 @@ class FlashcardModal extends Modal {
 		) {
 			const currentFlashcard = this.flashcards[this.currentIndex];
 
-			// Display the note title above the card content.
-			if (currentFlashcard.noteTitle) {
+			// Use custom card title if available; otherwise, fall back to the note title.
+			const titleToShow =
+				currentFlashcard.cardTitle || currentFlashcard.noteTitle;
+			if (titleToShow) {
 				cardContainer.createEl("div", {
 					cls: "flashcard-note-title",
-					text: currentFlashcard.noteTitle,
+					text: titleToShow,
 				});
 			}
 
@@ -944,12 +963,10 @@ export default class MyPlugin extends Plugin {
 			this.activateScheduledSidebar();
 		});
 
+		// Updated markdown post processor to remove all card delimiters,
+		// regardless of their contents.
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
-			// Remove flashcard tags for display.
-			el.innerHTML = el.innerHTML.replace(
-				/\[\/?card(?:=[a-f0-9\-]+)?\]/g,
-				""
-			);
+			el.innerHTML = el.innerHTML.replace(/\[\/?card(?:=[^\]]+)?\]/g, "");
 		});
 
 		this.registerMarkdownPostProcessor((element, context) => {
@@ -1112,7 +1129,7 @@ export default class MyPlugin extends Plugin {
 		const content = editor.getValue();
 		// Replace all [card] or [card=...] wrappers with their inner content.
 		const updatedContent = content.replace(
-			/\[card(?:=[a-f0-9\-]+)?\]([\s\S]*?)\[\/card\]/g,
+			/\[card(?:=[^\]]+)?\]([\s\S]*?)\[\/card\]/g,
 			"$1"
 		);
 		editor.setValue(updatedContent);
@@ -1123,11 +1140,9 @@ export default class MyPlugin extends Plugin {
 	deleteCardWrappers(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		// Find the last opening [card] (or [card=uuid]) tag before the cursor
+		// Find the last opening [card] (or [card=uuid,...]) tag before the cursor
 		const startMatches = [
-			...line
-				.substring(0, cursor.ch)
-				.matchAll(/\[card(?:=[a-f0-9\-]+)?\]/g),
+			...line.substring(0, cursor.ch).matchAll(/\[card(?:=[^\]]+)?\]/g),
 		];
 		const startMatch =
 			startMatches.length > 0
@@ -1217,6 +1232,7 @@ export default class MyPlugin extends Plugin {
 						content: card.cardContent,
 						noteTitle,
 						filePath,
+						cardTitle: card.cardTitle,
 					});
 				}
 			}
@@ -1242,6 +1258,7 @@ export default class MyPlugin extends Plugin {
 							content: card.cardContent,
 							noteTitle,
 							filePath,
+							cardTitle: card.cardTitle,
 						});
 					}
 				}
