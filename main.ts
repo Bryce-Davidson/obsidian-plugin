@@ -29,7 +29,6 @@ interface CardState {
 	isLearning?: boolean;
 	learningStep?: number;
 	efHistory?: { timestamp: string; ef: number }[];
-	visitLog: string[];
 	cardTitle?: string;
 	// New property: store the line number where the card appears (1-indexed).
 	line?: number;
@@ -47,9 +46,19 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 	randomizeFlashcards: false,
 };
 
+interface NoteData {
+	// You can add more note-specific data here in the future.
+	noteVisitLog: string[];
+}
+
+interface Note {
+	cards: { [cardUUID: string]: CardState };
+	data: NoteData;
+}
+
 interface PluginData {
 	settings: MyPluginSettings;
-	cards: { [filePath: string]: { [cardUUID: string]: CardState } };
+	notes: { [filePath: string]: Note };
 }
 
 interface Flashcard {
@@ -138,10 +147,14 @@ async function syncFlashcardsForFile(
 		await plugin.app.vault.modify(file, updatedContent);
 	}
 
-	if (!plugin.cards[file.path]) {
-		plugin.cards[file.path] = {};
+	// Initialize note if it doesn't exist.
+	if (!plugin.notes[file.path]) {
+		plugin.notes[file.path] = {
+			cards: {},
+			data: { noteVisitLog: [] },
+		};
 	}
-	const fileCards = plugin.cards[file.path];
+	const fileCards = plugin.notes[file.path].cards;
 
 	const existingCardUUIDs = Object.keys(fileCards);
 	const newCardUUIDs = flashcards.map((card) => card.uuid);
@@ -169,7 +182,6 @@ async function syncFlashcardsForFile(
 				).toISOString(),
 				active: true,
 				efHistory: [],
-				visitLog: [now],
 				cardTitle: flashcard.cardTitle,
 				line: flashcard.line,
 			};
@@ -220,7 +232,6 @@ function updateCardState(
 			lastReviewDate: reviewDate.toISOString(),
 			nextReviewDate: undefined,
 			active: false,
-			visitLog: state.visitLog,
 			cardContent: state.cardContent,
 			cardUUID: state.cardUUID,
 			repetition: state.repetition,
@@ -366,8 +377,8 @@ export abstract class BaseSidebarView extends ItemView {
 
 		const now = new Date();
 		let allCards: CardState[] = [];
-		for (const fileCards of Object.values(this.plugin.cards)) {
-			allCards.push(...Object.values(fileCards));
+		for (const note of Object.values(this.plugin.notes)) {
+			allCards.push(...Object.values(note.cards));
 		}
 		const cards = this.filterCards(now, allCards);
 		if (cards.length === 0) {
@@ -398,8 +409,8 @@ export abstract class BaseSidebarView extends ItemView {
 		cards.forEach((cardState) => {
 			// Retrieve the file via each card’s grouping.
 			const file = this.plugin.app.vault.getAbstractFileByPath(
-				Object.keys(this.plugin.cards).find(
-					(fp) => cardState.cardUUID in this.plugin.cards[fp]
+				Object.keys(this.plugin.notes).find(
+					(fp) => cardState.cardUUID in this.plugin.notes[fp].cards
 				) || ""
 			);
 			if (!file || !(file instanceof TFile)) return;
@@ -824,7 +835,8 @@ class FlashcardModal extends Modal {
 		}
 		const { filePath, card } = found;
 		const updated = updateCardState(card, rating, now, false);
-		this.plugin.cards[filePath][card.cardUUID] = updated;
+		// Update the card state within the note's cards.
+		this.plugin.notes[filePath].cards[card.cardUUID] = updated;
 		await this.plugin.savePluginData();
 		this.plugin.refreshReviewQueue();
 		this.plugin.refreshScheduledQueue();
@@ -857,9 +869,9 @@ function findCardStateAndFile(
 	plugin: MyPlugin,
 	cardUUID: string
 ): { filePath: string; card: CardState } | undefined {
-	for (const [filePath, fileCards] of Object.entries(plugin.cards)) {
-		if (cardUUID in fileCards) {
-			return { filePath, card: fileCards[cardUUID] };
+	for (const [filePath, note] of Object.entries(plugin.notes)) {
+		if (cardUUID in note.cards) {
+			return { filePath, card: note.cards[cardUUID] };
 		}
 	}
 	return undefined;
@@ -870,8 +882,8 @@ function findCardStateAndFile(
  * ========================================================================== */
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
-	// Cards are now stored by file path.
-	cards: { [filePath: string]: { [cardUUID: string]: CardState } } = {};
+	// Notes are now stored as objects containing cards and note-specific data.
+	notes: { [filePath: string]: Note } = {};
 
 	private allHidden: boolean = true;
 	private refreshTimeout: number | null = null;
@@ -898,10 +910,10 @@ export default class MyPlugin extends Plugin {
 		const data = (await this.loadData()) as PluginData;
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
-			this.cards = data.cards || {};
+			this.notes = data.notes || {};
 		} else {
 			this.settings = DEFAULT_SETTINGS;
-			this.cards = {};
+			this.notes = {};
 		}
 		document.documentElement.style.setProperty(
 			"--hidden-color",
@@ -912,7 +924,7 @@ export default class MyPlugin extends Plugin {
 	async savePluginData() {
 		const data: PluginData = {
 			settings: this.settings,
-			cards: this.cards,
+			notes: this.notes,
 		};
 		await this.saveData(data);
 	}
@@ -1053,15 +1065,25 @@ export default class MyPlugin extends Plugin {
 			this.app.workspace.on("file-open", async (file: TFile) => {
 				if (file && file instanceof TFile) {
 					await syncFlashcardsForFile(this, file);
+					// Log the visit for this note.
+					const now = new Date().toISOString();
+					if (!this.notes[file.path]) {
+						this.notes[file.path] = {
+							cards: {},
+							data: { noteVisitLog: [] },
+						};
+					}
+					this.notes[file.path].data.noteVisitLog.push(now);
+					this.savePluginData();
 				}
 			})
 		);
 
 		this.registerEvent(
 			this.app.vault.on("rename", (file: TFile, oldPath: string) => {
-				if (this.cards[oldPath]) {
-					this.cards[file.path] = this.cards[oldPath];
-					delete this.cards[oldPath];
+				if (this.notes[oldPath]) {
+					this.notes[file.path] = this.notes[oldPath];
+					delete this.notes[oldPath];
 				}
 				this.savePluginData();
 				this.refreshReviewQueue();
@@ -1086,7 +1108,7 @@ export default class MyPlugin extends Plugin {
 
 		this.registerEvent(
 			this.app.vault.on("delete", (file: TFile) => {
-				delete this.cards[file.path];
+				delete this.notes[file.path];
 				this.savePluginData();
 				this.refreshReviewQueue();
 				this.refreshScheduledQueue();
@@ -1186,9 +1208,9 @@ export default class MyPlugin extends Plugin {
 	async showAllDueFlashcardsModal() {
 		const now = new Date();
 		let allDueFlashcards: Flashcard[] = [];
-		for (const filePath in this.cards) {
-			for (const cardUUID in this.cards[filePath]) {
-				const card = this.cards[filePath][cardUUID];
+		for (const filePath in this.notes) {
+			for (const cardUUID in this.notes[filePath].cards) {
+				const card = this.notes[filePath].cards[cardUUID];
 				if (
 					card.active &&
 					card.nextReviewDate &&
@@ -1211,9 +1233,9 @@ export default class MyPlugin extends Plugin {
 			}
 		}
 		if (allDueFlashcards.length === 0) {
-			for (const filePath in this.cards) {
-				for (const cardUUID in this.cards[filePath]) {
-					const card = this.cards[filePath][cardUUID];
+			for (const filePath in this.notes) {
+				for (const cardUUID in this.notes[filePath].cards) {
+					const card = this.notes[filePath].cards[cardUUID];
 					if (
 						card.active &&
 						card.nextReviewDate &&
@@ -1308,8 +1330,8 @@ export default class MyPlugin extends Plugin {
 		}
 		const now = new Date();
 		let earliestTime: number | null = null;
-		for (const fileCards of Object.values(this.cards)) {
-			for (const card of Object.values(fileCards)) {
+		for (const note of Object.values(this.notes)) {
+			for (const card of Object.values(note.cards)) {
 				if (card.active && card.nextReviewDate) {
 					const nextTime = new Date(card.nextReviewDate).getTime();
 					if (
