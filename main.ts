@@ -943,8 +943,14 @@ export default class MyPlugin extends Plugin {
 
 		this.addCommand({
 			id: "review-current-note",
-			name: "Review Current Note (Flashcards)",
+			name: "Review Current Note",
 			callback: () => this.openReviewModal(),
+		});
+
+		this.addCommand({
+			id: "review-all-due-flashcards",
+			name: "Review All",
+			callback: () => this.showAllDueFlashcardsModal(),
 		});
 
 		this.addCommand({
