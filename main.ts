@@ -17,7 +17,6 @@ import {
  * PLUGIN DATA INTERFACES & CONSTANTS
  * ========================================================================== */
 
-// The card state now tracks individual flashcards.
 interface CardState {
 	cardUUID: string;
 	cardContent: string;
@@ -31,24 +30,20 @@ interface CardState {
 	learningStep?: number;
 	efHistory?: { timestamp: string; ef: number }[];
 	visitLog: string[];
-	// New optional title property for the card.
 	cardTitle?: string;
 }
-
-// Settings remain unchanged.
 interface MyPluginSettings {
 	mySetting: string;
 	hiddenColor: string;
-	randomizeFlashcards: boolean; // NEW setting for randomization
+	randomizeFlashcards: boolean;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	mySetting: "default",
 	hiddenColor: "#272c36",
-	randomizeFlashcards: false, // default is not randomizing flashcards
+	randomizeFlashcards: false,
 };
 
-// Now PluginData stores cards grouped by file path.
 interface PluginData {
 	settings: MyPluginSettings;
 	cards: { [filePath: string]: { [cardUUID: string]: CardState } };
@@ -58,14 +53,6 @@ interface PluginData {
  * HELPER FUNCTIONS
  * ========================================================================== */
 
-// Helper function to truncate titles (default max length set to 30 characters)
-function truncateTitle(title: string, maxLength: number = 30): string {
-	return title.length > maxLength
-		? title.substring(0, maxLength) + "…"
-		: title;
-}
-
-// Helper function to shuffle an array in place using the Fisher-Yates algorithm.
 function shuffleArray<T>(array: T[]): T[] {
 	let currentIndex = array.length;
 	while (currentIndex !== 0) {
@@ -79,7 +66,6 @@ function shuffleArray<T>(array: T[]): T[] {
 	return array;
 }
 
-// Generate a UUID (v4-ish)
 function generateUUID(): string {
 	return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
 		/[xy]/g,
@@ -91,15 +77,11 @@ function generateUUID(): string {
 	);
 }
 
-/**
- * A flashcard now includes additional information for review.
- */
 interface Flashcard {
 	uuid: string;
 	content: string;
 	noteTitle?: string;
 	filePath?: string;
-	// New optional card title.
 	cardTitle?: string;
 }
 
@@ -115,7 +97,6 @@ function ensureCardUUIDs(content: string): {
 	flashcards: Flashcard[];
 } {
 	const flashcards: Flashcard[] = [];
-	// Updated regex: captures an optional UUID and, if provided, a comma followed by a title.
 	const regex =
 		/\[card(?:=([a-f0-9\-]+)(?:,([^\]]+))?)?\]([\s\S]*?)\[\/card\]/gi;
 	let updatedContent = content;
@@ -131,7 +112,6 @@ function ensureCardUUIDs(content: string): {
 				content: innerContent.trim(),
 				cardTitle: cardTitle ? cardTitle.trim() : undefined,
 			});
-			// Always reformat the block so it includes the UUID (and title if provided).
 			return `[card=${cardUUID}${
 				cardTitle ? "," + cardTitle.trim() : ""
 			}]${innerContent}[/card]`;
@@ -140,12 +120,6 @@ function ensureCardUUIDs(content: string): {
 	return { updatedContent, flashcards };
 }
 
-/**
- * For a given file, read its content, ensure all flashcards have UUIDs,
- * update the file if necessary, and sync the plugin’s card store.
- *
- * If a new card is detected, refresh the sidebars.
- */
 async function syncFlashcardsForFile(
 	plugin: MyPlugin,
 	file: TFile
@@ -156,13 +130,11 @@ async function syncFlashcardsForFile(
 		await plugin.app.vault.modify(file, updatedContent);
 	}
 
-	// Get or initialize the card store for this file.
 	if (!plugin.cards[file.path]) {
 		plugin.cards[file.path] = {};
 	}
 	const fileCards = plugin.cards[file.path];
 
-	// Remove any cards that are no longer present.
 	const existingCardUUIDs = Object.keys(fileCards);
 	const newCardUUIDs = flashcards.map((card) => card.uuid);
 	for (const cardUUID of existingCardUUIDs) {
@@ -171,7 +143,6 @@ async function syncFlashcardsForFile(
 		}
 	}
 
-	// Flag to check if any new card was added.
 	let newCardAdded = false;
 	const now = new Date().toISOString();
 	flashcards.forEach((flashcard) => {
@@ -184,7 +155,6 @@ async function syncFlashcardsForFile(
 				interval: 0,
 				ef: 2.5,
 				lastReviewDate: now,
-				// Initialize nextReviewDate to now plus the first learning step (10 minutes).
 				nextReviewDate: addMinutes(
 					new Date(now),
 					LEARNING_STEPS[0]
@@ -199,7 +169,6 @@ async function syncFlashcardsForFile(
 			fileCards[flashcard.uuid].cardContent = flashcard.content;
 			fileCards[flashcard.uuid].cardTitle = flashcard.cardTitle;
 		}
-		// Attach note info to flashcard.
 		flashcard.noteTitle = file.basename;
 		flashcard.filePath = file.path;
 	});
@@ -226,24 +195,6 @@ function addMinutes(date: Date, minutes: number): Date {
 	const result = new Date(date);
 	result.setMinutes(result.getMinutes() + minutes);
 	return result;
-}
-
-function formatInterval(
-	lastReviewDate: string,
-	nextReviewDate: string
-): string {
-	const last = new Date(lastReviewDate);
-	const next = new Date(nextReviewDate);
-	const diffMs = next.getTime() - last.getTime();
-	const diffMinutes = Math.floor(diffMs / (1000 * 60));
-	const days = Math.floor(diffMinutes / (60 * 24));
-	const hours = Math.floor((diffMinutes % (60 * 24)) / 60);
-	const minutes = diffMinutes % 60;
-	let parts: string[] = [];
-	if (days > 0) parts.push(`${days} day(s)`);
-	if (hours > 0) parts.push(`${hours} hour(s)`);
-	if (minutes > 0 || parts.length === 0) parts.push(`${minutes} minute(s)`);
-	return parts.join(", ");
 }
 
 const LEARNING_STEPS: number[] = [10, 30];
@@ -377,7 +328,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 }
 
 /* ============================================================================
- * BASE SIDEBAR VIEW (Now displaying individual cards)
+ * BASE SIDEBAR VIEW
  * ========================================================================== */
 
 export abstract class BaseSidebarView extends ItemView {
@@ -404,13 +355,11 @@ export abstract class BaseSidebarView extends ItemView {
 		container.addClass("review-sidebar-container");
 
 		const now = new Date();
-		// Gather cards from all files.
 		let allCards: CardState[] = [];
 		for (const fileCards of Object.values(this.plugin.cards)) {
 			allCards.push(...Object.values(fileCards));
 		}
 		const cards = this.filterCards(now, allCards);
-		// If no cards to review
 		if (cards.length === 0) {
 			const emptyState = container.createEl("div", {
 				cls: "review-empty",
@@ -424,7 +373,6 @@ export abstract class BaseSidebarView extends ItemView {
 			return;
 		}
 
-		// Create header
 		const spacer = container.createEl("div", { cls: "header-spacer" });
 		spacer.setAttr("style", "height: 12px;");
 		const header = container.createEl("div", { cls: "review-header" });
@@ -434,7 +382,6 @@ export abstract class BaseSidebarView extends ItemView {
 			text: this.getCountMessage(cards.length),
 		});
 
-		// Create card container – note that multiple cards from the same file may be shown.
 		const cardContainer = container.createEl("div", {
 			cls: "card-container",
 		});
@@ -448,12 +395,10 @@ export abstract class BaseSidebarView extends ItemView {
 			if (!file || !(file instanceof TFile)) return;
 			const card = cardContainer.createEl("div", { cls: "review-card" });
 			card.addEventListener("click", () => {
-				// Open the file containing the flashcard.
 				this.plugin.app.workspace.getLeaf().openFile(file);
 			});
 
 			const titleRow = card.createEl("div", { cls: "title-row" });
-			// Use custom card title if provided, otherwise fallback to file.basename.
 			const displayTitle = cardState.cardTitle || file.basename;
 			titleRow.createEl("h3", {
 				text: displayTitle,
@@ -492,7 +437,6 @@ export abstract class BaseSidebarView extends ItemView {
 					: `${daysSinceReview} days ago`,
 		});
 
-		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
 		const efValue = cardState.ef.toFixed(2);
@@ -507,7 +451,7 @@ export abstract class BaseSidebarView extends ItemView {
 }
 
 /* ============================================================================
- * REVIEW SIDEBAR VIEW (Now for flashcards)
+ * REVIEW SIDEBAR VIEW
  * ========================================================================== */
 
 export const REVIEW_VIEW_TYPE = "review-sidebar";
@@ -548,7 +492,6 @@ export class ReviewSidebarView extends BaseSidebarView {
 		return "0 flashcards due for review.";
 	}
 
-	// Filter cards that are due.
 	filterCards(now: Date, allCards: CardState[]): CardState[] {
 		return allCards
 			.filter(
@@ -557,7 +500,7 @@ export class ReviewSidebarView extends BaseSidebarView {
 					card.nextReviewDate &&
 					new Date(card.nextReviewDate) <= now
 			)
-			.sort((a, b) => a.ef - b.ef); // Sort by EF ascending
+			.sort((a, b) => a.ef - b.ef);
 	}
 
 	protected addCardMeta(
@@ -586,7 +529,6 @@ export class ReviewSidebarView extends BaseSidebarView {
 			text: `Last: ${displayText} at ${lastReviewTime}`,
 		});
 
-		// Show Ease Factor
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
 		const efValue = cardState.ef.toFixed(2);
@@ -601,7 +543,7 @@ export class ReviewSidebarView extends BaseSidebarView {
 }
 
 /* ============================================================================
- * SCHEDULED SIDEBAR VIEW (Now for flashcards)
+ * SCHEDULED SIDEBAR VIEW
  * ========================================================================== */
 
 export const SCHEDULED_VIEW_TYPE = "scheduled-sidebar";
@@ -642,7 +584,6 @@ export class ScheduledSidebarView extends BaseSidebarView {
 		return "0 flashcards scheduled for review.";
 	}
 
-	// Filter cards that are scheduled for the future.
 	filterCards(now: Date, allCards: CardState[]): CardState[] {
 		return allCards
 			.filter(
@@ -656,7 +597,6 @@ export class ScheduledSidebarView extends BaseSidebarView {
 					new Date(a.nextReviewDate!).getTime() -
 					new Date(b.nextReviewDate!).getTime();
 				if (dateDiff !== 0) return dateDiff;
-				// If review dates are the same, sort by EF ascending.
 				return a.ef - b.ef;
 			});
 	}
@@ -708,9 +648,8 @@ export class ScheduledSidebarView extends BaseSidebarView {
 }
 
 /* ============================================================================
- * FLASHCARD MODAL (Now operates on individual card states)
+ * FLASHCARD MODAL
  * ========================================================================== */
-
 class FlashcardModal extends Modal {
 	flashcards: Flashcard[];
 	currentIndex: number = 0;
@@ -733,7 +672,6 @@ class FlashcardModal extends Modal {
 			cls: "flashcard-content-container",
 		});
 
-		// Create the progress bar container
 		const progressContainer = container.createDiv({
 			cls: "flashcard-progress-container",
 		});
@@ -742,7 +680,6 @@ class FlashcardModal extends Modal {
 		});
 		progressBar.style.width = "0%";
 
-		// Create the progress counter
 		this.progressCounter = container.createDiv({
 			cls: "flashcard-progress-counter",
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
@@ -999,7 +936,6 @@ export default class MyPlugin extends Plugin {
 			},
 		});
 
-		// Modified command: after wrapping text, immediately sync flashcards and refresh the sidebars.
 		this.addCommand({
 			id: "wrap-text-as-flashcard",
 			name: "Wrap Selected Text in [card][/card]",
@@ -1008,7 +944,6 @@ export default class MyPlugin extends Plugin {
 				if (selection && selection.trim().length > 0) {
 					editor.replaceSelection(`[card]${selection.trim()}[/card]`);
 					new Notice("Text wrapped as flashcard");
-					// Force a sync and refresh.
 					const activeFile = this.app.workspace.getActiveFile();
 					if (activeFile && activeFile instanceof TFile) {
 						await syncFlashcardsForFile(this, activeFile);
@@ -1117,10 +1052,6 @@ export default class MyPlugin extends Plugin {
 			SCHEDULED_VIEW_TYPE,
 			(leaf) => new ScheduledSidebarView(leaf, this)
 		);
-	}
-
-	wrapSelectedTextAsFlashcard(editor: Editor) {
-		// (This command is now handled in the command registration above.)
 	}
 
 	deleteAllCardWrappers(editor: Editor) {
@@ -1268,30 +1199,6 @@ export default class MyPlugin extends Plugin {
 
 	private openReviewModal(): void {
 		this.showFlashcardsModal();
-	}
-
-	private async updateCardWithQuality(
-		cardUUID: string,
-		quality: number,
-		stopScheduling: boolean
-	) {
-		const now = new Date();
-		const found = findCardStateAndFile(this, cardUUID);
-		if (!found) {
-			new Notice("Card state not found.");
-			return;
-		}
-		const { filePath, card } = found;
-		const updated = updateCardState(card, quality, now, stopScheduling);
-		this.cards[filePath][card.cardUUID] = updated;
-
-		new Notice(
-			`Updated SM‑2 for card '${cardUUID}': EF=${updated.ef}, NextReview=${updated.nextReviewDate}`
-		);
-		await this.savePluginData();
-		this.refreshReviewQueue();
-		this.refreshScheduledQueue();
-		this.scheduleNextDueRefresh();
 	}
 
 	async activateReviewSidebar() {
