@@ -31,7 +31,10 @@ interface CardState {
 	efHistory?: { timestamp: string; ef: number }[];
 	visitLog: string[];
 	cardTitle?: string;
+	// New property: store the line number where the card appears (1-indexed).
+	line?: number;
 }
+
 interface MyPluginSettings {
 	mySetting: string;
 	hiddenColor: string;
@@ -47,6 +50,16 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 interface PluginData {
 	settings: MyPluginSettings;
 	cards: { [filePath: string]: { [cardUUID: string]: CardState } };
+}
+
+interface Flashcard {
+	uuid: string;
+	content: string;
+	noteTitle?: string;
+	filePath?: string;
+	cardTitle?: string;
+	// New property for line number.
+	line?: number;
 }
 
 /* ============================================================================
@@ -77,20 +90,12 @@ function generateUUID(): string {
 	);
 }
 
-interface Flashcard {
-	uuid: string;
-	content: string;
-	noteTitle?: string;
-	filePath?: string;
-	cardTitle?: string;
-}
-
 /**
  * Scans a note’s content for [card] blocks.
  * If a block is missing a UUID (i.e. not of the form [card=uuid,...]), one is generated.
  * The note content is updated with the new UUIDs.
  *
- * Updated to support a comma-delimited optional title.
+ * Updated to support a comma-delimited optional title and record the card’s line number.
  */
 function ensureCardUUIDs(content: string): {
 	updatedContent: string;
@@ -102,15 +107,18 @@ function ensureCardUUIDs(content: string): {
 	let updatedContent = content;
 	updatedContent = updatedContent.replace(
 		regex,
-		(match, uuid, cardTitle, innerContent) => {
+		(match, uuid, cardTitle, innerContent, offset: number) => {
 			let cardUUID = uuid;
 			if (!cardUUID) {
 				cardUUID = generateUUID();
 			}
+			// Calculate the line number by counting newline characters up to the match offset.
+			const lineNumber = content.substring(0, offset).split("\n").length;
 			flashcards.push({
 				uuid: cardUUID,
 				content: innerContent.trim(),
 				cardTitle: cardTitle ? cardTitle.trim() : undefined,
+				line: lineNumber,
 			});
 			return `[card=${cardUUID}${
 				cardTitle ? "," + cardTitle.trim() : ""
@@ -162,12 +170,13 @@ async function syncFlashcardsForFile(
 				active: true,
 				efHistory: [],
 				visitLog: [now],
-				// Store the title if provided.
 				cardTitle: flashcard.cardTitle,
+				line: flashcard.line,
 			};
 		} else {
 			fileCards[flashcard.uuid].cardContent = flashcard.content;
 			fileCards[flashcard.uuid].cardTitle = flashcard.cardTitle;
+			fileCards[flashcard.uuid].line = flashcard.line;
 		}
 		flashcard.noteTitle = file.basename;
 		flashcard.filePath = file.path;
@@ -218,6 +227,7 @@ function updateCardState(
 			interval: state.interval,
 			ef: state.ef,
 			cardTitle: state.cardTitle,
+			line: state.line,
 		};
 	}
 
@@ -395,7 +405,16 @@ export abstract class BaseSidebarView extends ItemView {
 			if (!file || !(file instanceof TFile)) return;
 			const card = cardContainer.createEl("div", { cls: "review-card" });
 			card.addEventListener("click", () => {
-				this.plugin.app.workspace.getLeaf().openFile(file);
+				// Open the file at the specific line (if available). Obsidian’s editor API
+				// expects 0-indexed line numbers.
+				if (cardState.line !== undefined) {
+					const options = {
+						eState: { line: cardState.line - 1, ch: 0 },
+					};
+					this.plugin.app.workspace.getLeaf().openFile(file, options);
+				} else {
+					this.plugin.app.workspace.getLeaf().openFile(file);
+				}
 			});
 
 			const titleRow = card.createEl("div", { cls: "title-row" });
@@ -1186,6 +1205,7 @@ export default class MyPlugin extends Plugin {
 						noteTitle,
 						filePath,
 						cardTitle: card.cardTitle,
+						line: card.line,
 					});
 				}
 			}
@@ -1211,6 +1231,7 @@ export default class MyPlugin extends Plugin {
 							noteTitle,
 							filePath,
 							cardTitle: card.cardTitle,
+							line: card.line,
 						});
 					}
 				}
