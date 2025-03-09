@@ -1288,7 +1288,7 @@ export default class MyPlugin extends Plugin {
 }
 
 /* ============================================================================
- * CUSTOM MODALS & POST-PROCESSORS (RatingModal unchanged except for variable names)
+ * POST-PROCESSORS
  * ========================================================================== */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
