@@ -656,11 +656,21 @@ class FlashcardModal extends Modal {
 	plugin: MyPlugin;
 	feedbackContainer: HTMLElement | null = null;
 	progressCounter: HTMLElement | null = null;
+	showNoteTitle: boolean;
+	// New heading element to display the note title below the progress counter.
+	modalTitleEl: HTMLElement | null = null;
 
-	constructor(app: App, flashcards: Flashcard[], plugin: MyPlugin) {
+	// Add an optional flag to indicate whether to show the note title.
+	constructor(
+		app: App,
+		flashcards: Flashcard[],
+		plugin: MyPlugin,
+		showNoteTitle: boolean = false
+	) {
 		super(app);
 		this.flashcards = flashcards;
 		this.plugin = plugin;
+		this.showNoteTitle = showNoteTitle;
 	}
 
 	onOpen() {
@@ -683,6 +693,11 @@ class FlashcardModal extends Modal {
 		this.progressCounter = container.createDiv({
 			cls: "flashcard-progress-counter",
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
+		});
+
+		// Create the heading for the note title below the progress counter.
+		this.modalTitleEl = container.createEl("h2", {
+			cls: "flashcard-modal-note-title",
 		});
 
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
@@ -733,14 +748,26 @@ class FlashcardModal extends Modal {
 			this.currentIndex < this.flashcards.length
 		) {
 			const currentFlashcard = this.flashcards[this.currentIndex];
-			const titleToShow =
-				currentFlashcard.cardTitle || currentFlashcard.noteTitle;
-			if (titleToShow) {
+
+			// Update the modal title heading if enabled.
+			if (this.showNoteTitle && this.modalTitleEl) {
+				if (currentFlashcard.noteTitle) {
+					this.modalTitleEl.setText(
+						currentFlashcard.noteTitle.slice(0, -3)
+					);
+				} else {
+					this.modalTitleEl.setText("");
+				}
+			}
+
+			// If a flashcard has its own cardTitle, display that inside the card.
+			if (currentFlashcard.cardTitle) {
 				cardContainer.createEl("div", {
-					cls: "flashcard-note-title",
-					text: titleToShow,
+					cls: "flashcard-card-title",
+					text: currentFlashcard.cardTitle,
 				});
 			}
+
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
@@ -1191,7 +1218,8 @@ export default class MyPlugin extends Plugin {
 			allDueFlashcards = shuffleArray(allDueFlashcards);
 		}
 		if (allDueFlashcards.length > 0) {
-			new FlashcardModal(this.app, allDueFlashcards, this).open();
+			// Pass true so that the modal shows the note title.
+			new FlashcardModal(this.app, allDueFlashcards, this, true).open();
 		} else {
 			new Notice("No flashcards due or scheduled for review.");
 		}
