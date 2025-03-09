@@ -12,6 +12,11 @@
 	cursor: pointer;
 }
 
+.hidden-note.toggle-hidden a {
+	pointer-events: none;
+	cursor: inherit;
+}
+
 .hidden-note.toggle-hidden:has(img) {
 	position: relative;
 	display: inline-block;
@@ -41,9 +46,21 @@
 /* General hidden toggle style for non-image content */
 .toggle-hidden,
 .toggle-hidden .MathJax {
-	color: transparent;
+	color: transparent !important;
 	background-color: var(--hidden-color);
 	border-radius: 4px;
+	user-select: none;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+}
+
+/* Ensure that links inside hidden toggle elements are also hidden */
+.hidden-note.toggle-hidden a {
+	color: transparent !important;
+	background-color: var(--hidden-color) !important;
+	border-radius: 4px;
+	text-decoration: none !important;
 	user-select: none;
 	-webkit-user-select: none;
 	-moz-user-select: none;

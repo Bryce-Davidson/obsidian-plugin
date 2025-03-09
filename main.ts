@@ -1290,6 +1290,7 @@ export default class MyPlugin extends Plugin {
 /* ============================================================================
  * POST-PROCESSORS
  * ========================================================================== */
+
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
 	elements.forEach((element) => {
