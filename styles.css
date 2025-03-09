@@ -301,7 +301,7 @@
 	flex-direction: column;
 	padding: 16px;
 	gap: 20px;
-	height: 500px; /* fixed height */
+	height: 600px; /* fixed height */
 	width: 500px;
 	max-width: 90vw;
 	margin: 0 auto; /* center container */
