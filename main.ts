@@ -12,6 +12,7 @@ import {
 	ItemView,
 	MarkdownRenderer,
 } from "obsidian";
+import { GraphView, VIEW_TYPE_GRAPH } from "graph-view";
 import { customAlphabet } from "nanoid";
 import Fuse from "fuse.js";
 
@@ -1214,6 +1215,10 @@ export default class MyPlugin extends Plugin {
 			this.showAllDueFlashcardsModal();
 		}).addClass("flashcard-ribbon-icon");
 
+		this.addRibbonIcon("dot-network", "Open Graph View", () => {
+			this.activateGraphView();
+		});
+
 		this.addRibbonIcon("check-square", "Review Current Note", () => {
 			this.openReviewModal();
 		});
@@ -1237,6 +1242,12 @@ export default class MyPlugin extends Plugin {
 	}
 
 	private registerCommands(): void {
+		this.addCommand({
+			id: "open-graph-view",
+			name: "Open Graph View",
+			callback: () => this.activateGraphView(),
+		});
+
 		this.addCommand({
 			id: "show-flashcards-modal",
 			name: "Show Flashcards Modal",
@@ -1382,6 +1393,7 @@ export default class MyPlugin extends Plugin {
 			UNIFIED_VIEW_TYPE,
 			(leaf) => new UnifiedQueueSidebarView(leaf, this)
 		);
+		this.registerView(VIEW_TYPE_GRAPH, (leaf) => new GraphView(leaf, this));
 	}
 
 	deleteAllCardWrappers(editor: Editor) {
@@ -1548,6 +1560,21 @@ export default class MyPlugin extends Plugin {
 
 	private openReviewModal(): void {
 		this.showFlashcardsModal();
+	}
+
+	async activateGraphView() {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(VIEW_TYPE_GRAPH)[0];
+
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf();
+			await leaf.setViewState({
+				type: VIEW_TYPE_GRAPH,
+				active: true,
+			});
+		}
+
+		workspace.revealLeaf(leaf);
 	}
 
 	async activateUnifiedQueue() {

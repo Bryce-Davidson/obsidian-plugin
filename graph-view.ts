@@ -1,43 +1,8 @@
-import { Plugin, ItemView, WorkspaceLeaf, TFile } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import * as d3 from "d3";
+import MyPlugin from "main";
 
-const VIEW_TYPE_GRAPH = "graph-view";
-
-export default class GraphViewPlugin extends Plugin {
-	async onload() {
-		this.registerView(VIEW_TYPE_GRAPH, (leaf) => new GraphView(leaf, this));
-
-		this.addRibbonIcon("dot-network", "Open Graph View", () => {
-			this.activateView();
-		});
-
-		this.addCommand({
-			id: "open-graph-view",
-			name: "Open Graph View",
-			callback: () => this.activateView(),
-		});
-	}
-
-	async activateView() {
-		const { workspace } = this.app;
-		let leaf = workspace.getLeavesOfType(VIEW_TYPE_GRAPH)[0];
-
-		if (!leaf) {
-			leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf();
-			await leaf.setViewState({
-				type: VIEW_TYPE_GRAPH,
-				active: true,
-			});
-		}
-
-		workspace.revealLeaf(leaf);
-	}
-
-	// Use Obsidian's official API to read plugin data.
-	async loadData<T>(): Promise<T | null> {
-		return super.loadData();
-	}
-}
+export const VIEW_TYPE_GRAPH = "graph-view";
 
 interface Node extends d3.SimulationNodeDatum {
 	id: string;
@@ -61,7 +26,7 @@ interface Link extends d3.SimulationLinkDatum<Node> {
 	value: number;
 }
 
-class GraphView extends ItemView {
+export class GraphView extends ItemView {
 	private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
 	private simulation!: d3.Simulation<Node, Link>;
 	private noteNodes: Node[] = [];
@@ -69,12 +34,12 @@ class GraphView extends ItemView {
 	private links: Link[] = [];
 	private zoom!: d3.ZoomBehavior<SVGSVGElement, unknown>;
 	private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
-	private plugin: GraphViewPlugin;
+	private plugin: MyPlugin;
 	private colorScale = d3.scaleOrdinal(d3.schemeCategory10);
 	// Define an EF color scale that will be updated dynamically.
 	private efColorScale = d3.scaleLinear<string>().range(["red", "green"]);
 
-	constructor(leaf: WorkspaceLeaf, plugin: GraphViewPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
 	}
@@ -146,7 +111,7 @@ class GraphView extends ItemView {
 		this.links = [];
 
 		// Load the plugin's stored flashcard data using the official API.
-		const flashcardData = await this.plugin.loadData<any>();
+		const flashcardData = await this.plugin.loadData();
 
 		// Get all markdown files for the notes.
 		const files = this.app.vault.getMarkdownFiles();
