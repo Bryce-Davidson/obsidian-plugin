@@ -38,7 +38,6 @@ interface CardState {
 	learningStep?: number;
 	efHistory?: { timestamp: string; ef: number }[];
 	cardTitle?: string;
-	// New property: store the line number where the card appears (1-indexed).
 	line?: number;
 }
 
