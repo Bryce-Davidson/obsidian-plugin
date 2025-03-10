@@ -60,11 +60,6 @@ export class GraphView extends ItemView {
 		containerEl.empty();
 		containerEl.addClass("graph-view-container");
 
-		// Create a controls container.
-		// const controlsEl = containerEl.createDiv({ cls: "graph-controls" });
-		// controlsEl.createEl("h3", { text: "Graph View" });
-		// Search control removed.
-
 		// Create the SVG container.
 		this.svg = d3
 			.select(containerEl)
@@ -105,6 +100,12 @@ export class GraphView extends ItemView {
 				this.loadGraphData().then(() => this.renderGraph());
 			})
 		);
+	}
+
+	// New refresh method: reloads the graph data and re-renders.
+	public async refreshGraphView() {
+		await this.loadGraphData();
+		this.renderGraph();
 	}
 
 	async loadGraphData() {
@@ -306,13 +307,32 @@ export class GraphView extends ItemView {
 			.force("y", d3.forceY(height / 2).strength(0.1))
 			.force("collide", d3.forceCollide().radius(30))
 			.on("tick", () => this.ticked(link, noteGroup));
+
+		this.simulation.on("end", () => {
+			const xExtent = d3.extent(this.noteNodes, (d) => d.x) as [
+				number,
+				number
+			];
+			const yExtent = d3.extent(this.noteNodes, (d) => d.y) as [
+				number,
+				number
+			];
+			const centerX = (xExtent[0] + xExtent[1]) / 2;
+			const centerY = (yExtent[0] + yExtent[1]) / 2;
+			const transform = d3.zoomIdentity
+				.translate(width / 2 - centerX, height / 2 - centerY)
+				.scale(0.8);
+			this.svg
+				.transition()
+				.duration(750)
+				.call(this.zoom.transform, transform);
+		});
 	}
 
 	ticked(
 		link: d3.Selection<SVGLineElement, Link, SVGGElement, unknown>,
 		noteGroup: d3.Selection<SVGGElement, Node, SVGGElement, unknown>
 	) {
-		// Update link positions.
 		link.attr("x1", (d) => (typeof d.source === "object" ? d.source.x! : 0))
 			.attr("y1", (d) => (typeof d.source === "object" ? d.source.y! : 0))
 			.attr("x2", (d) => (typeof d.target === "object" ? d.target.x! : 0))
@@ -320,7 +340,6 @@ export class GraphView extends ItemView {
 				typeof d.target === "object" ? d.target.y! : 0
 			);
 
-		// Update note container positions (which moves the card children as well).
 		noteGroup.attr("transform", (d) => `translate(${d.x}, ${d.y})`);
 	}
 
@@ -342,7 +361,6 @@ export class GraphView extends ItemView {
 	}
 
 	nodeClicked(d: Node) {
-		// Open the note file when its container is clicked.
 		const file = this.app.vault.getAbstractFileByPath(d.path!);
 		if (file instanceof TFile) {
 			this.app.workspace.getLeaf().openFile(file);

@@ -1597,6 +1597,15 @@ export default class MyPlugin extends Plugin {
 		});
 	}
 
+	public refreshGraphView(): void {
+		const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_GRAPH);
+		leaves.forEach((leaf) => {
+			if (leaf.view instanceof GraphView) {
+				leaf.view.onOpen();
+			}
+		});
+	}
+
 	private scheduleNextDueRefresh(): void {
 		if (this.refreshTimeout !== null) {
 			clearTimeout(this.refreshTimeout);
