@@ -983,28 +983,7 @@ class FlashcardModal extends Modal {
 			});
 		});
 
-		const rightContainer = bottomRow.createDiv({
-			cls: "flashcard-right-container",
-		});
-		const cardButton = rightContainer.createEl("button", {
-			text: "Card",
-			cls: "flashcard-nav-button card-button",
-		});
-		cardButton.addEventListener("click", () => {
-			const currentFlashcard = this.flashcards[this.currentIndex];
-			if (currentFlashcard.filePath && currentFlashcard.line) {
-				const file = this.plugin.app.vault.getAbstractFileByPath(
-					currentFlashcard.filePath
-				);
-				if (file && file instanceof TFile) {
-					const options = {
-						eState: { line: currentFlashcard.line - 1, ch: 0 },
-					};
-					this.plugin.app.workspace.getLeaf().openFile(file, options);
-				}
-			}
-			this.close();
-		});
+		// Removed the Card button block from the right container
 
 		this.updateProgressBar(progressBar);
 		setTimeout(() => {
@@ -1019,10 +998,27 @@ class FlashcardModal extends Modal {
 		this.modalHeaderEl.empty();
 		const titleText =
 			currentFlashcard.cardTitle || currentFlashcard.noteTitle || "";
-		this.modalHeaderEl.createEl("h2", {
+		// Create the title element and make it clickable
+		const titleEl = this.modalHeaderEl.createEl("h2", {
 			cls: "flashcard-modal-note-title",
 			text: titleText,
 		});
+		titleEl.style.cursor = "pointer";
+		titleEl.addEventListener("click", () => {
+			if (currentFlashcard.filePath && currentFlashcard.line) {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					currentFlashcard.filePath
+				);
+				if (file && file instanceof TFile) {
+					const options = {
+						eState: { line: currentFlashcard.line - 1, ch: 0 },
+					};
+					this.plugin.app.workspace.getLeaf().openFile(file, options);
+				}
+			}
+			this.close();
+		});
+
 		let tagText = "";
 		if (currentFlashcard.filePath) {
 			const file = this.plugin.app.vault.getAbstractFileByPath(

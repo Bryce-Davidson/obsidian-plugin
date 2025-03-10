@@ -318,13 +318,16 @@
 	background-color: #3a8ecf;
 }
 
+.filter-controls {
+	margin-bottom: 1em;
+}
+
 /* Search input styling for a cohesive look */
 .filter-search {
 	padding: 6px 12px;
 	font-size: 0.9rem;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	background-color: var(--background-secondary);
 	color: var(--text-normal);
 	outline: none;
 	transition: border-color 0.2s ease;
@@ -358,10 +361,10 @@
 	flex-direction: column;
 	padding: 16px;
 	gap: 20px;
-	height: 600px; /* fixed height */
-	width: 500px;
+	height: 600px;
+	width: 100%;
 	max-width: 90vw;
-	margin: 0 auto; /* center container */
+	margin: 0 auto;
 }
 
 .flashcard-progress-container {
