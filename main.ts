@@ -769,6 +769,20 @@ class FlashcardModal extends Modal {
 			new Notice("Scheduling stopped for this card.");
 			this.plugin.refreshReviewQueue();
 			this.plugin.refreshScheduledQueue();
+
+			if (this.currentIndex < this.flashcards.length - 1) {
+				this.currentIndex++;
+				const cardContainer = this.contentEl.querySelector(
+					".flashcard-card"
+				) as HTMLElement;
+				this.renderCard(cardContainer);
+				const progressBar = this.contentEl.querySelector(
+					".flashcard-progress-bar"
+				) as HTMLElement;
+				this.updateProgressBar(progressBar);
+			} else {
+				this.close();
+			}
 		});
 
 		// Center container: Rating buttons (review tray)
