@@ -213,17 +213,9 @@
 	white-space: nowrap;
 }
 
-.review-stat {
-	display: inline-flex;
-	align-items: center;
-	color: var(--text-muted);
-}
-
-.review-stat span:first-child {
-	margin-right: 8px;
-}
-
-/* Adjusted Review Interval */
+/* ============================
+   Adjusted Review Interval
+=============================== */
 .review-interval {
 	margin-top: 8px;
 	font-size: 0.8rem;
@@ -368,50 +360,8 @@
 }
 
 /* ============================
-   Rating Modal
+   Flashcard Progress Counter
 =============================== */
-.rating-button-container {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	margin: 10px 0;
-	width: 100%;
-}
-
-.rating-button {
-	border: none;
-	padding: 25px 20px;
-	margin: 5px 0;
-	font-size: 16px;
-	color: black !important;
-	cursor: pointer;
-	border-radius: 4px;
-	width: 80%;
-}
-
-.stats-container {
-	width: 80%;
-	margin: 15px auto;
-	padding: 10px;
-	border: 1px solid #ccc;
-	border-radius: 4px;
-	background-color: #f9f9f9;
-	font-size: 14px;
-	text-align: left;
-	color: black !important;
-}
-
-.stop-container {
-	text-align: center;
-	margin-top: 30px;
-	width: 100%;
-}
-
-.stop-button {
-	width: 80%;
-	color: black !important;
-}
-
 .flashcard-progress-counter {
 	font-size: 14px;
 	color: var(--text-normal);
@@ -419,6 +369,46 @@
 	margin-top: 8px;
 	width: 100%;
 	display: block;
+}
+
+/* ============================
+   Flashcard Navigation Buttons & Modal Title Adjustments
+=============================== */
+.flashcard-nav-buttons {
+	display: flex;
+	justify-content: center;
+	gap: 10px;
+	margin-bottom: 10px;
+}
+
+.flashcard-nav-button {
+	padding: 8px 12px;
+	font-size: 0.9rem;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	background-color: var(--interactive-accent);
+	color: #fff;
+}
+
+.flashcard-nav-button:hover {
+	opacity: 0.9;
+}
+
+.flashcard-modal-note-title {
+	font-size: 1.2rem; /* smaller than default h2 */
+	text-align: center;
+	margin: 0;
+	margin-bottom: 5px;
+}
+
+.flashcard-note-tag {
+	font-size: 0.8rem;
+	color: var(--text-muted);
+	background-color: var(--background-modifier-border);
+	border-radius: 8px;
+	padding: 2px 6px;
+	margin-left: 8px;
 }
 
 /* ============================

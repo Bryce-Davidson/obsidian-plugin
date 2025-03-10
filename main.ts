@@ -61,14 +61,16 @@ interface PluginData {
 	notes: { [filePath: string]: Note };
 }
 
+// Extended Flashcard interface to include properties needed for sorting and navigation.
 interface Flashcard {
 	uuid: string;
 	content: string;
 	noteTitle?: string;
 	filePath?: string;
 	cardTitle?: string;
-	// New property for line number.
 	line?: number;
+	nextReviewDate?: string;
+	ef?: number;
 }
 
 /* ============================================================================
@@ -192,6 +194,9 @@ async function syncFlashcardsForFile(
 		}
 		flashcard.noteTitle = file.basename;
 		flashcard.filePath = file.path;
+		// Also add nextReviewDate and ef to the flashcard so we can sort later.
+		flashcard.nextReviewDate = fileCards[flashcard.uuid].nextReviewDate;
+		flashcard.ef = fileCards[flashcard.uuid].ef;
 	});
 
 	await plugin.savePluginData();
@@ -725,9 +730,76 @@ class FlashcardModal extends Modal {
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
 		});
 
-		// Create the heading for the note title below the progress counter.
+		// Create the heading for the note/card title below the progress counter.
 		this.modalTitleEl = container.createEl("h2", {
 			cls: "flashcard-modal-note-title",
+		});
+
+		// Create navigation button container (Note, Card, Stop Scheduling)
+		const navContainer = container.createDiv({
+			cls: "flashcard-nav-buttons",
+		});
+
+		// "Note" button
+		const noteButton = navContainer.createEl("button", {
+			text: "Note",
+			cls: "flashcard-nav-button note-button",
+		});
+		noteButton.addEventListener("click", (evt) => {
+			const currentFlashcard = this.flashcards[this.currentIndex];
+			if (currentFlashcard.filePath) {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					currentFlashcard.filePath
+				);
+				if (file && file instanceof TFile) {
+					this.plugin.app.workspace.getLeaf().openFile(file);
+				}
+			}
+		});
+
+		// "Card" button
+		const cardButton = navContainer.createEl("button", {
+			text: "Card",
+			cls: "flashcard-nav-button card-button",
+		});
+		cardButton.addEventListener("click", (evt) => {
+			const currentFlashcard = this.flashcards[this.currentIndex];
+			if (currentFlashcard.filePath && currentFlashcard.line) {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					currentFlashcard.filePath
+				);
+				if (file && file instanceof TFile) {
+					const options = {
+						eState: { line: currentFlashcard.line - 1, ch: 0 },
+					};
+					this.plugin.app.workspace.getLeaf().openFile(file, options);
+				}
+			}
+		});
+
+		// "Stop Scheduling" button
+		const stopButton = navContainer.createEl("button", {
+			text: "Stop Scheduling",
+			cls: "flashcard-nav-button stop-button",
+		});
+		stopButton.addEventListener("click", async (evt) => {
+			const currentFlashcard = this.flashcards[this.currentIndex];
+			const found = findCardStateAndFile(
+				this.plugin,
+				currentFlashcard.uuid
+			);
+			if (!found) {
+				new Notice("Card state not found.");
+				return;
+			}
+			const { filePath, card } = found;
+			const now = new Date();
+			const updated = updateCardState(card, 0, now, true);
+			this.plugin.notes[filePath].cards[card.cardUUID] = updated;
+			await this.plugin.savePluginData();
+			new Notice("Scheduling stopped for this card.");
+			this.plugin.refreshReviewQueue();
+			this.plugin.refreshScheduledQueue();
 		});
 
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
@@ -779,14 +851,51 @@ class FlashcardModal extends Modal {
 		) {
 			const currentFlashcard = this.flashcards[this.currentIndex];
 
-			// Update the modal title heading if enabled.
+			// Update the modal title heading with card title if available; fallback to note title.
 			if (this.showNoteTitle && this.modalTitleEl) {
-				if (currentFlashcard.noteTitle) {
-					this.modalTitleEl.setText(
-						currentFlashcard.noteTitle.slice(0, -3)
-					);
+				if (currentFlashcard.cardTitle) {
+					this.modalTitleEl.setText(currentFlashcard.cardTitle);
+				} else if (currentFlashcard.noteTitle) {
+					this.modalTitleEl.setText(currentFlashcard.noteTitle);
 				} else {
 					this.modalTitleEl.setText("");
+				}
+
+				// Also display the first tag of the note next to the title.
+				let tagText = "";
+				if (currentFlashcard.filePath) {
+					const file = this.plugin.app.vault.getAbstractFileByPath(
+						currentFlashcard.filePath
+					);
+					if (file && file instanceof TFile) {
+						const fileCache =
+							this.plugin.app.metadataCache.getFileCache(file);
+						const tags = fileCache?.frontmatter?.tags;
+						if (tags) {
+							tagText = Array.isArray(tags) ? tags[0] : tags;
+						}
+					}
+				}
+				// Remove any previous tag span if exists.
+				if (this.modalTitleEl && this.modalTitleEl.parentElement) {
+					let existingTag =
+						this.modalTitleEl.parentElement.querySelector(
+							".flashcard-note-tag"
+						);
+					if (existingTag) {
+						existingTag.remove();
+					}
+				}
+				if (tagText) {
+					if (this.modalTitleEl && this.modalTitleEl.parentElement) {
+						const tagEl = this.modalTitleEl.parentElement.createEl(
+							"span",
+							{
+								cls: "flashcard-note-tag",
+								text: `#${tagText}`,
+							}
+						);
+					}
 				}
 			}
 
@@ -852,7 +961,7 @@ class FlashcardModal extends Modal {
 			) as HTMLElement;
 			this.updateProgressBar(progressBar);
 		} else {
-			new Notice(`Flashcard review completed. Final EF: ${updated.ef}`);
+			// Removed final notice alert.
 			this.close();
 		}
 	}
@@ -1195,11 +1304,13 @@ export default class MyPlugin extends Plugin {
 			return;
 		}
 		let flashcards = await syncFlashcardsForFile(this, activeFile);
+		// When reviewing the current note, order flashcards in natural order.
+		// But if randomize is enabled, shuffle them.
 		if (this.settings.randomizeFlashcards) {
 			flashcards = shuffleArray(flashcards);
 		}
 		if (flashcards.length > 0) {
-			new FlashcardModal(this.app, flashcards, this).open();
+			new FlashcardModal(this.app, flashcards, this, true).open();
 		} else {
 			new Notice("No flashcards found.");
 		}
@@ -1228,10 +1339,13 @@ export default class MyPlugin extends Plugin {
 						filePath,
 						cardTitle: card.cardTitle,
 						line: card.line,
+						nextReviewDate: card.nextReviewDate,
+						ef: card.ef,
 					});
 				}
 			}
 		}
+		// If no due flashcards, add scheduled ones.
 		if (allDueFlashcards.length === 0) {
 			for (const filePath in this.notes) {
 				for (const cardUUID in this.notes[filePath].cards) {
@@ -1254,6 +1368,8 @@ export default class MyPlugin extends Plugin {
 							filePath,
 							cardTitle: card.cardTitle,
 							line: card.line,
+							nextReviewDate: card.nextReviewDate,
+							ef: card.ef,
 						});
 					}
 				}
@@ -1262,6 +1378,20 @@ export default class MyPlugin extends Plugin {
 				"No due flashcards; starting scheduled flashcards review."
 			);
 		}
+
+		// Order flashcards by soonest nextReviewDate, then by EF.
+		allDueFlashcards.sort((a, b) => {
+			const aDate = a.nextReviewDate
+				? new Date(a.nextReviewDate)
+				: new Date(0);
+			const bDate = b.nextReviewDate
+				? new Date(b.nextReviewDate)
+				: new Date(0);
+			if (aDate.getTime() !== bDate.getTime()) {
+				return aDate.getTime() - bDate.getTime();
+			}
+			return (a.ef || 0) - (b.ef || 0);
+		});
 
 		if (this.settings.randomizeFlashcards) {
 			allDueFlashcards = shuffleArray(allDueFlashcards);
