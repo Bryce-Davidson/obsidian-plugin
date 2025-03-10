@@ -36,7 +36,6 @@ export class GraphView extends ItemView {
 	private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private plugin: MyPlugin;
 	private colorScale = d3.scaleOrdinal(d3.schemeCategory10);
-	// Define an EF color scale that will be updated dynamically.
 	private efColorScale = d3.scaleLinear<string>().range(["red", "green"]);
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
@@ -46,6 +45,10 @@ export class GraphView extends ItemView {
 
 	getViewType() {
 		return VIEW_TYPE_GRAPH;
+	}
+
+	getIcon(): string {
+		return "dot-network";
 	}
 
 	getDisplayText() {
@@ -58,8 +61,8 @@ export class GraphView extends ItemView {
 		containerEl.addClass("graph-view-container");
 
 		// Create a controls container.
-		const controlsEl = containerEl.createDiv({ cls: "graph-controls" });
-		controlsEl.createEl("h3", { text: "Graph View" });
+		// const controlsEl = containerEl.createDiv({ cls: "graph-controls" });
+		// controlsEl.createEl("h3", { text: "Graph View" });
 		// Search control removed.
 
 		// Create the SVG container.

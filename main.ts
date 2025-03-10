@@ -1215,7 +1215,7 @@ export default class MyPlugin extends Plugin {
 			this.showAllDueFlashcardsModal();
 		}).addClass("flashcard-ribbon-icon");
 
-		this.addRibbonIcon("dot-network", "Open Graph View", () => {
+		this.addRibbonIcon("dot-network", "Open Review Graph View", () => {
 			this.activateGraphView();
 		});
 
