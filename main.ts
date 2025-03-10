@@ -780,14 +780,23 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 	/**
 	 * Launch the review modal for the filtered cards.
 	 */
-	launchReviewModal() {
+	async launchReviewModal() {
+		// Synchronize flashcards for all files in plugin.notes before launching the review.
+		const filePaths = Object.keys(this.plugin.notes);
+		for (const filePath of filePaths) {
+			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+			if (file && file instanceof TFile) {
+				await syncFlashcardsForFile(this.plugin, file);
+			}
+		}
+
 		let allFlashcards: Flashcard[] = [];
 		for (const filePath in this.plugin.notes) {
 			for (const cardUUID in this.plugin.notes[filePath].cards) {
 				const card = this.plugin.notes[filePath].cards[cardUUID];
 				allFlashcards.push({
 					uuid: cardUUID,
-					content: card.cardContent,
+					content: card.cardContent, // note: property is "content"
 					noteTitle:
 						this.plugin.app.vault.getAbstractFileByPath(
 							filePath
@@ -837,8 +846,9 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			});
 		}
 		if (this.searchText.trim() !== "") {
+			// Update Fuse keys: use "content" instead of "cardContent"
 			const fuse = new Fuse(filtered, {
-				keys: ["cardTitle", "cardContent"],
+				keys: ["cardTitle", "content"],
 				threshold: 0.4,
 			});
 			const results = fuse.search(this.searchText.trim());
