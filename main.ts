@@ -1213,7 +1213,7 @@ export default class MyPlugin extends Plugin {
 			this.toggleAllHidden();
 		});
 
-		this.addRibbonIcon("file-text", "Open Unified Queue", () => {
+		this.addRibbonIcon("file-text", "Open Review Queue", () => {
 			this.activateUnifiedQueue();
 		});
 
