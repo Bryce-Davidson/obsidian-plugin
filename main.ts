@@ -1294,6 +1294,7 @@ export default class MyPlugin extends Plugin {
 					if (activeFile && activeFile instanceof TFile) {
 						await syncFlashcardsForFile(this, activeFile);
 						this.refreshUnifiedQueue();
+						this.refreshGraphView();
 					}
 				} else {
 					new Notice("Please select some text first");

@@ -80,32 +80,278 @@ export class GraphView extends ItemView {
 		// Create a container group for the graph elements.
 		this.container = this.svg.append("g").attr("class", "graph-container");
 
-		// Load data and render the graph.
+		// Load data and do initial render.
 		await this.loadGraphData();
 		this.renderGraph();
 
 		// Re-render the graph when files are modified.
 		this.registerEvent(
 			this.app.vault.on("modify", () => {
-				this.loadGraphData().then(() => this.renderGraph());
+				this.refreshGraphView();
 			})
 		);
 		this.registerEvent(
 			this.app.vault.on("create", () => {
-				this.loadGraphData().then(() => this.renderGraph());
+				this.refreshGraphView();
 			})
 		);
 		this.registerEvent(
 			this.app.vault.on("delete", () => {
-				this.loadGraphData().then(() => this.renderGraph());
+				this.refreshGraphView();
 			})
 		);
 	}
 
-	// New refresh method: reloads the graph data and re-renders.
+	// Refresh method: updates only the nodes/links that require updating.
 	public async refreshGraphView() {
 		await this.loadGraphData();
-		this.renderGraph();
+
+		// Update links.
+		const link = this.container
+			.selectAll<SVGLineElement, Link>(".link")
+			.data(
+				this.links,
+				(d: Link) =>
+					`${typeof d.source === "object" ? d.source.id : d.source}-${
+						typeof d.target === "object" ? d.target.id : d.target
+					}`
+			);
+		link.enter()
+			.append("line")
+			.attr("class", "link")
+			.attr("stroke", "#999")
+			.attr("stroke-opacity", 0.6)
+			.attr("stroke-width", 1.5);
+		link.exit().remove();
+
+		// Update note nodes.
+		const noteGroup = this.container
+			.selectAll<SVGGElement, Node>(".note-node")
+			.data(this.noteNodes, (d: Node) => d.id);
+
+		// Update existing note groups.
+		noteGroup
+			.select("circle")
+			.attr("r", (d: Node) => d.radius)
+			.attr("fill", (d: Node) => d.color);
+		noteGroup
+			.select("text")
+			.attr("y", (d: Node) => d.radius + 15)
+			.text((d: Node) => {
+				const title = d.fileName ?? "";
+				return title.length > 20
+					? title.substring(0, 20) + "..."
+					: title;
+			});
+
+		// Append new note nodes.
+		const noteGroupEnter = noteGroup
+			.enter()
+			.append("g")
+			.attr("class", "note-node")
+			.call(
+				d3
+					.drag<SVGGElement, Node>()
+					.on("start", (event, d) => this.dragStarted(event, d))
+					.on("drag", (event, d) => this.dragged(event, d))
+					.on("end", (event, d) => this.dragEnded(event, d))
+			)
+			.on("click", (event, d) => this.nodeClicked(d));
+
+		noteGroupEnter
+			.append("circle")
+			.attr("r", (d: Node) => d.radius)
+			.attr("fill", (d: Node) => d.color)
+			.attr("stroke", "#fff")
+			.attr("stroke-width", 1.5);
+		noteGroupEnter
+			.append("text")
+			.attr("x", 0)
+			.attr("y", (d: Node) => d.radius + 15)
+			.attr("text-anchor", "middle")
+			.text((d: Node) => {
+				const title = d.fileName ?? "";
+				return title.length > 20
+					? title.substring(0, 20) + "..."
+					: title;
+			})
+			.attr("font-size", "10px")
+			.attr("font-family", "sans-serif");
+
+		// Remove note nodes that no longer exist.
+		noteGroup.exit().remove();
+
+		// Update flashcard nodes within each note group.
+		this.container
+			.selectAll<SVGGElement, Node>(".note-node")
+			.each((d: Node, i, groups) => {
+				const parentGroup = d3.select(groups[i]);
+				const cardsForNote = this.cardNodes.filter(
+					(card) => card.parent === d.id
+				);
+				const cardSelection = parentGroup
+					.selectAll<SVGCircleElement, Node>(".card-node")
+					.data(cardsForNote, (d: Node) => d.id);
+				// Update existing card nodes.
+				cardSelection
+					.attr("r", (d: Node) => d.radius)
+					.attr("cx", (d: Node) => d.offsetX!)
+					.attr("cy", (d: Node) => d.offsetY!)
+					.attr("fill", (d: Node) => d.color);
+				// Add new card nodes.
+				cardSelection
+					.enter()
+					.append("circle")
+					.attr("class", "card-node")
+					.attr("r", (d: Node) => d.radius)
+					.attr("cx", (d: Node) => d.offsetX!)
+					.attr("cy", (d: Node) => d.offsetY!)
+					.attr("fill", (d: Node) => d.color)
+					.attr("stroke", "#fff")
+					.attr("stroke-width", 1);
+				// Remove any that are no longer needed.
+				cardSelection.exit().remove();
+			});
+
+		// Update simulation nodes and links.
+		this.simulation.nodes(this.noteNodes);
+		(this.simulation.force("link") as d3.ForceLink<Node, Link>).links(
+			this.links
+		);
+		this.simulation.alpha(0.3).restart();
+	}
+
+	// Initial render: creates the nodes and links.
+	renderGraph() {
+		const width = this.containerEl.clientWidth;
+		const height = this.containerEl.clientHeight;
+
+		// Clear any existing elements (only needed on first render).
+		this.container.selectAll("*").remove();
+
+		// Render links between note containers.
+		this.container
+			.selectAll(".link")
+			.data(this.links)
+			.enter()
+			.append("line")
+			.attr("class", "link")
+			.attr("stroke", "#999")
+			.attr("stroke-opacity", 0.6)
+			.attr("stroke-width", 1.5);
+
+		// Create an SVG group for each note node.
+		const noteGroup = this.container
+			.selectAll(".note-node")
+			.data(this.noteNodes, (d: Node) => d.id)
+			.enter()
+			.append("g")
+			.attr("class", "note-node")
+			.call(
+				d3
+					.drag<SVGGElement, Node>()
+					.on("start", (event, d) => this.dragStarted(event, d))
+					.on("drag", (event, d) => this.dragged(event, d))
+					.on("end", (event, d) => this.dragEnded(event, d))
+			)
+			.on("click", (event, d) => this.nodeClicked(d));
+
+		// Append the note container circle.
+		noteGroup
+			.append("circle")
+			.attr("r", (d: Node) => d.radius)
+			.attr("fill", (d: Node) => d.color)
+			.attr("stroke", "#fff")
+			.attr("stroke-width", 1.5);
+
+		// Append the note label just below the container.
+		noteGroup
+			.append("text")
+			.attr("x", 0)
+			.attr("y", (d: Node) => d.radius + 15)
+			.attr("text-anchor", "middle")
+			.text((d: Node) => {
+				const title = d.fileName ?? "";
+				return title.length > 20
+					? title.substring(0, 20) + "..."
+					: title;
+			})
+			.attr("font-size", "10px")
+			.attr("font-family", "sans-serif");
+
+		// For each note, append flashcard nodes (if available) inside the container.
+		noteGroup.each((d: Node, i, groups) => {
+			const parentGroup = d3.select(groups[i]);
+			const cardsForNote = this.cardNodes.filter(
+				(card) => card.parent === d.id
+			);
+			parentGroup
+				.selectAll(".card-node")
+				.data(cardsForNote, (d: Node) => d.id)
+				.enter()
+				.append("circle")
+				.attr("class", "card-node")
+				.attr("r", (d: Node) => d.radius)
+				.attr("cx", (d: Node) => d.offsetX!)
+				.attr("cy", (d: Node) => d.offsetY!)
+				.attr("fill", (d: Node) => d.color)
+				.attr("stroke", "#fff")
+				.attr("stroke-width", 1);
+		});
+
+		// Set up the force simulation on note nodes.
+		this.simulation = d3
+			.forceSimulation<Node>(this.noteNodes)
+			.force(
+				"link",
+				d3
+					.forceLink<Node, Link>(this.links)
+					.id((d: Node) => d.id)
+					.distance(100)
+			)
+			.force("charge", d3.forceManyBody().strength(-100))
+			.force("center", d3.forceCenter(width / 2, height / 2))
+			.force("x", d3.forceX(width / 2).strength(0.1))
+			.force("y", d3.forceY(height / 2).strength(0.1))
+			.force("collide", d3.forceCollide().radius(30))
+			.on("tick", () => this.ticked());
+
+		this.simulation.on("end", () => {
+			const xExtent = d3.extent(this.noteNodes, (d: Node) => d.x) as [
+				number,
+				number
+			];
+			const yExtent = d3.extent(this.noteNodes, (d: Node) => d.y) as [
+				number,
+				number
+			];
+			const centerX = (xExtent[0] + xExtent[1]) / 2;
+			const centerY = (yExtent[0] + yExtent[1]) / 2;
+			const transform = d3.zoomIdentity
+				.translate(width / 2 - centerX, height / 2 - centerY)
+				.scale(0.8);
+			this.svg
+				.transition()
+				.duration(750)
+				.call(this.zoom.transform, transform);
+		});
+	}
+
+	ticked() {
+		// Update link positions.
+		this.container
+			.selectAll<SVGLineElement, Link>(".link")
+			.attr("x1", (d) => (typeof d.source === "object" ? d.source.x! : 0))
+			.attr("y1", (d) => (typeof d.source === "object" ? d.source.y! : 0))
+			.attr("x2", (d) => (typeof d.target === "object" ? d.target.x! : 0))
+			.attr("y2", (d) =>
+				typeof d.target === "object" ? d.target.y! : 0
+			);
+
+		// Update note node positions.
+		this.container
+			.selectAll<SVGGElement, Node>(".note-node")
+			.attr("transform", (d) => `translate(${d.x}, ${d.y})`);
 	}
 
 	async loadGraphData() {
@@ -203,7 +449,17 @@ export class GraphView extends ItemView {
 		if (this.cardNodes.length > 0) {
 			const minEF = d3.min(this.cardNodes, (d) => d.ef)!;
 			const maxEF = d3.max(this.cardNodes, (d) => d.ef)!;
-			this.efColorScale.domain([minEF, maxEF]);
+
+			// Handle the edge case where minEF equals maxEF.
+			if (minEF === maxEF) {
+				this.efColorScale.domain([minEF - 1, maxEF + 1]);
+			} else {
+				this.efColorScale.domain([minEF, maxEF]);
+			}
+
+			// Use a smooth interpolator.
+			this.efColorScale.interpolate(d3.interpolateHcl);
+
 			// Update each card node's color.
 			this.cardNodes.forEach((card) => {
 				if (card.ef !== undefined) {
@@ -212,135 +468,6 @@ export class GraphView extends ItemView {
 			});
 		}
 		// Note: The force simulation will run only on the note nodes.
-	}
-
-	renderGraph() {
-		const width = this.containerEl.clientWidth;
-		const height = this.containerEl.clientHeight;
-
-		// Clear existing graph.
-		this.container.selectAll("*").remove();
-
-		// Render links between note containers.
-		const link = this.container
-			.selectAll(".link")
-			.data(this.links)
-			.enter()
-			.append("line")
-			.attr("class", "link")
-			.attr("stroke", "#999")
-			.attr("stroke-opacity", 0.6)
-			.attr("stroke-width", 1.5);
-
-		// Create an SVG group for each note node.
-		const noteGroup = this.container
-			.selectAll(".note-node")
-			.data(this.noteNodes)
-			.enter()
-			.append("g")
-			.attr("class", "note-node")
-			.call(
-				d3
-					.drag<SVGGElement, Node>()
-					.on("start", (event, d) => this.dragStarted(event, d))
-					.on("drag", (event, d) => this.dragged(event, d))
-					.on("end", (event, d) => this.dragEnded(event, d))
-			)
-			.on("click", (event, d) => this.nodeClicked(d));
-
-		// Append the note container circle.
-		noteGroup
-			.append("circle")
-			.attr("r", (d) => d.radius)
-			.attr("fill", (d) => d.color)
-			.attr("stroke", "#fff")
-			.attr("stroke-width", 1.5);
-
-		// Append the note label just below the container and limit its length.
-		noteGroup
-			.append("text")
-			.attr("x", 0)
-			.attr("y", (d) => d.radius + 15)
-			.attr("text-anchor", "middle")
-			.text((d) => {
-				const title = d.fileName ?? "";
-				return title.length > 20
-					? title.substring(0, 20) + "..."
-					: title;
-			})
-			.attr("font-size", "10px")
-			.attr("font-family", "sans-serif");
-
-		// For each note, append flashcard nodes (if available) inside the container.
-		noteGroup.each((d, i, groups) => {
-			const parentGroup = d3.select(groups[i]);
-			const cardsForNote = this.cardNodes.filter(
-				(card) => card.parent === d.id
-			);
-			parentGroup
-				.selectAll(".card-node")
-				.data(cardsForNote)
-				.enter()
-				.append("circle")
-				.attr("class", "card-node")
-				.attr("r", (card) => card.radius)
-				.attr("cx", (card) => card.offsetX!)
-				.attr("cy", (card) => card.offsetY!)
-				.attr("fill", (card) => card.color)
-				.attr("stroke", "#fff")
-				.attr("stroke-width", 1);
-		});
-
-		// Set up the force simulation on note nodes with adjusted forces.
-		this.simulation = d3
-			.forceSimulation<Node>(this.noteNodes)
-			.force(
-				"link",
-				d3
-					.forceLink<Node, Link>(this.links)
-					.id((d) => d.id)
-					.distance(100)
-			)
-			.force("charge", d3.forceManyBody().strength(-100))
-			.force("center", d3.forceCenter(width / 2, height / 2))
-			.force("x", d3.forceX(width / 2).strength(0.1))
-			.force("y", d3.forceY(height / 2).strength(0.1))
-			.force("collide", d3.forceCollide().radius(30))
-			.on("tick", () => this.ticked(link, noteGroup));
-
-		this.simulation.on("end", () => {
-			const xExtent = d3.extent(this.noteNodes, (d) => d.x) as [
-				number,
-				number
-			];
-			const yExtent = d3.extent(this.noteNodes, (d) => d.y) as [
-				number,
-				number
-			];
-			const centerX = (xExtent[0] + xExtent[1]) / 2;
-			const centerY = (yExtent[0] + yExtent[1]) / 2;
-			const transform = d3.zoomIdentity
-				.translate(width / 2 - centerX, height / 2 - centerY)
-				.scale(0.8);
-			this.svg
-				.transition()
-				.duration(750)
-				.call(this.zoom.transform, transform);
-		});
-	}
-
-	ticked(
-		link: d3.Selection<SVGLineElement, Link, SVGGElement, unknown>,
-		noteGroup: d3.Selection<SVGGElement, Node, SVGGElement, unknown>
-	) {
-		link.attr("x1", (d) => (typeof d.source === "object" ? d.source.x! : 0))
-			.attr("y1", (d) => (typeof d.source === "object" ? d.source.y! : 0))
-			.attr("x2", (d) => (typeof d.target === "object" ? d.target.x! : 0))
-			.attr("y2", (d) =>
-				typeof d.target === "object" ? d.target.y! : 0
-			);
-
-		noteGroup.attr("transform", (d) => `translate(${d.x}, ${d.y})`);
 	}
 
 	dragStarted(event: d3.D3DragEvent<SVGGElement, Node, unknown>, d: Node) {
