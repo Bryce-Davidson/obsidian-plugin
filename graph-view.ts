@@ -213,36 +213,6 @@ export class GraphView extends ItemView {
 		// Note: The force simulation will run only on the note nodes.
 	}
 
-	filterGraph(searchTerm: string) {
-		// Filter function remains in case it's needed later.
-		if (!searchTerm) {
-			this.svg.selectAll(".note-node").attr("visibility", "visible");
-			this.svg.selectAll(".link").attr("visibility", "visible");
-			return;
-		}
-
-		const matchingNodes = this.noteNodes.filter((node) =>
-			(node.fileName ?? "").toLowerCase().includes(searchTerm)
-		);
-		const matchingNodeIds = new Set(matchingNodes.map((n) => n.id));
-
-		this.svg
-			.selectAll(".note-node")
-			.attr("visibility", (d: any) =>
-				matchingNodeIds.has(d.id) ? "visible" : "hidden"
-			);
-
-		this.svg.selectAll(".link").attr("visibility", (d: any) => {
-			const source =
-				typeof d.source === "object" ? d.source.id : d.source;
-			const target =
-				typeof d.target === "object" ? d.target.id : d.target;
-			return matchingNodeIds.has(source) && matchingNodeIds.has(target)
-				? "visible"
-				: "hidden";
-		});
-	}
-
 	renderGraph() {
 		const width = this.containerEl.clientWidth;
 		const height = this.containerEl.clientHeight;
@@ -336,27 +306,6 @@ export class GraphView extends ItemView {
 			.force("y", d3.forceY(height / 2).strength(0.1))
 			.force("collide", d3.forceCollide().radius(30))
 			.on("tick", () => this.ticked(link, noteGroup));
-
-		// When the simulation ends, compute the overall center and adjust the zoom transform.
-		this.simulation.on("end", () => {
-			const xExtent = d3.extent(this.noteNodes, (d) => d.x) as [
-				number,
-				number
-			];
-			const yExtent = d3.extent(this.noteNodes, (d) => d.y) as [
-				number,
-				number
-			];
-			const centerX = (xExtent[0] + xExtent[1]) / 2;
-			const centerY = (yExtent[0] + yExtent[1]) / 2;
-			const transform = d3.zoomIdentity
-				.translate(width / 2 - centerX, height / 2 - centerY)
-				.scale(0.8);
-			this.svg
-				.transition()
-				.duration(750)
-				.call(this.zoom.transform, transform);
-		});
 	}
 
 	ticked(
