@@ -353,6 +353,38 @@ class MyPluginSettingTab extends PluginSettingTab {
  * BASE SIDEBAR VIEW
  * ========================================================================== */
 
+// Helper to format a Date using 24-hour time in "day-month-year" format.
+// If the date is today or tomorrow (relative to the provided 'now' date),
+// it returns "Today HH:mm" or "Tomorrow HH:mm" respectively.
+function formatReviewDate(date: Date, now: Date): string {
+	const dYear = date.getFullYear();
+	const dMonth = date.getMonth(); // zero-indexed
+	const dDay = date.getDate();
+
+	const nowYear = now.getFullYear();
+	const nowMonth = now.getMonth();
+	const nowDay = now.getDate();
+
+	const hour = date.getHours().toString().padStart(2, "0");
+	const minute = date.getMinutes().toString().padStart(2, "0");
+
+	if (dYear === nowYear && dMonth === nowMonth && dDay === nowDay) {
+		return `Today ${hour}:${minute}`;
+	}
+	const tomorrow = new Date(now);
+	tomorrow.setDate(nowDay + 1);
+	if (
+		dYear === tomorrow.getFullYear() &&
+		dMonth === tomorrow.getMonth() &&
+		dDay === tomorrow.getDate()
+	) {
+		return `Tomorrow ${hour}:${minute}`;
+	}
+	const day = dDay.toString().padStart(2, "0");
+	const month = (dMonth + 1).toString().padStart(2, "0");
+	return `${day}-${month}-${dYear} ${hour}:${minute}`;
+}
+
 export abstract class BaseSidebarView extends ItemView {
 	plugin: MyPlugin;
 
@@ -451,20 +483,28 @@ export abstract class BaseSidebarView extends ItemView {
 		now: Date
 	): void {
 		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
-		const intervalEl = card.createEl("div", { cls: "review-interval" });
-		const lastReviewDate = new Date(cardState.lastReviewDate);
-		const daysSinceReview = Math.floor(
-			(now.getTime() - lastReviewDate.getTime()) / (1000 * 60 * 60 * 24)
-		);
-		intervalEl.createEl("span", {
-			text:
-				daysSinceReview === 0
-					? "Today"
-					: daysSinceReview === 1
-					? "Yesterday"
-					: `${daysSinceReview} days ago`,
-		});
 
+		if (cardState.nextReviewDate) {
+			const nextReview = new Date(cardState.nextReviewDate);
+			if (now < nextReview) {
+				// Scheduled: display the next review date using our custom formatting.
+				const formattedNextReview = formatReviewDate(nextReview, now);
+				metaContainer.createEl("div", {
+					cls: "review-interval",
+					text: formattedNextReview,
+				});
+			} else {
+				// Due: display the last review date using our custom formatting.
+				const lastReview = new Date(cardState.lastReviewDate);
+				const formattedLastReview = formatReviewDate(lastReview, now);
+				metaContainer.createEl("div", {
+					cls: "review-interval",
+					text: formattedLastReview,
+				});
+			}
+		}
+
+		// Display EF stat as before.
 		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
 		efEl.createEl("span", { text: "EF: " });
 		const efValue = cardState.ef.toFixed(2);

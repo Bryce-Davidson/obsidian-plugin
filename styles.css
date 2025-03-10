@@ -196,7 +196,7 @@
 .review-card-meta {
 	margin-top: auto;
 	display: flex;
-	flex-wrap: wrap;
+	flex-direction: column;
 	gap: 8px;
 	font-size: 0.8rem;
 }
