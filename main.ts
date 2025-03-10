@@ -740,47 +740,14 @@ class FlashcardModal extends Modal {
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
 		this.renderCard(cardContainer);
 
-		// Bottom row: full width container with navigation on left and review (rating) tray on right
+		// Bottom row: divided into three parts: left, center (review) and right.
 		const bottomRow = container.createDiv({ cls: "flashcard-bottom-row" });
 
-		// Navigation buttons container (left side)
-		const navContainer = bottomRow.createDiv({
-			cls: "flashcard-nav-buttons",
+		// Left container: Stop button
+		const leftContainer = bottomRow.createDiv({
+			cls: "flashcard-left-container",
 		});
-		const noteButton = navContainer.createEl("button", {
-			text: "Note",
-			cls: "flashcard-nav-button note-button",
-		});
-		noteButton.addEventListener("click", () => {
-			const currentFlashcard = this.flashcards[this.currentIndex];
-			if (currentFlashcard.filePath) {
-				const file = this.plugin.app.vault.getAbstractFileByPath(
-					currentFlashcard.filePath
-				);
-				if (file && file instanceof TFile) {
-					this.plugin.app.workspace.getLeaf().openFile(file);
-				}
-			}
-		});
-		const cardButton = navContainer.createEl("button", {
-			text: "Card",
-			cls: "flashcard-nav-button card-button",
-		});
-		cardButton.addEventListener("click", () => {
-			const currentFlashcard = this.flashcards[this.currentIndex];
-			if (currentFlashcard.filePath && currentFlashcard.line) {
-				const file = this.plugin.app.vault.getAbstractFileByPath(
-					currentFlashcard.filePath
-				);
-				if (file && file instanceof TFile) {
-					const options = {
-						eState: { line: currentFlashcard.line - 1, ch: 0 },
-					};
-					this.plugin.app.workspace.getLeaf().openFile(file, options);
-				}
-			}
-		});
-		const stopButton = navContainer.createEl("button", {
+		const stopButton = leftContainer.createEl("button", {
 			text: "Stop",
 			cls: "flashcard-nav-button stop-button",
 		});
@@ -804,7 +771,7 @@ class FlashcardModal extends Modal {
 			this.plugin.refreshScheduledQueue();
 		});
 
-		// Rating tray container (right side)
+		// Center container: Rating buttons (review tray)
 		const ratingTray = bottomRow.createDiv({
 			cls: "flashcard-rating-tray",
 		});
@@ -823,7 +790,36 @@ class FlashcardModal extends Modal {
 			});
 		});
 
+		// Right container: Card button
+		const rightContainer = bottomRow.createDiv({
+			cls: "flashcard-right-container",
+		});
+		const cardButton = rightContainer.createEl("button", {
+			text: "Card",
+			cls: "flashcard-nav-button card-button",
+		});
+		cardButton.addEventListener("click", () => {
+			const currentFlashcard = this.flashcards[this.currentIndex];
+			if (currentFlashcard.filePath && currentFlashcard.line) {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					currentFlashcard.filePath
+				);
+				if (file && file instanceof TFile) {
+					const options = {
+						eState: { line: currentFlashcard.line - 1, ch: 0 },
+					};
+					this.plugin.app.workspace.getLeaf().openFile(file, options);
+				}
+			}
+			this.close();
+		});
+
 		this.updateProgressBar(progressBar);
+		setTimeout(() => {
+			if (document.activeElement instanceof HTMLElement) {
+				document.activeElement.blur();
+			}
+		}, 0);
 	}
 
 	// Update the modal header with title and tag information
@@ -833,12 +829,12 @@ class FlashcardModal extends Modal {
 		// Use cardTitle if available; otherwise, fallback to note title.
 		const titleText =
 			currentFlashcard.cardTitle || currentFlashcard.noteTitle || "";
-		const titleEl = this.modalHeaderEl.createEl("h2", {
+		// Create the title element
+		this.modalHeaderEl.createEl("h2", {
 			cls: "flashcard-modal-note-title",
 			text: titleText,
 		});
-
-		// If a tag exists, add it next to the title.
+		// Determine the tag text from the frontmatter
 		let tagText = "";
 		if (currentFlashcard.filePath) {
 			const file = this.plugin.app.vault.getAbstractFileByPath(
@@ -852,7 +848,7 @@ class FlashcardModal extends Modal {
 			}
 		}
 		if (tagText) {
-			titleEl.createEl("span", {
+			this.modalHeaderEl.createEl("span", {
 				cls: "flashcard-note-tag",
 				text: `#${tagText}`,
 			});
