@@ -12,6 +12,14 @@ import {
 	ItemView,
 	MarkdownRenderer,
 } from "obsidian";
+import { customAlphabet } from "nanoid";
+import Fuse from "fuse.js";
+
+// Create a custom nanoid generator with only letters and digits.
+const nanoid = customAlphabet(
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+	10
+);
 
 /* ============================================================================
  * PLUGIN DATA INTERFACES & CONSTANTS
@@ -47,7 +55,6 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 };
 
 interface NoteData {
-	// You can add more note-specific data here in the future.
 	noteVisitLog: string[];
 }
 
@@ -61,7 +68,7 @@ interface PluginData {
 	notes: { [filePath: string]: Note };
 }
 
-// Extended Flashcard interface to include properties needed for sorting and navigation.
+// Extended Flashcard interface.
 interface Flashcard {
 	uuid: string;
 	content: string;
@@ -90,23 +97,15 @@ function shuffleArray<T>(array: T[]): T[] {
 	return array;
 }
 
+/**
+ * Generate a short unique id using the custom nanoid.
+ */
 function generateUUID(): string {
-	return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
-		/[xy]/g,
-		function (c) {
-			const r = (Math.random() * 16) | 0;
-			const v = c === "x" ? r : (r & 0x3) | 0x8;
-			return v.toString(16);
-		}
-	);
+	return nanoid();
 }
 
 /**
  * Scans a note’s content for [card] blocks.
- * If a block is missing a UUID (i.e. not of the form [card=uuid,...]), one is generated.
- * The note content is updated with the new UUIDs.
- *
- * Updated to support a comma-delimited optional title and record the card’s line number.
  */
 function ensureCardUUIDs(content: string): {
 	updatedContent: string;
@@ -114,7 +113,7 @@ function ensureCardUUIDs(content: string): {
 } {
 	const flashcards: Flashcard[] = [];
 	const regex =
-		/\[card(?:=([a-f0-9\-]+)(?:,([^\]]+))?)?\]([\s\S]*?)\[\/card\]/gi;
+		/\[card(?:=([a-zA-Z0-9]+)(?:,([^\]]+))?)?\]([\s\S]*?)\[\/card\]/gi;
 	let updatedContent = content;
 	updatedContent = updatedContent.replace(
 		regex,
@@ -123,7 +122,7 @@ function ensureCardUUIDs(content: string): {
 			if (!cardUUID) {
 				cardUUID = generateUUID();
 			}
-			// Calculate the line number by counting newline characters up to the match offset.
+			// Calculate line number.
 			const lineNumber = content.substring(0, offset).split("\n").length;
 			flashcards.push({
 				uuid: cardUUID,
@@ -149,7 +148,6 @@ async function syncFlashcardsForFile(
 		await plugin.app.vault.modify(file, updatedContent);
 	}
 
-	// Initialize note if it doesn't exist.
 	if (!plugin.notes[file.path]) {
 		plugin.notes[file.path] = {
 			cards: {},
@@ -194,21 +192,19 @@ async function syncFlashcardsForFile(
 		}
 		flashcard.noteTitle = file.basename;
 		flashcard.filePath = file.path;
-		// Also add nextReviewDate and ef to the flashcard so we can sort later.
 		flashcard.nextReviewDate = fileCards[flashcard.uuid].nextReviewDate;
 		flashcard.ef = fileCards[flashcard.uuid].ef;
 	});
 
 	await plugin.savePluginData();
 	if (newCardAdded) {
-		plugin.refreshReviewQueue();
-		plugin.refreshScheduledQueue();
+		plugin.refreshUnifiedQueue();
 	}
 	return flashcards;
 }
 
 /* ============================================================================
- * SPACED REPETITION LOGIC (Update per flashcard via updateCardState)
+ * SPACED REPETITION LOGIC
  * ========================================================================== */
 
 function getNextReviewDate(lastReview: Date, interval: number): Date {
@@ -412,7 +408,6 @@ export abstract class BaseSidebarView extends ItemView {
 			cls: "card-container",
 		});
 		cards.forEach((cardState) => {
-			// Retrieve the file via each card’s grouping.
 			const file = this.plugin.app.vault.getAbstractFileByPath(
 				Object.keys(this.plugin.notes).find(
 					(fp) => cardState.cardUUID in this.plugin.notes[fp].cards
@@ -421,8 +416,6 @@ export abstract class BaseSidebarView extends ItemView {
 			if (!file || !(file instanceof TFile)) return;
 			const card = cardContainer.createEl("div", { cls: "review-card" });
 			card.addEventListener("click", () => {
-				// Open the file at the specific line (if available). Obsidian’s editor API
-				// expects 0-indexed line numbers.
 				if (cardState.line !== undefined) {
 					const options = {
 						eState: { line: cardState.line - 1, ch: 0 },
@@ -448,7 +441,7 @@ export abstract class BaseSidebarView extends ItemView {
 				tagEl.createEl("span", { text: `#${firstTag}` });
 			}
 
-			this.addCardMeta(card, cardState, now);
+			this.addCardMeta(card, cardState, new Date());
 		});
 	}
 
@@ -486,21 +479,27 @@ export abstract class BaseSidebarView extends ItemView {
 }
 
 /* ============================================================================
- * REVIEW SIDEBAR VIEW
+ * UNIFIED SIDEBAR VIEW (REVIEW & SCHEDULED)
  * ========================================================================== */
 
-export const REVIEW_VIEW_TYPE = "review-sidebar";
-export class ReviewSidebarView extends BaseSidebarView {
-	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
-		super(leaf, plugin);
-	}
+export const UNIFIED_VIEW_TYPE = "unified-queue-sidebar";
+export class UnifiedQueueSidebarView extends BaseSidebarView {
+	// Filtering state
+	filterMode: "due" | "scheduled" = "due";
+	searchText: string = "";
+	tagFilter: string = "all";
+
+	// Store references to persistent elements.
+	filterHeaderEl: HTMLElement;
+	controlsContainerEl: HTMLElement;
+	cardContainerEl: HTMLElement;
 
 	getViewType(): string {
-		return REVIEW_VIEW_TYPE;
+		return UNIFIED_VIEW_TYPE;
 	}
 
 	getDisplayText(): string {
-		return "Review Queue";
+		return "Unified Queue";
 	}
 
 	getIcon(): string {
@@ -512,7 +511,7 @@ export class ReviewSidebarView extends BaseSidebarView {
 	}
 
 	getCountMessage(count: number): string {
-		return `${count} flashcard${count === 1 ? "" : "s"} to review`;
+		return `${count} flashcard${count === 1 ? "" : "s"} found`;
 	}
 
 	getEmptyStateIcon(): string {
@@ -524,161 +523,314 @@ export class ReviewSidebarView extends BaseSidebarView {
 	}
 
 	getEmptyStateMessage(): string {
-		return "0 flashcards due for review.";
+		return "No flashcards match the current filters.";
 	}
 
+	// Implement the abstract method.
 	filterCards(now: Date, allCards: CardState[]): CardState[] {
-		return allCards
-			.filter(
-				(card) =>
-					card.active &&
-					card.nextReviewDate &&
-					new Date(card.nextReviewDate) <= now
-			)
-			.sort((a, b) => a.ef - b.ef);
+		// For the unified view, filtering is handled via custom rendering.
+		return allCards;
 	}
 
-	protected addCardMeta(
-		card: HTMLElement,
-		cardState: CardState,
-		now: Date
-	): void {
-		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
-		const intervalEl = card.createEl("div", { cls: "review-interval" });
-		const lastReviewDate = new Date(cardState.lastReviewDate);
-		const daysSinceReview = Math.floor(
-			(now.getTime() - lastReviewDate.getTime()) / (1000 * 60 * 60 * 24)
-		);
-		const displayText =
-			daysSinceReview === 0
-				? "Today"
-				: daysSinceReview === 1
-				? "Yesterday"
-				: `${daysSinceReview} days ago`;
-		const lastReviewTime = lastReviewDate.toLocaleTimeString("en-GB", {
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
+	async onOpen() {
+		const container = this.containerEl.children[1] || this.containerEl;
+		// Clear the entire container only once during onOpen.
+		container.empty();
+		container.addClass("review-sidebar-container");
+
+		// Create persistent filter header.
+		this.filterHeaderEl = container.createEl("div", {
+			cls: "filter-header",
 		});
-		intervalEl.createEl("span", {
-			text: `Last: ${displayText} at ${lastReviewTime}`,
+		this.filterHeaderEl.createEl("h2", { text: "Filters" });
+
+		this.controlsContainerEl = this.filterHeaderEl.createEl("div", {
+			cls: "filter-controls",
 		});
 
-		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
-		efEl.createEl("span", { text: "EF: " });
-		const efValue = cardState.ef.toFixed(2);
-		const efClass =
-			cardState.ef >= 2.5
-				? "ef-high"
-				: cardState.ef >= 1.8
-				? "ef-medium"
-				: "ef-low";
-		efEl.createEl("span", { text: efValue, cls: `ef-value ${efClass}` });
-	}
-}
+		// Mode select.
+		const modeSelect = this.controlsContainerEl.createEl("select");
+		modeSelect.createEl("option", { text: "Due", value: "due" });
+		modeSelect.createEl("option", {
+			text: "Scheduled",
+			value: "scheduled",
+		});
+		modeSelect.value = this.filterMode;
+		modeSelect.addEventListener("change", () => {
+			this.filterMode = modeSelect.value as "due" | "scheduled";
+			this.renderUnifiedCards(); // update card container only
+		});
 
-/* ============================================================================
- * SCHEDULED SIDEBAR VIEW
- * ========================================================================== */
-
-export const SCHEDULED_VIEW_TYPE = "scheduled-sidebar";
-export class ScheduledSidebarView extends BaseSidebarView {
-	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
-		super(leaf, plugin);
-	}
-
-	getViewType(): string {
-		return SCHEDULED_VIEW_TYPE;
-	}
-
-	getDisplayText(): string {
-		return "Scheduled Queue";
-	}
-
-	getIcon(): string {
-		return "calendar";
-	}
-
-	getHeaderTitle(): string {
-		return "Scheduled Queue";
-	}
-
-	getCountMessage(count: number): string {
-		return `${count} flashcard${count === 1 ? "" : "s"} scheduled`;
-	}
-
-	getEmptyStateIcon(): string {
-		return "📅";
-	}
-
-	getEmptyStateTitle(): string {
-		return "No upcoming reviews!";
-	}
-
-	getEmptyStateMessage(): string {
-		return "0 flashcards scheduled for review.";
-	}
-
-	filterCards(now: Date, allCards: CardState[]): CardState[] {
-		return allCards
-			.filter(
-				(card) =>
-					card.active &&
-					card.nextReviewDate &&
-					new Date(card.nextReviewDate) > now
-			)
-			.sort((a, b) => {
-				const dateDiff =
-					new Date(a.nextReviewDate!).getTime() -
-					new Date(b.nextReviewDate!).getTime();
-				if (dateDiff !== 0) return dateDiff;
-				return a.ef - b.ef;
-			});
-	}
-
-	protected addCardMeta(
-		card: HTMLElement,
-		cardState: CardState,
-		now: Date
-	): void {
-		const metaContainer = card.createEl("div", { cls: "review-card-meta" });
-		const intervalEl = card.createEl("div", { cls: "review-interval" });
-		if (cardState.nextReviewDate) {
-			const nextReviewDate = new Date(cardState.nextReviewDate);
-			const nowLocal = new Date();
-			let displayText = "";
-			if (
-				nowLocal.getFullYear() === nextReviewDate.getFullYear() &&
-				nowLocal.getMonth() === nextReviewDate.getMonth() &&
-				nowLocal.getDate() === nextReviewDate.getDate()
-			) {
-				displayText = "Today";
-			} else {
-				const diffTime = nextReviewDate.getTime() - nowLocal.getTime();
-				const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-				displayText =
-					diffDays === 1 ? "Tomorrow" : `in ${diffDays} days`;
+		// Tag filter.
+		const tagSelect = this.controlsContainerEl.createEl("select");
+		tagSelect.createEl("option", { text: "All Tags", value: "all" });
+		const tagSet = new Set<string>();
+		for (const note of Object.values(this.plugin.notes)) {
+			for (const card of Object.values(note.cards)) {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					Object.keys(this.plugin.notes).find(
+						(fp) => card.cardUUID in this.plugin.notes[fp].cards
+					) || ""
+				);
+				if (file && file instanceof TFile) {
+					const fileCache =
+						this.plugin.app.metadataCache.getFileCache(file);
+					const tags = fileCache?.frontmatter?.tags;
+					if (tags) {
+						if (Array.isArray(tags)) {
+							tags.forEach((t) => tagSet.add(t));
+						} else {
+							tagSet.add(tags);
+						}
+					}
+				}
 			}
-			const nextReviewTime = nextReviewDate.toLocaleTimeString("en-GB", {
-				hour: "2-digit",
-				minute: "2-digit",
-				hour12: false,
-			});
-			intervalEl.createEl("span", {
-				text: `Next: ${displayText} at ${nextReviewTime}`,
+		}
+		tagSet.forEach((tag) => {
+			tagSelect.createEl("option", { text: `#${tag}`, value: tag });
+		});
+		tagSelect.value = this.tagFilter;
+		tagSelect.addEventListener("change", () => {
+			this.tagFilter = tagSelect.value;
+			this.renderUnifiedCards();
+		});
+
+		// Search input.
+		const searchInput = this.controlsContainerEl.createEl("input", {
+			attr: { placeholder: "Search..." },
+		});
+		searchInput.value = this.searchText;
+		searchInput.addEventListener("input", () => {
+			this.searchText = searchInput.value;
+			this.renderUnifiedCards();
+		});
+
+		// Review Button.
+		const reviewButton = this.controlsContainerEl.createEl("button", {
+			text: "Review Filtered Cards",
+		});
+		reviewButton.addEventListener("click", () => {
+			this.launchReviewModal();
+		});
+
+		// Create a persistent card container.
+		this.cardContainerEl = container.createEl("div", {
+			cls: "card-container",
+		});
+		// Initial render.
+		this.renderUnifiedCards();
+	}
+
+	/**
+	 * Render only the card container according to current filters.
+	 */
+	renderUnifiedCards() {
+		// Clear the card container only.
+		this.cardContainerEl.empty();
+
+		let allCards: CardState[] = [];
+		for (const note of Object.values(this.plugin.notes)) {
+			allCards.push(...Object.values(note.cards));
+		}
+		const now = new Date();
+		let filteredCards = allCards.filter((card) => {
+			if (!card.active || !card.nextReviewDate) return false;
+			const reviewDate = new Date(card.nextReviewDate);
+			return this.filterMode === "due"
+				? reviewDate <= now
+				: reviewDate > now;
+		});
+
+		if (this.tagFilter !== "all") {
+			filteredCards = filteredCards.filter((card) => {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					Object.keys(this.plugin.notes).find(
+						(fp) => card.cardUUID in this.plugin.notes[fp].cards
+					) || ""
+				);
+				if (file && file instanceof TFile) {
+					const fileCache =
+						this.plugin.app.metadataCache.getFileCache(file);
+					const tags = fileCache?.frontmatter?.tags;
+					if (tags) {
+						if (Array.isArray(tags)) {
+							return tags.includes(this.tagFilter);
+						} else {
+							return tags === this.tagFilter;
+						}
+					}
+				}
+				return false;
 			});
 		}
 
-		const efEl = metaContainer.createEl("div", { cls: "review-stat" });
-		efEl.createEl("span", { text: "EF: " });
-		const efValue = cardState.ef.toFixed(2);
-		const efClass =
-			cardState.ef >= 2.5
-				? "ef-high"
-				: cardState.ef >= 1.8
-				? "ef-medium"
-				: "ef-low";
-		efEl.createEl("span", { text: efValue, cls: `ef-value ${efClass}` });
+		if (this.searchText.trim() !== "") {
+			const fuse = new Fuse(filteredCards, {
+				keys: ["cardTitle", "cardContent"],
+				threshold: 0.4,
+			});
+			const results = fuse.search(this.searchText.trim());
+			filteredCards = results.map((r) => r.item);
+		}
+
+		filteredCards.sort((a, b) => {
+			const aDate = a.nextReviewDate
+				? new Date(a.nextReviewDate).getTime()
+				: 0;
+			const bDate = b.nextReviewDate
+				? new Date(b.nextReviewDate).getTime()
+				: 0;
+			if (aDate !== bDate) return aDate - bDate;
+			return (a.ef || 0) - (b.ef || 0);
+		});
+
+		// If no cards, render empty state in the card container.
+		if (filteredCards.length === 0) {
+			this.cardContainerEl.createEl(
+				"div",
+				{ cls: "review-empty" },
+				(emptyEl) => {
+					emptyEl.createEl("h3", { text: this.getEmptyStateTitle() });
+					emptyEl.createEl("p", {
+						text: this.getEmptyStateMessage(),
+					});
+				}
+			);
+		} else {
+			filteredCards.forEach((cardState) => {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					Object.keys(this.plugin.notes).find(
+						(fp) =>
+							cardState.cardUUID in this.plugin.notes[fp].cards
+					) || ""
+				);
+				if (!file || !(file instanceof TFile)) return;
+				const card = this.cardContainerEl.createEl("div", {
+					cls: "review-card",
+				});
+				card.addEventListener("click", () => {
+					if (cardState.line !== undefined) {
+						const options = {
+							eState: { line: cardState.line - 1, ch: 0 },
+						};
+						this.plugin.app.workspace
+							.getLeaf()
+							.openFile(file, options);
+					} else {
+						this.plugin.app.workspace.getLeaf().openFile(file);
+					}
+				});
+				const titleRow = card.createEl("div", { cls: "title-row" });
+				const displayTitle = cardState.cardTitle || file.basename;
+				titleRow.createEl("h3", {
+					text: displayTitle,
+					title: displayTitle,
+				});
+				const fileCache =
+					this.plugin.app.metadataCache.getFileCache(file);
+				const tags = fileCache?.frontmatter?.tags;
+				const firstTag = Array.isArray(tags) ? tags[0] : tags;
+				if (firstTag) {
+					const tagEl = titleRow.createEl("div", {
+						cls: "review-tag",
+					});
+					tagEl.createEl("span", { text: `#${firstTag}` });
+				}
+				this.addCardMeta(card, cardState, now);
+			});
+		}
+	}
+
+	/**
+	 * Launch the review modal for the filtered cards.
+	 */
+	launchReviewModal() {
+		let allFlashcards: Flashcard[] = [];
+		for (const filePath in this.plugin.notes) {
+			for (const cardUUID in this.plugin.notes[filePath].cards) {
+				const card = this.plugin.notes[filePath].cards[cardUUID];
+				allFlashcards.push({
+					uuid: cardUUID,
+					content: card.cardContent,
+					noteTitle:
+						this.plugin.app.vault.getAbstractFileByPath(
+							filePath
+						) instanceof TFile
+							? (
+									this.plugin.app.vault.getAbstractFileByPath(
+										filePath
+									) as TFile
+							  ).basename
+							: "Unknown Note",
+					filePath,
+					cardTitle: card.cardTitle,
+					line: card.line,
+					nextReviewDate: card.nextReviewDate,
+					ef: card.ef,
+				});
+			}
+		}
+		const now = new Date();
+		let filtered = allFlashcards.filter((flashcard) => {
+			if (flashcard.nextReviewDate) {
+				const reviewDate = new Date(flashcard.nextReviewDate);
+				return this.filterMode === "due"
+					? reviewDate <= now
+					: reviewDate > now;
+			}
+			return false;
+		});
+		if (this.tagFilter !== "all") {
+			filtered = filtered.filter((flashcard) => {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					flashcard.filePath || ""
+				);
+				if (file && file instanceof TFile) {
+					const fileCache =
+						this.plugin.app.metadataCache.getFileCache(file);
+					const tags = fileCache?.frontmatter?.tags;
+					if (tags) {
+						if (Array.isArray(tags)) {
+							return tags.includes(this.tagFilter);
+						} else {
+							return tags === this.tagFilter;
+						}
+					}
+				}
+				return false;
+			});
+		}
+		if (this.searchText.trim() !== "") {
+			const fuse = new Fuse(filtered, {
+				keys: ["cardTitle", "cardContent"],
+				threshold: 0.4,
+			});
+			const results = fuse.search(this.searchText.trim());
+			filtered = results.map((r) => r.item);
+		}
+		filtered.sort((a, b) => {
+			const aDate = a.nextReviewDate
+				? new Date(a.nextReviewDate).getTime()
+				: 0;
+			const bDate = b.nextReviewDate
+				? new Date(b.nextReviewDate).getTime()
+				: 0;
+			if (aDate !== bDate) return aDate - bDate;
+			return (a.ef || 0) - (b.ef || 0);
+		});
+		if (this.plugin.settings.randomizeFlashcards) {
+			filtered = shuffleArray(filtered);
+		}
+		if (filtered.length > 0) {
+			new FlashcardModal(
+				this.plugin.app,
+				filtered,
+				this.plugin,
+				true
+			).open();
+		} else {
+			new Notice("No flashcards match the current filters.");
+		}
 	}
 }
 
@@ -691,7 +843,6 @@ class FlashcardModal extends Modal {
 	plugin: MyPlugin;
 	feedbackContainer: HTMLElement | null = null;
 	progressCounter: HTMLElement | null = null;
-	// Header container for title and tag
 	modalHeaderEl: HTMLElement | null = null;
 
 	constructor(
@@ -710,12 +861,10 @@ class FlashcardModal extends Modal {
 		contentEl.empty();
 		modalEl.addClass("modern-flashcard-modal");
 
-		// Main container for the flashcard modal content
 		const container = contentEl.createDiv({
 			cls: "flashcard-content-container",
 		});
 
-		// Top section: progress and header (title + tag)
 		const topSection = container.createDiv({
 			cls: "flashcard-top-section",
 		});
@@ -731,19 +880,15 @@ class FlashcardModal extends Modal {
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
 		});
 
-		// Header area for flashcard title and tag
 		this.modalHeaderEl = topSection.createEl("div", {
 			cls: "flashcard-modal-header",
 		});
 
-		// Middle section: flashcard content
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
 		this.renderCard(cardContainer);
 
-		// Bottom row: divided into three parts: left, center (review) and right.
 		const bottomRow = container.createDiv({ cls: "flashcard-bottom-row" });
 
-		// Left container: Stop button
 		const leftContainer = bottomRow.createDiv({
 			cls: "flashcard-left-container",
 		});
@@ -767,8 +912,7 @@ class FlashcardModal extends Modal {
 			this.plugin.notes[filePath].cards[card.cardUUID] = updated;
 			await this.plugin.savePluginData();
 			new Notice("Scheduling stopped for this card.");
-			this.plugin.refreshReviewQueue();
-			this.plugin.refreshScheduledQueue();
+			this.plugin.refreshUnifiedQueue();
 
 			if (this.currentIndex < this.flashcards.length - 1) {
 				this.currentIndex++;
@@ -785,7 +929,6 @@ class FlashcardModal extends Modal {
 			}
 		});
 
-		// Center container: Rating buttons (review tray)
 		const ratingTray = bottomRow.createDiv({
 			cls: "flashcard-rating-tray",
 		});
@@ -804,7 +947,6 @@ class FlashcardModal extends Modal {
 			});
 		});
 
-		// Right container: Card button
 		const rightContainer = bottomRow.createDiv({
 			cls: "flashcard-right-container",
 		});
@@ -836,19 +978,15 @@ class FlashcardModal extends Modal {
 		}, 0);
 	}
 
-	// Update the modal header with title and tag information
 	renderHeader(currentFlashcard: Flashcard) {
 		if (!this.modalHeaderEl) return;
 		this.modalHeaderEl.empty();
-		// Use cardTitle if available; otherwise, fallback to note title.
 		const titleText =
 			currentFlashcard.cardTitle || currentFlashcard.noteTitle || "";
-		// Create the title element
 		this.modalHeaderEl.createEl("h2", {
 			cls: "flashcard-modal-note-title",
 			text: titleText,
 		});
-		// Determine the tag text from the frontmatter
 		let tagText = "";
 		if (currentFlashcard.filePath) {
 			const file = this.plugin.app.vault.getAbstractFileByPath(
@@ -876,19 +1014,15 @@ class FlashcardModal extends Modal {
 			this.currentIndex < this.flashcards.length
 		) {
 			const currentFlashcard = this.flashcards[this.currentIndex];
-			// Update header with title and tag information.
 			if (this.showNoteTitle) {
 				this.renderHeader(currentFlashcard);
 			}
-
-			// Optionally display the cardTitle inside the card (if needed).
 			if (currentFlashcard.cardTitle) {
 				cardContainer.createEl("div", {
 					cls: "flashcard-card-title",
 					text: currentFlashcard.cardTitle,
 				});
 			}
-
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
@@ -941,8 +1075,7 @@ class FlashcardModal extends Modal {
 		const updated = updateCardState(card, rating, now, false);
 		this.plugin.notes[filePath].cards[card.cardUUID] = updated;
 		await this.plugin.savePluginData();
-		this.plugin.refreshReviewQueue();
-		this.plugin.refreshScheduledQueue();
+		this.plugin.refreshUnifiedQueue();
 
 		if (this.currentIndex < this.flashcards.length - 1) {
 			this.currentIndex++;
@@ -965,7 +1098,7 @@ class FlashcardModal extends Modal {
 }
 
 /* ============================================================================
- * HELPER: Find Card State and File from Nested Structure
+ * HELPER: Find Card State and File
  * ========================================================================== */
 function findCardStateAndFile(
 	plugin: MyPlugin,
@@ -984,7 +1117,6 @@ function findCardStateAndFile(
  * ========================================================================== */
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
-	// Notes are now stored as objects containing cards and note-specific data.
 	notes: { [filePath: string]: Note } = {};
 
 	private allHidden: boolean = true;
@@ -1049,12 +1181,8 @@ export default class MyPlugin extends Plugin {
 			this.toggleAllHidden();
 		});
 
-		this.addRibbonIcon("file-text", "Open Review Queue", () => {
-			this.activateReviewSidebar();
-		});
-
-		this.addRibbonIcon("calendar", "Open Scheduled Queue", () => {
-			this.activateScheduledSidebar();
+		this.addRibbonIcon("file-text", "Open Unified Queue", () => {
+			this.activateUnifiedQueue();
 		});
 
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
@@ -1113,8 +1241,7 @@ export default class MyPlugin extends Plugin {
 					const activeFile = this.app.workspace.getActiveFile();
 					if (activeFile && activeFile instanceof TFile) {
 						await syncFlashcardsForFile(this, activeFile);
-						this.refreshReviewQueue();
-						this.refreshScheduledQueue();
+						this.refreshUnifiedQueue();
 					}
 				} else {
 					new Notice("Please select some text first");
@@ -1123,15 +1250,9 @@ export default class MyPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "open-review-queue",
-			name: "Open Review Queue",
-			callback: () => this.activateReviewSidebar(),
-		});
-
-		this.addCommand({
-			id: "open-scheduled-queue",
-			name: "Open Scheduled Queue",
-			callback: () => this.activateScheduledSidebar(),
+			id: "open-unified-queue",
+			name: "Open Unified Queue",
+			callback: () => this.activateUnifiedQueue(),
 		});
 
 		this.addCommand({
@@ -1167,7 +1288,6 @@ export default class MyPlugin extends Plugin {
 			this.app.workspace.on("file-open", async (file: TFile) => {
 				if (file && file instanceof TFile) {
 					await syncFlashcardsForFile(this, file);
-					// Log the visit for this note.
 					const now = new Date().toISOString();
 					if (!this.notes[file.path]) {
 						this.notes[file.path] = {
@@ -1188,8 +1308,7 @@ export default class MyPlugin extends Plugin {
 					delete this.notes[oldPath];
 				}
 				this.savePluginData();
-				this.refreshReviewQueue();
-				this.refreshScheduledQueue();
+				this.refreshUnifiedQueue();
 				this.scheduleNextDueRefresh();
 			})
 		);
@@ -1200,8 +1319,7 @@ export default class MyPlugin extends Plugin {
 				if (activeFile && file.path === activeFile.path) {
 					setTimeout(async () => {
 						await syncFlashcardsForFile(this, file);
-						this.refreshReviewQueue();
-						this.refreshScheduledQueue();
+						this.refreshUnifiedQueue();
 						this.scheduleNextDueRefresh();
 					}, 100);
 				}
@@ -1212,8 +1330,7 @@ export default class MyPlugin extends Plugin {
 			this.app.vault.on("delete", (file: TFile) => {
 				delete this.notes[file.path];
 				this.savePluginData();
-				this.refreshReviewQueue();
-				this.refreshScheduledQueue();
+				this.refreshUnifiedQueue();
 				this.scheduleNextDueRefresh();
 			})
 		);
@@ -1221,12 +1338,8 @@ export default class MyPlugin extends Plugin {
 
 	private registerCustomViews(): void {
 		this.registerView(
-			REVIEW_VIEW_TYPE,
-			(leaf) => new ReviewSidebarView(leaf, this)
-		);
-		this.registerView(
-			SCHEDULED_VIEW_TYPE,
-			(leaf) => new ScheduledSidebarView(leaf, this)
+			UNIFIED_VIEW_TYPE,
+			(leaf) => new UnifiedQueueSidebarView(leaf, this)
 		);
 	}
 
@@ -1297,8 +1410,6 @@ export default class MyPlugin extends Plugin {
 			return;
 		}
 		let flashcards = await syncFlashcardsForFile(this, activeFile);
-		// When reviewing the current note, order flashcards in natural order.
-		// But if randomize is enabled, shuffle them.
 		if (this.settings.randomizeFlashcards) {
 			flashcards = shuffleArray(flashcards);
 		}
@@ -1338,7 +1449,6 @@ export default class MyPlugin extends Plugin {
 				}
 			}
 		}
-		// If no due flashcards, add scheduled ones.
 		if (allDueFlashcards.length === 0) {
 			for (const filePath in this.notes) {
 				for (const cardUUID in this.notes[filePath].cards) {
@@ -1372,16 +1482,15 @@ export default class MyPlugin extends Plugin {
 			);
 		}
 
-		// Order flashcards by soonest nextReviewDate, then by EF.
 		allDueFlashcards.sort((a, b) => {
 			const aDate = a.nextReviewDate
-				? new Date(a.nextReviewDate)
-				: new Date(0);
+				? new Date(a.nextReviewDate).getTime()
+				: 0;
 			const bDate = b.nextReviewDate
-				? new Date(b.nextReviewDate)
-				: new Date(0);
-			if (aDate.getTime() !== bDate.getTime()) {
-				return aDate.getTime() - bDate.getTime();
+				? new Date(b.nextReviewDate).getTime()
+				: 0;
+			if (aDate !== bDate) {
+				return aDate - bDate;
 			}
 			return (a.ef || 0) - (b.ef || 0);
 		});
@@ -1390,7 +1499,6 @@ export default class MyPlugin extends Plugin {
 			allDueFlashcards = shuffleArray(allDueFlashcards);
 		}
 		if (allDueFlashcards.length > 0) {
-			// Pass true so that the modal shows the note title.
 			new FlashcardModal(this.app, allDueFlashcards, this, true).open();
 		} else {
 			new Notice("No flashcards due or scheduled for review.");
@@ -1401,46 +1509,21 @@ export default class MyPlugin extends Plugin {
 		this.showFlashcardsModal();
 	}
 
-	async activateReviewSidebar() {
-		let leaf = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE)[0];
+	async activateUnifiedQueue() {
+		let leaf = this.app.workspace.getLeavesOfType(UNIFIED_VIEW_TYPE)[0];
 		if (!leaf) {
 			leaf =
 				this.app.workspace.getRightLeaf(false) ||
 				this.app.workspace.getLeaf(true);
-			await leaf.setViewState({ type: REVIEW_VIEW_TYPE, active: true });
+			await leaf.setViewState({ type: UNIFIED_VIEW_TYPE, active: true });
 		}
 		this.app.workspace.revealLeaf(leaf);
 	}
 
-	async activateScheduledSidebar() {
-		let leaf = this.app.workspace.getLeavesOfType(SCHEDULED_VIEW_TYPE)[0];
-		if (!leaf) {
-			leaf =
-				this.app.workspace.getRightLeaf(false) ||
-				this.app.workspace.getLeaf(true);
-			await leaf.setViewState({
-				type: SCHEDULED_VIEW_TYPE,
-				active: true,
-			});
-		}
-		this.app.workspace.revealLeaf(leaf);
-	}
-
-	public refreshReviewQueue(): void {
-		const reviewLeaves =
-			this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
-		reviewLeaves.forEach((leaf) => {
-			if (leaf.view instanceof ReviewSidebarView) {
-				leaf.view.onOpen();
-			}
-		});
-	}
-
-	public refreshScheduledQueue(): void {
-		const scheduledLeaves =
-			this.app.workspace.getLeavesOfType(SCHEDULED_VIEW_TYPE);
-		scheduledLeaves.forEach((leaf) => {
-			if (leaf.view instanceof ScheduledSidebarView) {
+	public refreshUnifiedQueue(): void {
+		const leaves = this.app.workspace.getLeavesOfType(UNIFIED_VIEW_TYPE);
+		leaves.forEach((leaf) => {
+			if (leaf.view instanceof UnifiedQueueSidebarView) {
 				leaf.view.onOpen();
 			}
 		});
@@ -1469,8 +1552,7 @@ export default class MyPlugin extends Plugin {
 		if (earliestTime !== null) {
 			const delay = earliestTime - now.getTime() + 100;
 			this.refreshTimeout = window.setTimeout(() => {
-				this.refreshReviewQueue();
-				this.refreshScheduledQueue();
+				this.refreshUnifiedQueue();
 				this.scheduleNextDueRefresh();
 			}, delay);
 		}
