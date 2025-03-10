@@ -691,21 +691,18 @@ class FlashcardModal extends Modal {
 	plugin: MyPlugin;
 	feedbackContainer: HTMLElement | null = null;
 	progressCounter: HTMLElement | null = null;
-	showNoteTitle: boolean;
-	// New heading element to display the note title below the progress counter.
-	modalTitleEl: HTMLElement | null = null;
+	// Header container for title and tag
+	modalHeaderEl: HTMLElement | null = null;
 
-	// Add an optional flag to indicate whether to show the note title.
 	constructor(
 		app: App,
 		flashcards: Flashcard[],
 		plugin: MyPlugin,
-		showNoteTitle: boolean = false
+		private showNoteTitle: boolean = false
 	) {
 		super(app);
 		this.flashcards = flashcards;
 		this.plugin = plugin;
-		this.showNoteTitle = showNoteTitle;
 	}
 
 	onOpen() {
@@ -713,39 +710,48 @@ class FlashcardModal extends Modal {
 		contentEl.empty();
 		modalEl.addClass("modern-flashcard-modal");
 
+		// Main container for the flashcard modal content
 		const container = contentEl.createDiv({
 			cls: "flashcard-content-container",
 		});
 
-		const progressContainer = container.createDiv({
+		// Top section: progress and header (title + tag)
+		const topSection = container.createDiv({
+			cls: "flashcard-top-section",
+		});
+		const progressContainer = topSection.createDiv({
 			cls: "flashcard-progress-container",
 		});
 		const progressBar = progressContainer.createDiv({
 			cls: "flashcard-progress-bar",
 		});
 		progressBar.style.width = "0%";
-
-		this.progressCounter = container.createDiv({
+		this.progressCounter = topSection.createDiv({
 			cls: "flashcard-progress-counter",
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
 		});
 
-		// Create the heading for the note/card title below the progress counter.
-		this.modalTitleEl = container.createEl("h2", {
-			cls: "flashcard-modal-note-title",
+		// Header area for flashcard title and tag
+		this.modalHeaderEl = topSection.createEl("div", {
+			cls: "flashcard-modal-header",
 		});
 
-		// Create navigation button container (Note, Card, Stop Scheduling)
-		const navContainer = container.createDiv({
+		// Middle section: flashcard content
+		const cardContainer = container.createDiv({ cls: "flashcard-card" });
+		this.renderCard(cardContainer);
+
+		// Bottom row: full width container with navigation on left and review (rating) tray on right
+		const bottomRow = container.createDiv({ cls: "flashcard-bottom-row" });
+
+		// Navigation buttons container (left side)
+		const navContainer = bottomRow.createDiv({
 			cls: "flashcard-nav-buttons",
 		});
-
-		// "Note" button
 		const noteButton = navContainer.createEl("button", {
 			text: "Note",
 			cls: "flashcard-nav-button note-button",
 		});
-		noteButton.addEventListener("click", (evt) => {
+		noteButton.addEventListener("click", () => {
 			const currentFlashcard = this.flashcards[this.currentIndex];
 			if (currentFlashcard.filePath) {
 				const file = this.plugin.app.vault.getAbstractFileByPath(
@@ -756,13 +762,11 @@ class FlashcardModal extends Modal {
 				}
 			}
 		});
-
-		// "Card" button
 		const cardButton = navContainer.createEl("button", {
 			text: "Card",
 			cls: "flashcard-nav-button card-button",
 		});
-		cardButton.addEventListener("click", (evt) => {
+		cardButton.addEventListener("click", () => {
 			const currentFlashcard = this.flashcards[this.currentIndex];
 			if (currentFlashcard.filePath && currentFlashcard.line) {
 				const file = this.plugin.app.vault.getAbstractFileByPath(
@@ -776,13 +780,11 @@ class FlashcardModal extends Modal {
 				}
 			}
 		});
-
-		// "Stop Scheduling" button
 		const stopButton = navContainer.createEl("button", {
-			text: "Stop Scheduling",
+			text: "Stop",
 			cls: "flashcard-nav-button stop-button",
 		});
-		stopButton.addEventListener("click", async (evt) => {
+		stopButton.addEventListener("click", async () => {
 			const currentFlashcard = this.flashcards[this.currentIndex];
 			const found = findCardStateAndFile(
 				this.plugin,
@@ -802,14 +804,8 @@ class FlashcardModal extends Modal {
 			this.plugin.refreshScheduledQueue();
 		});
 
-		const cardContainer = container.createDiv({ cls: "flashcard-card" });
-		this.renderCard(cardContainer);
-
-		this.feedbackContainer = container.createDiv({
-			cls: "flashcard-feedback",
-		});
-
-		const ratingTray = container.createDiv({
+		// Rating tray container (right side)
+		const ratingTray = bottomRow.createDiv({
 			cls: "flashcard-rating-tray",
 		});
 		const ratings = [
@@ -830,17 +826,37 @@ class FlashcardModal extends Modal {
 		this.updateProgressBar(progressBar);
 	}
 
-	updateProgressBar(progressBar: HTMLElement) {
-		requestAnimationFrame(() => {
-			const progress =
-				((this.currentIndex + 1) / this.flashcards.length) * 100;
-			progressBar.style.width = `${progress}%`;
-			if (this.progressCounter) {
-				this.progressCounter.textContent = `${
-					this.currentIndex + 1
-				} / ${this.flashcards.length}`;
-			}
+	// Update the modal header with title and tag information
+	renderHeader(currentFlashcard: Flashcard) {
+		if (!this.modalHeaderEl) return;
+		this.modalHeaderEl.empty();
+		// Use cardTitle if available; otherwise, fallback to note title.
+		const titleText =
+			currentFlashcard.cardTitle || currentFlashcard.noteTitle || "";
+		const titleEl = this.modalHeaderEl.createEl("h2", {
+			cls: "flashcard-modal-note-title",
+			text: titleText,
 		});
+
+		// If a tag exists, add it next to the title.
+		let tagText = "";
+		if (currentFlashcard.filePath) {
+			const file = this.plugin.app.vault.getAbstractFileByPath(
+				currentFlashcard.filePath
+			);
+			if (file && file instanceof TFile) {
+				const fileCache =
+					this.plugin.app.metadataCache.getFileCache(file);
+				const tags = fileCache?.frontmatter?.tags;
+				tagText = tags ? (Array.isArray(tags) ? tags[0] : tags) : "";
+			}
+		}
+		if (tagText) {
+			titleEl.createEl("span", {
+				cls: "flashcard-note-tag",
+				text: `#${tagText}`,
+			});
+		}
 	}
 
 	renderCard(cardContainer: HTMLElement) {
@@ -850,56 +866,12 @@ class FlashcardModal extends Modal {
 			this.currentIndex < this.flashcards.length
 		) {
 			const currentFlashcard = this.flashcards[this.currentIndex];
-
-			// Update the modal title heading with card title if available; fallback to note title.
-			if (this.showNoteTitle && this.modalTitleEl) {
-				if (currentFlashcard.cardTitle) {
-					this.modalTitleEl.setText(currentFlashcard.cardTitle);
-				} else if (currentFlashcard.noteTitle) {
-					this.modalTitleEl.setText(currentFlashcard.noteTitle);
-				} else {
-					this.modalTitleEl.setText("");
-				}
-
-				// Also display the first tag of the note next to the title.
-				let tagText = "";
-				if (currentFlashcard.filePath) {
-					const file = this.plugin.app.vault.getAbstractFileByPath(
-						currentFlashcard.filePath
-					);
-					if (file && file instanceof TFile) {
-						const fileCache =
-							this.plugin.app.metadataCache.getFileCache(file);
-						const tags = fileCache?.frontmatter?.tags;
-						if (tags) {
-							tagText = Array.isArray(tags) ? tags[0] : tags;
-						}
-					}
-				}
-				// Remove any previous tag span if exists.
-				if (this.modalTitleEl && this.modalTitleEl.parentElement) {
-					let existingTag =
-						this.modalTitleEl.parentElement.querySelector(
-							".flashcard-note-tag"
-						);
-					if (existingTag) {
-						existingTag.remove();
-					}
-				}
-				if (tagText) {
-					if (this.modalTitleEl && this.modalTitleEl.parentElement) {
-						const tagEl = this.modalTitleEl.parentElement.createEl(
-							"span",
-							{
-								cls: "flashcard-note-tag",
-								text: `#${tagText}`,
-							}
-						);
-					}
-				}
+			// Update header with title and tag information.
+			if (this.showNoteTitle) {
+				this.renderHeader(currentFlashcard);
 			}
 
-			// If a flashcard has its own cardTitle, display that inside the card.
+			// Optionally display the cardTitle inside the card (if needed).
 			if (currentFlashcard.cardTitle) {
 				cardContainer.createEl("div", {
 					cls: "flashcard-card-title",
@@ -934,6 +906,19 @@ class FlashcardModal extends Modal {
 		}
 	}
 
+	updateProgressBar(progressBar: HTMLElement) {
+		requestAnimationFrame(() => {
+			const progress =
+				((this.currentIndex + 1) / this.flashcards.length) * 100;
+			progressBar.style.width = `${progress}%`;
+			if (this.progressCounter) {
+				this.progressCounter.textContent = `${
+					this.currentIndex + 1
+				} / ${this.flashcards.length}`;
+			}
+		});
+	}
+
 	async handleRating(rating: number) {
 		const now = new Date();
 		const currentCard = this.flashcards[this.currentIndex];
@@ -944,7 +929,6 @@ class FlashcardModal extends Modal {
 		}
 		const { filePath, card } = found;
 		const updated = updateCardState(card, rating, now, false);
-		// Update the card state within the note's cards.
 		this.plugin.notes[filePath].cards[card.cardUUID] = updated;
 		await this.plugin.savePluginData();
 		this.plugin.refreshReviewQueue();
@@ -961,7 +945,6 @@ class FlashcardModal extends Modal {
 			) as HTMLElement;
 			this.updateProgressBar(progressBar);
 		} else {
-			// Removed final notice alert.
 			this.close();
 		}
 	}

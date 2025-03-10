@@ -85,7 +85,6 @@
 /* ============================
    MathJax Styling
 =============================== */
-
 .el-div {
 	overflow-x: auto;
 	max-width: 100%;
@@ -327,36 +326,52 @@
 
 .flashcard-content {
 	width: 100%;
-	display: block; /* changed from flex to block */
-	text-align: left; /* left-align text */
+	display: block;
+	text-align: left;
 }
 
 .flashcard-content * {
 	max-width: 100%;
 }
 
-/* ----------------------------
-   New Rating Tray for Flashcard Modal
------------------------------ */
-.flashcard-rating-tray {
+/* Bottom row with navigation and rating buttons */
+.flashcard-bottom-row {
 	display: flex;
-	justify-content: center;
-	gap: 10px;
-	margin-top: 10px;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	gap: 1em; /* added space between navigation and rating tray */
 }
 
+/* Navigation buttons container (left side) */
+.flashcard-nav-buttons {
+	display: flex;
+	gap: 10px;
+	flex: 0 1 auto; /* do not grow; shrink to fit content */
+}
+
+/* Rating tray container (right side) */
+.flashcard-rating-tray {
+	display: flex;
+	flex: 1; /* expand to take available space */
+	gap: 1em;
+}
+
+/* Make each rating button inside the tray expand equally */
 .flashcard-rating-tray .rating-button {
+	flex: 1;
 	padding: 10px 15px;
 	border: none;
 	border-radius: 5px;
 	font-size: 14px;
 	cursor: pointer;
 	color: #fff;
-	transition: transform 0.1s ease;
+	transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 .flashcard-rating-tray .rating-button:hover {
 	transform: scale(1.05);
+	box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
 }
 
 /* ============================
@@ -374,13 +389,6 @@
 /* ============================
    Flashcard Navigation Buttons & Modal Title Adjustments
 =============================== */
-.flashcard-nav-buttons {
-	display: flex;
-	justify-content: center;
-	gap: 10px;
-	margin-bottom: 10px;
-}
-
 .flashcard-nav-button {
 	padding: 8px 12px;
 	font-size: 0.9rem;
@@ -389,6 +397,7 @@
 	cursor: pointer;
 	background-color: var(--interactive-accent);
 	color: #fff;
+	transition: opacity 0.2s ease;
 }
 
 .flashcard-nav-button:hover {
@@ -409,6 +418,25 @@
 	border-radius: 8px;
 	padding: 2px 6px;
 	margin-left: 8px;
+}
+
+/* New layout sections for top */
+.flashcard-top-section {
+	display: flex;
+	gap: 0.5em;
+	flex-direction: column;
+	align-items: center;
+	width: 100%;
+}
+
+/* Header styles for title and tag */
+.flashcard-modal-header {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	margin-bottom: 10px;
 }
 
 /* ============================
