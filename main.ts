@@ -1361,6 +1361,87 @@ export default class MyPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "reset-card-under-cursor",
+			name: "Reset Card Under Cursor",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				const content = editor.getValue();
+				const cursor = editor.getCursor();
+				// Calculate cursor offset
+				const lines = content.split("\n");
+				let offset = 0;
+				for (let i = 0; i < cursor.line; i++) {
+					offset += lines[i].length + 1; // +1 for newline
+				}
+				offset += cursor.ch;
+
+				// Regex to match a [card=UUID]...[/card] block.
+				const regex = /\[card=([A-Za-z0-9]+)\]([\s\S]*?)\[\/card\]/g;
+				let match: RegExpExecArray | null;
+				let found = false;
+				let cardUUID = "";
+				while ((match = regex.exec(content)) !== null) {
+					const start = match.index;
+					const end = regex.lastIndex;
+					if (offset >= start && offset <= end) {
+						cardUUID = match[1];
+						found = true;
+						break;
+					}
+				}
+
+				if (!found) {
+					new Notice(
+						"Cursor is not inside a [card]...[/card] block."
+					);
+					return;
+				}
+
+				// Ensure we have an active file and matching plugin data.
+				const activeFile = this.app.workspace.getActiveFile();
+				if (!activeFile) {
+					new Notice("No active file open.");
+					return;
+				}
+				if (
+					!(activeFile.path in this.notes) ||
+					!(cardUUID in this.notes[activeFile.path].cards)
+				) {
+					new Notice("Card not found in plugin data.");
+					return;
+				}
+
+				// Reinitialize the card's state.
+				const now = new Date();
+				const newCardState: CardState = {
+					cardUUID: cardUUID,
+					// Keep existing content, title, and line number.
+					cardContent:
+						this.notes[activeFile.path].cards[cardUUID].cardContent,
+					cardTitle:
+						this.notes[activeFile.path].cards[cardUUID].cardTitle,
+					line: this.notes[activeFile.path].cards[cardUUID].line,
+					// Reset scheduling values.
+					repetition: 0,
+					interval: 0,
+					ef: 2.5,
+					lastReviewDate: now.toISOString(),
+					createdAt: now.toISOString(),
+					nextReviewDate: addMinutes(
+						now,
+						LEARNING_STEPS[0]
+					).toISOString(),
+					active: true,
+					efHistory: [],
+				};
+
+				this.notes[activeFile.path].cards[cardUUID] = newCardState;
+				this.savePluginData();
+				new Notice("Card reset successfully.");
+				this.refreshUnifiedQueue();
+			},
+		});
+
+		this.addCommand({
 			id: "open-unified-queue",
 			name: "Open Unified Queue",
 			callback: () => this.activateUnifiedQueue(),
