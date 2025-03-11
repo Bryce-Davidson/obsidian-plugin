@@ -36,7 +36,7 @@ export class GraphView extends ItemView {
 	private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private plugin: MyPlugin;
 	private colorScale = d3.scaleOrdinal(d3.schemeCategory10);
-	private efColorScale = d3.scaleLinear<string>().range(["red", "green"]);
+	private efColorScale: d3.ScaleQuantize<string> = d3.scaleQuantize<string>();
 	private edgeLength: number = 100;
 	private chargeStrength: number = -100;
 
@@ -545,13 +545,10 @@ export class GraphView extends ItemView {
 		const minEF = d3.min(this.cardNodes, (d) => d.ef)!;
 		const maxEF = d3.max(this.cardNodes, (d) => d.ef)!;
 
-		if (minEF === maxEF) {
-			this.efColorScale.domain([minEF - 1, maxEF + 1]);
-		} else {
-			this.efColorScale.domain([minEF, maxEF]);
-		}
-
-		this.efColorScale.interpolate(d3.interpolateHcl);
+		this.efColorScale = d3
+			.scaleQuantize<string>()
+			.domain([minEF, maxEF])
+			.range(["red", "orange", "yellow", "green"]);
 
 		this.cardNodes.forEach((card) => {
 			if (card.ef !== undefined) {
