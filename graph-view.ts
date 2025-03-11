@@ -87,6 +87,12 @@ export class GraphView extends ItemView {
 			<div>
 				<button id="animateEF">Animate EF</button>
 			</div>
+			<div id="efProgressContainer">
+				<label>EF Animation Progress:
+					<progress id="efProgressBar" value="0" max="100"></progress>
+					<span id="efProgressLabel">0%</span>
+				</label>
+			</div>
 		`;
 
 		this.setupControlListeners(controlBox);
@@ -611,7 +617,6 @@ export class GraphView extends ItemView {
 					.range(card.efHistory.map((e) => e.ef))
 					.clamp(true);
 			} else if (card.efHistory && card.efHistory.length === 1) {
-				// If only one value exists, use a constant interpolator over the normalized timeline.
 				const constantEF = card.efHistory[0].ef;
 				card.efInterpolator = d3
 					.scaleLinear<number, number>()
@@ -637,6 +642,11 @@ export class GraphView extends ItemView {
 		// 4. Use d3.timer to update the animation.
 		const duration = 10000; // total animation duration in milliseconds
 		const timer = d3.timer((elapsed) => {
+			// Update the progress UI.
+			const progressPercent = Math.round((elapsed / duration) * 100);
+			d3.select("#efProgressBar").attr("value", progressPercent);
+			d3.select("#efProgressLabel").text(`${progressPercent}%`);
+
 			// Map elapsed time to our normalized EF timeline.
 			const t = (normalizedMaxTime * elapsed) / duration;
 
@@ -659,6 +669,9 @@ export class GraphView extends ItemView {
 
 			// Stop the timer once elapsed time exceeds the duration.
 			if (elapsed > duration) {
+				// Ensure progress is set to 100% at the end.
+				d3.select("#efProgressBar").attr("value", 100);
+				d3.select("#efProgressLabel").text(`100%`);
 				timer.stop();
 			}
 		});
