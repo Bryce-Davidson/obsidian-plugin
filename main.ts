@@ -711,7 +711,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 	 * Render only the card container according to current filters.
 	 */
 	renderUnifiedCards() {
-		// Clear the card container only.
 		this.cardContainerEl.empty();
 
 		let allCards: CardState[] = [];
@@ -1491,6 +1490,15 @@ export default class MyPlugin extends Plugin {
 	}
 
 	private registerEvents(): void {
+		this.registerEvent(
+			this.app.workspace.on("file-open", async (file: TFile) => {
+				if (file && file instanceof TFile) {
+					await syncFlashcardsForFile(this, file);
+					this.refreshUnifiedQueue();
+				}
+			})
+		);
+
 		this.registerEvent(
 			this.app.workspace.on("file-open", async (file: TFile) => {
 				if (file && file instanceof TFile) {
