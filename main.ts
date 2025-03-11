@@ -131,7 +131,10 @@ function ensureCardUUIDs(content: string): {
 			if (!cardTitle) {
 				const headingMatch = innerContent.match(/^(#+)\s+(.*)$/m);
 				if (headingMatch) {
-					cardTitle = headingMatch[2].trim();
+					// Remove any number prefix (e.g., "2. " or "2.1. ") from the heading text
+					cardTitle = headingMatch[2]
+						.replace(/^\d+(\.\d+)*\.\s*/, "")
+						.trim();
 				}
 			}
 
