@@ -112,36 +112,27 @@ function generateUUID(): string {
  * Scans a note’s content for [card] blocks.
  * If a card doesn't have an explicit title, it attempts to use the first markdown heading within the card.
  */
-/**
- * Scans a note’s content for [card] blocks.
- * Always ignores any title provided in the opening delimiter.
- * Instead, if no explicit title is provided in the tag, it attempts to use the first markdown header within the card.
- */
-function ensureCardUUIDs(
-	content: string,
-	noteTitle?: string
-): {
+function ensureCardUUIDs(content: string): {
 	updatedContent: string;
 	flashcards: Flashcard[];
 } {
 	const flashcards: Flashcard[] = [];
 	const regex =
-		/\[card(?:=([a-zA-Z0-9]+)(?:,[^\]]+)?\])?\]([\s\S]*?)\[\/card\]/gi;
+		/\[card(?:=([a-zA-Z0-9]+)(?:,([^\]]+))?)?\]([\s\S]*?)\[\/card\]/gi;
 	let updatedContent = content;
 	updatedContent = updatedContent.replace(
 		regex,
-		(match, uuid, innerContent, offset: number) => {
+		(match, uuid, cardTitle, innerContent, offset: number) => {
 			let cardUUID = uuid;
 			if (!cardUUID) {
 				cardUUID = generateUUID();
 			}
 
-			let cardTitle;
-			const headingMatch = innerContent.match(/^(#+)\s+(.*)$/m);
-			if (headingMatch) {
-				cardTitle = headingMatch[2].trim();
-			} else if (noteTitle) {
-				cardTitle = noteTitle;
+			if (!cardTitle) {
+				const headingMatch = innerContent.match(/^(#+)\s+(.*)$/m);
+				if (headingMatch) {
+					cardTitle = headingMatch[2].trim();
+				}
 			}
 
 			const lineNumber = content.substring(0, offset).split("\n").length;
@@ -195,7 +186,7 @@ async function syncFlashcardsForFile(
 				interval: 0,
 				ef: 2.5,
 				lastReviewDate: now,
-				createdAt: now, // <-- new createdAt property set here
+				createdAt: now,
 				nextReviewDate: addMinutes(
 					new Date(now),
 					LEARNING_STEPS[0]
@@ -1471,7 +1462,6 @@ export default class MyPlugin extends Plugin {
 
 		if (found) {
 			editor.setValue(newContent);
-			// Convert the wrapperStartOffset back to line and ch position in newContent.
 			const prefix = newContent.substring(0, wrapperStartOffset);
 			const prefixLines = prefix.split("\n");
 			const newLine = prefixLines.length - 1;
