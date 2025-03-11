@@ -4,6 +4,7 @@ import MyPlugin from "main";
 
 export const VIEW_TYPE_GRAPH = "graph-view";
 
+// Extend Node to include EF history and an optional interpolator.
 interface Node extends d3.SimulationNodeDatum {
 	id: string;
 	fileName?: string;
@@ -15,6 +16,8 @@ interface Node extends d3.SimulationNodeDatum {
 	offsetX?: number;
 	offsetY?: number;
 	ef?: number;
+	efHistory?: { ef: number; timestamp: number }[];
+	efInterpolator?: d3.ScaleLinear<number, number>;
 }
 
 interface Link extends d3.SimulationLinkDatum<Node> {
@@ -81,9 +84,20 @@ export class GraphView extends ItemView {
 					<span id="chargeForceValue">${this.chargeStrength}</span>
 				</label>
 			</div>
+			<div>
+				<button id="animateEF">Animate EF</button>
+			</div>
 		`;
 
 		this.setupControlListeners(controlBox);
+
+		const animateButton =
+			controlBox.querySelector<HTMLButtonElement>("#animateEF");
+		if (animateButton) {
+			animateButton.addEventListener("click", () =>
+				this.animateEFProgression()
+			);
+		}
 	}
 
 	private setupControlListeners(controlBox: HTMLDivElement) {
@@ -499,6 +513,11 @@ export class GraphView extends ItemView {
 		cardIds.forEach((cardId, index) => {
 			const cardData = cards[cardId];
 			const ef = cardData.ef;
+			// Convert efHistory timestamps from string to number (milliseconds)
+			const efHistory = (cardData.efHistory || []).map((entry: any) => ({
+				timestamp: Date.parse(entry.timestamp),
+				ef: entry.ef,
+			}));
 			const angle = (2 * Math.PI * index) / count;
 			const offset = 30;
 
@@ -513,6 +532,7 @@ export class GraphView extends ItemView {
 				offsetX: Math.cos(angle) * offset,
 				offsetY: Math.sin(angle) * offset,
 				ef: ef,
+				efHistory: efHistory,
 			};
 
 			this.cardNodes.push(cardNode);
@@ -562,6 +582,88 @@ export class GraphView extends ItemView {
 		if (file instanceof TFile) {
 			this.app.workspace.getLeaf().openFile(file);
 		}
+	}
+
+	// Animation of EF progression over time
+	private animateEFProgression() {
+		// 1. Gather all timestamps from all card histories
+		let allTimestamps: number[] = [];
+		this.cardNodes.forEach((card) => {
+			if (card.efHistory && card.efHistory.length > 0) {
+				card.efHistory.forEach((entry) => {
+					allTimestamps.push(entry.timestamp);
+				});
+			}
+		});
+
+		if (allTimestamps.length === 0) return;
+
+		// Determine the min and max timestamps for the animation timeline.
+		const minTime = d3.min(allTimestamps)!;
+		const maxTime = d3.max(allTimestamps)!;
+
+		// 2. Create or update the interpolator for each card’s EF history.
+		this.cardNodes.forEach((card) => {
+			if (card.efHistory && card.efHistory.length >= 2) {
+				// Sort the history by timestamp.
+				card.efHistory.sort((a, b) => a.timestamp - b.timestamp);
+				card.efInterpolator = d3
+					.scaleLinear<number, number>()
+					.domain(card.efHistory.map((e) => e.timestamp))
+					.range(card.efHistory.map((e) => e.ef))
+					.clamp(true);
+			} else if (card.efHistory && card.efHistory.length === 1) {
+				// If only one value exists, use a constant interpolator.
+				const constantEF = card.efHistory[0].ef;
+				card.efInterpolator = d3
+					.scaleLinear<number, number>()
+					.domain([minTime, maxTime])
+					.range([constantEF, constantEF]);
+			}
+		});
+
+		// 3. (Optional) Recalculate the global EF domain based on the animated values.
+		const allEFs = this.cardNodes.flatMap((card) =>
+			card.efHistory ? card.efHistory.map((e) => e.ef) : []
+		);
+		if (allEFs.length > 0) {
+			const globalMinEF = d3.min(allEFs)!;
+			const globalMaxEF = d3.max(allEFs)!;
+			if (globalMinEF === globalMaxEF) {
+				this.efColorScale.domain([globalMinEF - 1, globalMaxEF + 1]);
+			} else {
+				this.efColorScale.domain([globalMinEF, globalMaxEF]);
+			}
+		}
+
+		// 4. Use d3.timer to update the animation.
+		const duration = 10000; // total animation duration in milliseconds
+		const timer = d3.timer((elapsed) => {
+			// Map elapsed time to our EF history timeline.
+			const t = minTime + ((maxTime - minTime) * elapsed) / duration;
+
+			// Update each card’s EF and color based on the interpolator.
+			this.cardNodes.forEach((card) => {
+				if (card.efInterpolator) {
+					const currentEF = card.efInterpolator(t);
+					card.ef = currentEF;
+					card.color = this.efColorScale(currentEF);
+				}
+			});
+
+			// Redraw the card nodes with the updated color.
+			this.container
+				.selectAll<SVGCircleElement, Node>(".card-node")
+				.attr("fill", (d) => {
+					const card = this.cardNodes.find((c) => c.id === d.id);
+					return card ? card.color : d.color;
+				});
+
+			// Stop the timer once elapsed time exceeds the duration.
+			if (elapsed > duration) {
+				timer.stop();
+			}
+		});
 	}
 
 	async onClose() {
