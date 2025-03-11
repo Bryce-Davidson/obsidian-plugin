@@ -983,6 +983,7 @@ class FlashcardModal extends Modal {
 			cls: "flashcard-content-container",
 		});
 
+		// Top section with progress bar and counter.
 		const topSection = container.createDiv({
 			cls: "flashcard-top-section",
 		});
@@ -993,7 +994,7 @@ class FlashcardModal extends Modal {
 			cls: "flashcard-progress-bar",
 		});
 		progressBar.style.width = "0%";
-		// Create the progress counter and add a click handler.
+
 		this.progressCounter = topSection.createDiv({
 			cls: "flashcard-progress-counter",
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
@@ -1019,16 +1020,17 @@ class FlashcardModal extends Modal {
 			}
 		});
 
-		// Remove header creation since we're not showing the note title.
-		// Instead, we rely solely on the progress counter for navigation.
-
+		// Render the flashcard content.
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
 		this.renderCard(cardContainer);
 
+		// Bottom row with navigation buttons and rating tray.
 		const bottomRow = container.createDiv({ cls: "flashcard-bottom-row" });
 		const leftContainer = bottomRow.createDiv({
 			cls: "flashcard-left-container",
 		});
+
+		// "Stop" button.
 		const stopButton = leftContainer.createEl("button", {
 			text: "Stop",
 			cls: "flashcard-nav-button stop-button",
@@ -1066,6 +1068,65 @@ class FlashcardModal extends Modal {
 			}
 		});
 
+		// NEW: "Reset" button.
+		const resetButton = leftContainer.createEl("button", {
+			text: "Reset",
+			cls: "flashcard-nav-button reset-button",
+		});
+		resetButton.addEventListener("click", async () => {
+			const currentFlashcard = this.flashcards[this.currentIndex];
+			const found = findCardStateAndFile(
+				this.plugin,
+				currentFlashcard.uuid
+			);
+			if (!found) {
+				new Notice("Card state not found.");
+				return;
+			}
+			const { filePath, card } = found;
+			const now = new Date();
+
+			// Reset EF rating and scheduling values.
+			card.ef = 2.5;
+			card.repetition = 0;
+			card.interval = 0;
+			card.lastReviewDate = now.toISOString();
+			card.nextReviewDate = addMinutes(
+				now,
+				LEARNING_STEPS[0]
+			).toISOString();
+			card.active = true;
+
+			// Preserve history by appending a new record.
+			if (!card.efHistory) {
+				card.efHistory = [];
+			}
+			card.efHistory.push({
+				timestamp: now.toISOString(),
+				ef: card.ef,
+			});
+
+			await this.plugin.savePluginData();
+			new Notice("Card EF rating reset successfully.");
+			this.plugin.refreshUnifiedQueue();
+
+			// Optionally, move to the next flashcard.
+			if (this.currentIndex < this.flashcards.length - 1) {
+				this.currentIndex++;
+				const cardContainer = this.contentEl.querySelector(
+					".flashcard-card"
+				) as HTMLElement;
+				this.renderCard(cardContainer);
+				const progressBar = this.contentEl.querySelector(
+					".flashcard-progress-bar"
+				) as HTMLElement;
+				this.updateProgressBar(progressBar);
+			} else {
+				this.close();
+			}
+		});
+
+		// Rating buttons.
 		const ratingTray = bottomRow.createDiv({
 			cls: "flashcard-rating-tray",
 		});

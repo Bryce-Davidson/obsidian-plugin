@@ -439,7 +439,7 @@
 /* Navigation buttons container */
 .flashcard-nav-buttons {
 	display: flex;
-	gap: 10px;
+	gap: 1em;
 	flex: 0 1 auto;
 }
 
@@ -536,6 +536,7 @@
 .flashcard-left-container,
 .flashcard-right-container {
 	display: flex;
+	gap: 1em;
 	align-items: center;
 }
 
