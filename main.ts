@@ -40,7 +40,7 @@ interface CardState {
 	efHistory?: { timestamp: string; ef: number }[];
 	cardTitle?: string;
 	line?: number;
-	createdAt: string; // <-- new property added
+	createdAt: string;
 }
 
 interface MyPluginSettings {
@@ -1017,8 +1017,6 @@ class FlashcardModal extends Modal {
 			});
 		});
 
-		// Removed the Card button block from the right container
-
 		this.updateProgressBar(progressBar);
 		setTimeout(() => {
 			if (document.activeElement instanceof HTMLElement) {
@@ -1032,7 +1030,6 @@ class FlashcardModal extends Modal {
 		this.modalHeaderEl.empty();
 		const titleText =
 			currentFlashcard.cardTitle || currentFlashcard.noteTitle || "";
-		// Create the title element and make it clickable
 		const titleEl = this.modalHeaderEl.createEl("h2", {
 			cls: "flashcard-modal-note-title",
 			text: titleText,
@@ -1253,9 +1250,11 @@ export default class MyPlugin extends Plugin {
 			el.innerHTML = el.innerHTML.replace(/\[\/?card(?:=[^\]]+)?\]/g, "");
 		});
 
+		// Register post-processor for inline hide, math blocks, and multi-line hide blocks.
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
 			processMathBlocks(element);
+			processCustomHiddenCodeBlocks(element, this);
 		});
 	}
 
@@ -1662,6 +1661,9 @@ export default class MyPlugin extends Plugin {
  * POST-PROCESSORS
  * ========================================================================== */
 
+/**
+ * Processes inline [hide]…[/hide] markers.
+ */
 function processCustomHiddenText(rootEl: HTMLElement): void {
 	const elements = rootEl.querySelectorAll("*");
 	elements.forEach((element) => {
@@ -1714,6 +1716,9 @@ function processCustomHiddenText(rootEl: HTMLElement): void {
 	});
 }
 
+/**
+ * Processes math blocks to wrap multiple inline math elements.
+ */
 function processMathBlocks(rootEl: HTMLElement): void {
 	rootEl.querySelectorAll("p").forEach((paragraph) => {
 		const mathBlocks = Array.from(
@@ -1726,6 +1731,69 @@ function processMathBlocks(rootEl: HTMLElement): void {
 				wrapper.appendChild(paragraph.firstChild);
 			}
 			paragraph.replaceWith(wrapper);
+		}
+	});
+}
+
+/**
+ * Processes multi-line hide blocks written as code fences.
+ * This function finds <pre><code> elements whose class name starts with
+ * "language-hide" (which covers both "hide" and "hide=2" variants),
+ * renders the markdown (including math) inside, and replaces the code block
+ * with a div that has the appropriate classes for show/hide functionality.
+ */
+function processCustomHiddenCodeBlocks(
+	rootEl: HTMLElement,
+	plugin: MyPlugin
+): void {
+	const codeBlocks = rootEl.querySelectorAll(
+		"pre code[class^='language-hide']"
+	);
+	codeBlocks.forEach((codeBlock) => {
+		let group: string | null = null;
+		codeBlock.classList.forEach((cls) => {
+			const match = cls.match(/^language-hide=(\d+)$/);
+			if (match) {
+				group = match[1];
+			}
+		});
+		const source = codeBlock.textContent || "";
+		const container = document.createElement("div");
+		container.classList.add("hidden-note");
+		if (group) {
+			container.classList.add("group-hide");
+			container.setAttribute("data-group", group);
+		}
+		container.classList.add("toggle-hidden");
+
+		MarkdownRenderer.render(this.app, source, container, "", plugin);
+
+		container.addEventListener("click", function () {
+			if (container.classList.contains("group-hide")) {
+				const grp = container.getAttribute("data-group");
+				if (grp) {
+					const groupElements = document.querySelectorAll(
+						`.group-hide[data-group="${grp}"]`
+					);
+					const isHidden =
+						groupElements[0].classList.contains("toggle-hidden");
+					groupElements.forEach((elem) => {
+						if (isHidden) {
+							elem.classList.remove("toggle-hidden");
+						} else {
+							elem.classList.add("toggle-hidden");
+						}
+					});
+				}
+			} else {
+				container.classList.toggle("toggle-hidden");
+			}
+		});
+
+		// Replace the entire code block (the <pre> element) with our container.
+		const pre = codeBlock.parentElement;
+		if (pre && pre.parentElement) {
+			pre.parentElement.replaceChild(container, pre);
 		}
 	});
 }
