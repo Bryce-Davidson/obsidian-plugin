@@ -1560,7 +1560,7 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async activateGraphView() {
-		const newLeaf = this.app.workspace.splitActiveLeaf();
+		const newLeaf = this.app.workspace.getLeaf(true);
 		await newLeaf.setViewState({
 			type: VIEW_TYPE_GRAPH,
 			active: true,
