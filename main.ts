@@ -831,7 +831,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			// Append the "Reset Filtered" button after all cards.
 			const resetButton = this.cardContainerEl.createEl("button", {
 				cls: "filter-reset-button",
-				text: "Reset Filtered",
+				text: "Reset Cards",
 			});
 			resetButton.addEventListener("click", async () => {
 				if (
