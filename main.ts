@@ -634,7 +634,28 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		// Tag filter.
 		const tagSelect = this.controlsContainerEl.createEl("select");
 		tagSelect.createEl("option", { text: "All Tags", value: "all" });
-		// ... [rest of tag filter population code remains unchanged] ...
+
+		// Populate the dropdown with unique tags from all notes.
+		const uniqueTags = new Set<string>();
+		for (const notePath in this.plugin.notes) {
+			const file = this.plugin.app.vault.getAbstractFileByPath(notePath);
+			if (file && file instanceof TFile) {
+				const fileCache =
+					this.plugin.app.metadataCache.getFileCache(file);
+				const tags = fileCache?.frontmatter?.tags;
+				if (tags) {
+					if (Array.isArray(tags)) {
+						tags.forEach((tag) => uniqueTags.add(tag));
+					} else {
+						uniqueTags.add(tags);
+					}
+				}
+			}
+		}
+		uniqueTags.forEach((tag) => {
+			tagSelect.createEl("option", { text: `#${tag}`, value: tag });
+		});
+
 		tagSelect.value = this.tagFilter;
 		tagSelect.addEventListener("change", () => {
 			this.tagFilter = tagSelect.value;
