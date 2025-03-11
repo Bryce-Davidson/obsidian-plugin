@@ -494,7 +494,7 @@ export abstract class BaseSidebarView extends ItemView {
 				const formattedNextReview = formatReviewDate(nextReview, now);
 				metaContainer.createEl("div", {
 					cls: "review-interval",
-					text: formattedNextReview,
+					text: `Next: ${formattedNextReview}`,
 				});
 			} else {
 				// Due: display the last review date using our custom formatting.
@@ -502,7 +502,7 @@ export abstract class BaseSidebarView extends ItemView {
 				const formattedLastReview = formatReviewDate(lastReview, now);
 				metaContainer.createEl("div", {
 					cls: "review-interval",
-					text: formattedLastReview,
+					text: `Last: ${formattedLastReview}`,
 				});
 			}
 		}
@@ -1560,18 +1560,12 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async activateGraphView() {
-		const { workspace } = this.app;
-		let leaf = workspace.getLeavesOfType(VIEW_TYPE_GRAPH)[0];
-
-		if (!leaf) {
-			leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf();
-			await leaf.setViewState({
-				type: VIEW_TYPE_GRAPH,
-				active: true,
-			});
-		}
-
-		workspace.revealLeaf(leaf);
+		const newLeaf = this.app.workspace.splitActiveLeaf();
+		await newLeaf.setViewState({
+			type: VIEW_TYPE_GRAPH,
+			active: true,
+		});
+		this.app.workspace.revealLeaf(newLeaf);
 	}
 
 	async activateUnifiedQueue() {
