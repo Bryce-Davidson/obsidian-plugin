@@ -40,6 +40,7 @@ interface CardState {
 	efHistory?: { timestamp: string; ef: number }[];
 	cardTitle?: string;
 	line?: number;
+	createdAt: string; // <-- new property added
 }
 
 interface MyPluginSettings {
@@ -176,6 +177,7 @@ async function syncFlashcardsForFile(
 				interval: 0,
 				ef: 2.5,
 				lastReviewDate: now,
+				createdAt: now, // <-- new createdAt property set here
 				nextReviewDate: addMinutes(
 					new Date(now),
 					LEARNING_STEPS[0]
@@ -240,6 +242,7 @@ function updateCardState(
 			ef: state.ef,
 			cardTitle: state.cardTitle,
 			line: state.line,
+			createdAt: state.createdAt,
 		};
 	}
 
@@ -1294,7 +1297,6 @@ export default class MyPlugin extends Plugin {
 					if (activeFile && activeFile instanceof TFile) {
 						await syncFlashcardsForFile(this, activeFile);
 						this.refreshUnifiedQueue();
-						this.refreshGraphView();
 					}
 				} else {
 					new Notice("Please select some text first");

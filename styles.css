@@ -526,3 +526,30 @@
 		pointer-events: none !important;
 	}
 }
+
+/* Graph View Control Box */
+.graph-view-controls {
+	position: absolute;
+	top: 10px;
+	left: 10px;
+	padding: 10px;
+	background-color: rgba(255, 255, 255, 0.8);
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	z-index: 10; /* Ensure controls are above the SVG */
+}
+
+.graph-view-controls label {
+	font-size: 0.9rem;
+	color: var(--text-normal);
+}
+
+.graph-view-controls input[type="range"] {
+	vertical-align: middle;
+	margin: 0 5px;
+}
+
+/* Optional: Adjust spacing between control rows */
+.graph-view-controls > div {
+	margin-bottom: 8px;
+}

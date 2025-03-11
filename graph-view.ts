@@ -38,6 +38,10 @@ export class GraphView extends ItemView {
 	private colorScale = d3.scaleOrdinal(d3.schemeCategory10);
 	private efColorScale = d3.scaleLinear<string>().range(["red", "green"]);
 
+	// New parameters for controls.
+	private edgeLength: number = 100;
+	private chargeStrength: number = -100;
+
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -59,6 +63,9 @@ export class GraphView extends ItemView {
 		const containerEl = this.containerEl;
 		containerEl.empty();
 		containerEl.addClass("graph-view-container");
+
+		// Initialize the control box.
+		this.initControls();
 
 		// Create the SVG container.
 		this.svg = d3
@@ -100,6 +107,72 @@ export class GraphView extends ItemView {
 				this.refreshGraphView();
 			})
 		);
+	}
+
+	/**
+	 * Initializes the control box with sliders to adjust the edge length and charge force.
+	 * The control box styling is defined in CSS.
+	 */
+	private initControls() {
+		const containerEl = this.containerEl;
+		// Create a div for controls and add a CSS class for styling.
+		const controlBox = containerEl.createDiv("graph-view-controls");
+
+		controlBox.innerHTML = `
+			<div>
+				<label>Edge Length:
+					<input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" />
+					<span id="edgeLengthValue">${this.edgeLength}</span>
+				</label>
+			</div>
+			<div>
+				<label>Charge Force:
+					<input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" />
+					<span id="chargeForceValue">${this.chargeStrength}</span>
+				</label>
+			</div>
+		`;
+
+		const edgeLengthInput =
+			controlBox.querySelector<HTMLInputElement>("#edgeLengthInput");
+		const chargeForceInput =
+			controlBox.querySelector<HTMLInputElement>("#chargeForceInput");
+		const edgeLengthValue =
+			controlBox.querySelector<HTMLSpanElement>("#edgeLengthValue");
+		const chargeForceValue =
+			controlBox.querySelector<HTMLSpanElement>("#chargeForceValue");
+
+		if (edgeLengthInput && edgeLengthValue) {
+			edgeLengthInput.addEventListener("input", () => {
+				const val = parseInt(edgeLengthInput.value);
+				this.edgeLength = val;
+				edgeLengthValue.textContent = val.toString();
+				if (this.simulation) {
+					(
+						this.simulation.force("link") as d3.ForceLink<
+							Node,
+							Link
+						>
+					).distance(val);
+					this.simulation.alpha(0.3).restart();
+				}
+			});
+		}
+		if (chargeForceInput && chargeForceValue) {
+			chargeForceInput.addEventListener("input", () => {
+				const val = parseInt(chargeForceInput.value);
+				this.chargeStrength = val;
+				chargeForceValue.textContent = val.toString();
+				if (this.simulation) {
+					(
+						this.simulation.force(
+							"charge"
+						) as d3.ForceManyBody<Node>
+					).strength(val);
+					this.simulation.alpha(0.3).restart();
+				}
+			});
+		}
 	}
 
 	// Refresh method: updates only the nodes/links that require updating.
@@ -307,34 +380,14 @@ export class GraphView extends ItemView {
 				d3
 					.forceLink<Node, Link>(this.links)
 					.id((d: Node) => d.id)
-					.distance(100)
+					.distance(this.edgeLength)
 			)
-			.force("charge", d3.forceManyBody().strength(-100))
+			.force("charge", d3.forceManyBody().strength(this.chargeStrength))
 			.force("center", d3.forceCenter(width / 2, height / 2))
 			.force("x", d3.forceX(width / 2).strength(0.1))
 			.force("y", d3.forceY(height / 2).strength(0.1))
 			.force("collide", d3.forceCollide().radius(30))
 			.on("tick", () => this.ticked());
-
-		this.simulation.on("end", () => {
-			const xExtent = d3.extent(this.noteNodes, (d: Node) => d.x) as [
-				number,
-				number
-			];
-			const yExtent = d3.extent(this.noteNodes, (d: Node) => d.y) as [
-				number,
-				number
-			];
-			const centerX = (xExtent[0] + xExtent[1]) / 2;
-			const centerY = (yExtent[0] + yExtent[1]) / 2;
-			const transform = d3.zoomIdentity
-				.translate(width / 2 - centerX, height / 2 - centerY)
-				.scale(0.8);
-			this.svg
-				.transition()
-				.duration(750)
-				.call(this.zoom.transform, transform);
-		});
 	}
 
 	ticked() {
