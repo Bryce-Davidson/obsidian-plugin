@@ -1469,7 +1469,7 @@ export default class MyPlugin extends Plugin {
 			line.slice(0, startIndex) +
 			line.slice(startIndex + hideTag.length, endIndex) +
 			line.slice(endIndex + "[/hide]".length);
-		editor.setValue(newLine);
+		editor.setLine(cursor.line, newLine);
 		new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
 	}
 
