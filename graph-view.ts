@@ -601,6 +601,7 @@ export class GraphView extends ItemView {
 		// Determine the min and max timestamps for the animation timeline.
 		const minTime = d3.min(allTimestamps)!;
 		const maxTime = d3.max(allTimestamps)!;
+		const normalizedMaxTime = maxTime - minTime;
 
 		// 2. Create or update the interpolator for each card’s EF history.
 		this.cardNodes.forEach((card) => {
@@ -609,15 +610,15 @@ export class GraphView extends ItemView {
 				card.efHistory.sort((a, b) => a.timestamp - b.timestamp);
 				card.efInterpolator = d3
 					.scaleLinear<number, number>()
-					.domain(card.efHistory.map((e) => e.timestamp))
+					.domain(card.efHistory.map((e) => e.timestamp - minTime))
 					.range(card.efHistory.map((e) => e.ef))
 					.clamp(true);
 			} else if (card.efHistory && card.efHistory.length === 1) {
-				// If only one value exists, use a constant interpolator.
+				// If only one value exists, use a constant interpolator over the normalized timeline.
 				const constantEF = card.efHistory[0].ef;
 				card.efInterpolator = d3
 					.scaleLinear<number, number>()
-					.domain([minTime, maxTime])
+					.domain([0, normalizedMaxTime])
 					.range([constantEF, constantEF]);
 			}
 		});
@@ -639,8 +640,8 @@ export class GraphView extends ItemView {
 		// 4. Use d3.timer to update the animation.
 		const duration = 10000; // total animation duration in milliseconds
 		const timer = d3.timer((elapsed) => {
-			// Map elapsed time to our EF history timeline.
-			const t = minTime + ((maxTime - minTime) * elapsed) / duration;
+			// Map elapsed time to our normalized EF timeline.
+			const t = (normalizedMaxTime * elapsed) / duration;
 
 			// Update each card’s EF and color based on the interpolator.
 			this.cardNodes.forEach((card) => {
