@@ -108,22 +108,42 @@ function generateUUID(): string {
 /**
  * Scans a note’s content for [card] blocks.
  */
-function ensureCardUUIDs(content: string): {
+/**
+ * Scans a note’s content for [card] blocks.
+ * If a card doesn't have an explicit title, it attempts to use the first markdown heading within the card.
+ */
+/**
+ * Scans a note’s content for [card] blocks.
+ * Always ignores any title provided in the opening delimiter.
+ * Instead, if no explicit title is provided in the tag, it attempts to use the first markdown header within the card.
+ */
+function ensureCardUUIDs(
+	content: string,
+	noteTitle?: string
+): {
 	updatedContent: string;
 	flashcards: Flashcard[];
 } {
 	const flashcards: Flashcard[] = [];
 	const regex =
-		/\[card(?:=([a-zA-Z0-9]+)(?:,([^\]]+))?)?\]([\s\S]*?)\[\/card\]/gi;
+		/\[card(?:=([a-zA-Z0-9]+)(?:,[^\]]+)?\])?\]([\s\S]*?)\[\/card\]/gi;
 	let updatedContent = content;
 	updatedContent = updatedContent.replace(
 		regex,
-		(match, uuid, cardTitle, innerContent, offset: number) => {
+		(match, uuid, innerContent, offset: number) => {
 			let cardUUID = uuid;
 			if (!cardUUID) {
 				cardUUID = generateUUID();
 			}
-			// Calculate line number.
+
+			let cardTitle;
+			const headingMatch = innerContent.match(/^(#+)\s+(.*)$/m);
+			if (headingMatch) {
+				cardTitle = headingMatch[2].trim();
+			} else if (noteTitle) {
+				cardTitle = noteTitle;
+			}
+
 			const lineNumber = content.substring(0, offset).split("\n").length;
 			flashcards.push({
 				uuid: cardUUID,
@@ -131,9 +151,7 @@ function ensureCardUUIDs(content: string): {
 				cardTitle: cardTitle ? cardTitle.trim() : undefined,
 				line: lineNumber,
 			});
-			return `[card=${cardUUID}${
-				cardTitle ? "," + cardTitle.trim() : ""
-			}]${innerContent}[/card]`;
+			return `[card=${cardUUID}]${innerContent}[/card]`;
 		}
 	);
 	return { updatedContent, flashcards };
@@ -913,7 +931,8 @@ class FlashcardModal extends Modal {
 	plugin: MyPlugin;
 	feedbackContainer: HTMLElement | null = null;
 	progressCounter: HTMLElement | null = null;
-	modalHeaderEl: HTMLElement | null = null;
+	// Remove modalHeaderEl since we no longer show a title.
+	// modalHeaderEl: HTMLElement | null = null;
 
 	constructor(
 		app: App,
@@ -945,20 +964,39 @@ class FlashcardModal extends Modal {
 			cls: "flashcard-progress-bar",
 		});
 		progressBar.style.width = "0%";
+		// Create the progress counter and add a click handler.
 		this.progressCounter = topSection.createDiv({
 			cls: "flashcard-progress-counter",
 			text: `${this.currentIndex + 1} / ${this.flashcards.length}`,
 		});
-
-		this.modalHeaderEl = topSection.createEl("div", {
-			cls: "flashcard-modal-header",
+		this.progressCounter.addEventListener("click", () => {
+			// Navigate to the current flashcard's location.
+			const currentFlashcard = this.flashcards[this.currentIndex];
+			if (currentFlashcard.filePath && currentFlashcard.line) {
+				const file = this.plugin.app.vault.getAbstractFileByPath(
+					currentFlashcard.filePath
+				);
+				if (file && file instanceof TFile) {
+					const options = {
+						eState: { line: currentFlashcard.line - 1, ch: 0 },
+					};
+					this.plugin.app.workspace.getLeaf().openFile(file, options);
+					this.close();
+				}
+			} else {
+				new Notice(
+					"No location information available for this flashcard."
+				);
+			}
 		});
+
+		// Remove header creation since we're not showing the note title.
+		// Instead, we rely solely on the progress counter for navigation.
 
 		const cardContainer = container.createDiv({ cls: "flashcard-card" });
 		this.renderCard(cardContainer);
 
 		const bottomRow = container.createDiv({ cls: "flashcard-bottom-row" });
-
 		const leftContainer = bottomRow.createDiv({
 			cls: "flashcard-left-container",
 		});
@@ -1025,50 +1063,7 @@ class FlashcardModal extends Modal {
 		}, 0);
 	}
 
-	renderHeader(currentFlashcard: Flashcard) {
-		if (!this.modalHeaderEl) return;
-		this.modalHeaderEl.empty();
-		const titleText =
-			currentFlashcard.cardTitle || currentFlashcard.noteTitle || "";
-		const titleEl = this.modalHeaderEl.createEl("h2", {
-			cls: "flashcard-modal-note-title",
-			text: titleText,
-		});
-		titleEl.style.cursor = "pointer";
-		titleEl.addEventListener("click", () => {
-			if (currentFlashcard.filePath && currentFlashcard.line) {
-				const file = this.plugin.app.vault.getAbstractFileByPath(
-					currentFlashcard.filePath
-				);
-				if (file && file instanceof TFile) {
-					const options = {
-						eState: { line: currentFlashcard.line - 1, ch: 0 },
-					};
-					this.plugin.app.workspace.getLeaf().openFile(file, options);
-				}
-			}
-			this.close();
-		});
-
-		let tagText = "";
-		if (currentFlashcard.filePath) {
-			const file = this.plugin.app.vault.getAbstractFileByPath(
-				currentFlashcard.filePath
-			);
-			if (file && file instanceof TFile) {
-				const fileCache =
-					this.plugin.app.metadataCache.getFileCache(file);
-				const tags = fileCache?.frontmatter?.tags;
-				tagText = tags ? (Array.isArray(tags) ? tags[0] : tags) : "";
-			}
-		}
-		if (tagText) {
-			this.modalHeaderEl.createEl("span", {
-				cls: "flashcard-note-tag",
-				text: `#${tagText}`,
-			});
-		}
-	}
+	// Remove renderHeader method since we're no longer showing the title.
 
 	renderCard(cardContainer: HTMLElement) {
 		cardContainer.empty();
@@ -1077,9 +1072,7 @@ class FlashcardModal extends Modal {
 			this.currentIndex < this.flashcards.length
 		) {
 			const currentFlashcard = this.flashcards[this.currentIndex];
-			if (this.showNoteTitle) {
-				this.renderHeader(currentFlashcard);
-			}
+			// Removed note title rendering.
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
@@ -1319,6 +1312,21 @@ export default class MyPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "resync-cards-current-note",
+			name: "Resync Flashcards in Current Note",
+			editorCallback: async (editor: Editor, view: MarkdownView) => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (!activeFile || !(activeFile instanceof TFile)) {
+					new Notice("No active note open to sync flashcards.");
+					return;
+				}
+				await syncFlashcardsForFile(this, activeFile);
+				new Notice("Flashcards resynced for the current note.");
+				this.refreshUnifiedQueue();
+			},
+		});
+
+		this.addCommand({
 			id: "open-unified-queue",
 			name: "Open Unified Queue",
 			callback: () => this.activateUnifiedQueue(),
@@ -1424,28 +1432,55 @@ export default class MyPlugin extends Plugin {
 	}
 
 	deleteCardWrappers(editor: Editor) {
+		// Get the full content of the document.
+		const content = editor.getValue();
 		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const startMatches = [
-			...line.substring(0, cursor.ch).matchAll(/\[card(?:=[^\]]+)?\]/g),
-		];
-		const startMatch =
-			startMatches.length > 0
-				? startMatches[startMatches.length - 1]
-				: null;
-		const startIndex = startMatch ? startMatch.index : -1;
-		const endIndex = line.indexOf("[/card]", cursor.ch);
-		if (startIndex === -1 || endIndex === -1) {
-			new Notice("Cursor is not inside a [card]...[/card] block.");
-			return;
+		// Compute the cursor's offset (i.e. its character index) in the entire content.
+		const lines = content.split("\n");
+		let offset = 0;
+		for (let i = 0; i < cursor.line; i++) {
+			offset += lines[i].length + 1; // +1 for the newline
 		}
-		const cardTag = startMatch ? startMatch[0] : "[card]";
-		const newLine =
-			line.slice(0, startIndex) +
-			line.slice(startIndex + cardTag.length, endIndex) +
-			line.slice(endIndex + "[/card]".length);
-		editor.setLine(cursor.line, newLine);
-		new Notice(`Removed ${cardTag}...[/card] wrappers.`);
+		offset += cursor.ch;
+
+		// Regex to match a card block that uses the [card=UUID] syntax.
+		// It captures everything between the opening and closing tags.
+		const regex = /\[card=[A-Za-z0-9]+\]([\s\S]*?)\[\/card\]/g;
+		let match: RegExpExecArray | null;
+		let found = false;
+		let newContent = content;
+		let wrapperStartOffset = 0;
+		// Loop over all card blocks.
+		while ((match = regex.exec(content)) !== null) {
+			const start = match.index;
+			const end = regex.lastIndex;
+			// If the cursor offset is within this match...
+			if (offset >= start && offset <= end) {
+				// Remember where the opening wrapper starts.
+				wrapperStartOffset = start;
+				// Remove the wrappers and keep only the inner content.
+				const inner = match[1];
+				newContent =
+					newContent.substring(0, start) +
+					inner +
+					newContent.substring(end);
+				found = true;
+				break;
+			}
+		}
+
+		if (found) {
+			editor.setValue(newContent);
+			// Convert the wrapperStartOffset back to line and ch position in newContent.
+			const prefix = newContent.substring(0, wrapperStartOffset);
+			const prefixLines = prefix.split("\n");
+			const newLine = prefixLines.length - 1;
+			const newCh = prefixLines[prefixLines.length - 1].length;
+			editor.setCursor({ line: newLine, ch: newCh });
+			new Notice("Removed [card][/card] wrappers.");
+		} else {
+			new Notice("Cursor is not inside a [card]...[/card] block.");
+		}
 	}
 
 	deleteHideWrappers(editor: Editor) {

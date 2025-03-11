@@ -375,6 +375,16 @@
 	overflow: hidden;
 }
 
+.flashcard-progress-counter {
+	font-size: 14px;
+	color: var(--text-normal);
+	text-align: center;
+	margin-top: 8px;
+	width: 100%;
+	display: block;
+	cursor: pointer;
+}
+
 .flashcard-progress-bar {
 	height: 100%;
 	background-color: var(--interactive-accent);
