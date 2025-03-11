@@ -605,7 +605,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			cls: "mode-button-container",
 		});
 
-		// Due and Scheduled buttons.
+		// Due, Scheduled, and Note buttons.
 		const dueButton = modeButtonContainer.createEl("button", {
 			cls:
 				"mode-button" +
@@ -618,7 +618,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				(this.filterMode === "scheduled" ? " active-mode" : ""),
 			text: "Scheduled",
 		});
-		// NEW: "Note" button
 		const noteButton = modeButtonContainer.createEl("button", {
 			cls:
 				"mode-button" +
@@ -648,9 +647,9 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			this.renderUnifiedCards();
 		});
 
-		// Review Button placed with the mode buttons.
+		// Review button.
 		const reviewButton = modeButtonContainer.createEl("button", {
-			cls: "review-button", // New custom class for distinct styling.
+			cls: "review-button",
 			text: "Review",
 		});
 		reviewButton.addEventListener("click", () => {
@@ -660,8 +659,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		// Tag filter.
 		const tagSelect = this.controlsContainerEl.createEl("select");
 		tagSelect.createEl("option", { text: "All Tags", value: "all" });
-
-		// Populate the dropdown with unique tags from all notes.
 		const uniqueTags = new Set<string>();
 		for (const notePath in this.plugin.notes) {
 			const file = this.plugin.app.vault.getAbstractFileByPath(notePath);
@@ -681,16 +678,15 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		uniqueTags.forEach((tag) => {
 			tagSelect.createEl("option", { text: `#${tag}`, value: tag });
 		});
-
 		tagSelect.value = this.tagFilter;
 		tagSelect.addEventListener("change", () => {
 			this.tagFilter = tagSelect.value;
 			this.renderUnifiedCards();
 		});
 
-		// Search input with custom styling.
+		// Search input.
 		const searchInput = this.controlsContainerEl.createEl("input", {
-			cls: "filter-search", // Custom class for styling
+			cls: "filter-search",
 			attr: { placeholder: "Search..." },
 		});
 		searchInput.value = this.searchText;
@@ -699,7 +695,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			this.renderUnifiedCards();
 		});
 
-		// Create a persistent card container.
+		// Create the persistent card container.
 		this.cardContainerEl = container.createEl("div", {
 			cls: "card-container",
 		});
@@ -717,11 +713,9 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		for (const note of Object.values(this.plugin.notes)) {
 			allCards.push(...Object.values(note.cards));
 		}
-
 		const now = new Date();
 		let filteredCards = allCards;
 
-		// If "Note" mode is active, show ALL cards from the currently open note.
 		if (this.filterMode === "note") {
 			const activeFile = this.plugin.app.workspace.getActiveFile();
 			if (activeFile) {
@@ -732,7 +726,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 						) === activeFile.path
 				);
 			} else {
-				// If no active file, show nothing.
 				filteredCards = [];
 			}
 		} else {
@@ -778,7 +771,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			}
 		}
 
-		// Sort only for "Due" and "Scheduled" views (not for "Note" mode).
+		// Sort for "Due" and "Scheduled" modes.
 		if (this.filterMode !== "note") {
 			filteredCards.sort((a, b) => {
 				const aDate = a.nextReviewDate
@@ -792,7 +785,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			});
 		}
 
-		// If no cards, show an empty state message.
 		if (filteredCards.length === 0) {
 			this.cardContainerEl.createEl(
 				"div",
@@ -803,6 +795,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				}
 			);
 		} else {
+			// Render each card.
 			filteredCards.forEach((cardState) => {
 				const file = this.plugin.app.vault.getAbstractFileByPath(
 					Object.keys(this.plugin.notes).find(
@@ -833,6 +826,51 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 					title: displayTitle,
 				});
 				this.addCardMeta(card, cardState, now);
+			});
+
+			// Append the "Reset Filtered" button after all cards.
+			const resetButton = this.cardContainerEl.createEl("button", {
+				cls: "filter-reset-button",
+				text: "Reset Filtered",
+			});
+			resetButton.addEventListener("click", async () => {
+				if (
+					!confirm(
+						"Are you sure you want to reset all filtered flashcards? This action cannot be undone."
+					)
+				) {
+					return;
+				}
+
+				// Use the same filteredCards as currently rendered.
+				const now = new Date();
+				filteredCards.forEach((card) => {
+					const filePath = Object.keys(this.plugin.notes).find(
+						(fp) => card.cardUUID in this.plugin.notes[fp].cards
+					);
+					if (filePath) {
+						const pluginCard =
+							this.plugin.notes[filePath].cards[card.cardUUID];
+						const originalCreatedAt = pluginCard.createdAt; // Preserve creation date.
+						pluginCard.ef = 2.5;
+						pluginCard.repetition = 0;
+						pluginCard.interval = 0;
+						pluginCard.lastReviewDate = now.toISOString();
+						pluginCard.nextReviewDate = addMinutes(
+							now,
+							LEARNING_STEPS[0]
+						).toISOString();
+						pluginCard.active = true;
+						pluginCard.isLearning = false;
+						pluginCard.learningStep = undefined;
+						pluginCard.efHistory = [];
+						pluginCard.createdAt = originalCreatedAt;
+					}
+				});
+
+				await this.plugin.savePluginData();
+				new Notice("All filtered flashcards reset successfully.");
+				this.plugin.refreshUnifiedQueue();
 			});
 		}
 	}
@@ -1068,66 +1106,7 @@ class FlashcardModal extends Modal {
 			}
 		});
 
-		const resetButton = leftContainer.createEl("button", {
-			text: "Reset",
-			cls: "flashcard-nav-button reset-button",
-		});
-		resetButton.addEventListener("click", async () => {
-			const currentFlashcard = this.flashcards[this.currentIndex];
-			const found = findCardStateAndFile(
-				this.plugin,
-				currentFlashcard.uuid
-			);
-			if (!found) {
-				new Notice("Card state not found.");
-				return;
-			}
-			const { filePath, card } = found;
-			const now = new Date();
-
-			// Completely reset scheduling values.
-			// --- Preserve `createdAt` but reset everything else. ---
-			const originalCreatedAt = card.createdAt; // Save it first.
-
-			card.ef = 2.5;
-			card.repetition = 0;
-			card.interval = 0;
-			card.lastReviewDate = now.toISOString();
-			card.nextReviewDate = addMinutes(
-				now,
-				LEARNING_STEPS[0]
-			).toISOString();
-			card.active = true;
-			card.isLearning = false;
-			card.learningStep = undefined;
-
-			// Clear EF history entirely.
-			card.efHistory = [];
-
-			// Finally, restore the original createdAt to preserve creation date.
-			card.createdAt = originalCreatedAt;
-
-			await this.plugin.savePluginData();
-			new Notice(
-				"Card reset successfully: all scheduling data cleared except created date."
-			);
-			this.plugin.refreshUnifiedQueue();
-
-			// Move to the next card, or close if we're done.
-			if (this.currentIndex < this.flashcards.length - 1) {
-				this.currentIndex++;
-				const cardContainer = this.contentEl.querySelector(
-					".flashcard-card"
-				) as HTMLElement;
-				this.renderCard(cardContainer);
-				const progressBar = this.contentEl.querySelector(
-					".flashcard-progress-bar"
-				) as HTMLElement;
-				this.updateProgressBar(progressBar);
-			} else {
-				this.close();
-			}
-		});
+		// (Reset button removed from FlashcardModal)
 
 		// Rating buttons.
 		const ratingTray = bottomRow.createDiv({
