@@ -1463,6 +1463,20 @@ export default class MyPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "wrap-in-multiline-hide",
+			name: "Wrap in multiline hide [hide][/hide]",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				const selection = editor.getSelection();
+				if (!selection || selection.trim().length === 0) {
+					new Notice("Please select some text to hide.");
+					return;
+				}
+				editor.replaceSelection("```hide\n" + selection + "\n```");
+				new Notice("Text wrapped in multiline hide block.");
+			},
+		});
+
+		this.addCommand({
 			id: "toggle-all-hidden",
 			name: "Toggle All Hidden Content",
 			callback: () => this.toggleAllHidden(),
