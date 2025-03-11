@@ -1068,7 +1068,6 @@ class FlashcardModal extends Modal {
 			}
 		});
 
-		// NEW: "Reset" button.
 		const resetButton = leftContainer.createEl("button", {
 			text: "Reset",
 			cls: "flashcard-nav-button reset-button",
@@ -1086,7 +1085,10 @@ class FlashcardModal extends Modal {
 			const { filePath, card } = found;
 			const now = new Date();
 
-			// Reset EF rating and scheduling values.
+			// Completely reset scheduling values.
+			// --- Preserve `createdAt` but reset everything else. ---
+			const originalCreatedAt = card.createdAt; // Save it first.
+
 			card.ef = 2.5;
 			card.repetition = 0;
 			card.interval = 0;
@@ -1096,21 +1098,22 @@ class FlashcardModal extends Modal {
 				LEARNING_STEPS[0]
 			).toISOString();
 			card.active = true;
+			card.isLearning = false;
+			card.learningStep = undefined;
 
-			// Preserve history by appending a new record.
-			if (!card.efHistory) {
-				card.efHistory = [];
-			}
-			card.efHistory.push({
-				timestamp: now.toISOString(),
-				ef: card.ef,
-			});
+			// Clear EF history entirely.
+			card.efHistory = [];
+
+			// Finally, restore the original createdAt to preserve creation date.
+			card.createdAt = originalCreatedAt;
 
 			await this.plugin.savePluginData();
-			new Notice("Card EF rating reset successfully.");
+			new Notice(
+				"Card reset successfully: all scheduling data cleared except created date."
+			);
 			this.plugin.refreshUnifiedQueue();
 
-			// Optionally, move to the next flashcard.
+			// Move to the next card, or close if we're done.
 			if (this.currentIndex < this.flashcards.length - 1) {
 				this.currentIndex++;
 				const cardContainer = this.contentEl.querySelector(
