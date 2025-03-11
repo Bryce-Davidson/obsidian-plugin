@@ -1062,12 +1062,6 @@ class FlashcardModal extends Modal {
 			if (this.showNoteTitle) {
 				this.renderHeader(currentFlashcard);
 			}
-			if (currentFlashcard.cardTitle) {
-				cardContainer.createEl("div", {
-					cls: "flashcard-card-title",
-					text: currentFlashcard.cardTitle,
-				});
-			}
 			const contentWrapper = cardContainer.createDiv({
 				cls: "flashcard-content",
 			});
