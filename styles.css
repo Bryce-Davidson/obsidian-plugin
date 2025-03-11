@@ -5,6 +5,14 @@
 	--hidden-color: #00ffbf;
 }
 
+.HyperMD-codeblock.cm-line {
+	background: none !important;
+	border: none !important;
+	box-shadow: none !important;
+	padding: 0 !important;
+	color: inherit !important;
+}
+
 /* ============================
    Hidden Note & Toggle Hidden
 =============================== */
