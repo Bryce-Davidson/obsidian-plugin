@@ -1207,7 +1207,7 @@ export default class MyPlugin extends Plugin {
 	}
 
 	private initializeUI(): void {
-		this.addRibbonIcon("layers", "Flashcards", (evt: MouseEvent) => {
+		this.addRibbonIcon("layers", "Review Flashcards", (evt: MouseEvent) => {
 			evt.preventDefault();
 			this.showAllDueFlashcardsModal();
 		}).addClass("flashcard-ribbon-icon");
