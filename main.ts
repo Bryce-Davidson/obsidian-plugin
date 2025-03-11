@@ -536,8 +536,8 @@ export abstract class BaseSidebarView extends ItemView {
 
 export const UNIFIED_VIEW_TYPE = "unified-queue-sidebar";
 export class UnifiedQueueSidebarView extends BaseSidebarView {
-	// Filtering state
-	filterMode: "due" | "scheduled" = "due";
+	// Filtering state now includes "note"
+	filterMode: "due" | "scheduled" | "note" = "due";
 	searchText: string = "";
 	tagFilter: string = "all";
 
@@ -617,17 +617,33 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				(this.filterMode === "scheduled" ? " active-mode" : ""),
 			text: "Scheduled",
 		});
+		// NEW: "Note" button
+		const noteButton = modeButtonContainer.createEl("button", {
+			cls:
+				"mode-button" +
+				(this.filterMode === "note" ? " active-mode" : ""),
+			text: "Note",
+		});
 
 		dueButton.addEventListener("click", () => {
 			this.filterMode = "due";
 			dueButton.classList.add("active-mode");
 			scheduledButton.classList.remove("active-mode");
+			noteButton.classList.remove("active-mode");
 			this.renderUnifiedCards();
 		});
 		scheduledButton.addEventListener("click", () => {
 			this.filterMode = "scheduled";
 			scheduledButton.classList.add("active-mode");
 			dueButton.classList.remove("active-mode");
+			noteButton.classList.remove("active-mode");
+			this.renderUnifiedCards();
+		});
+		noteButton.addEventListener("click", () => {
+			this.filterMode = "note";
+			noteButton.classList.add("active-mode");
+			dueButton.classList.remove("active-mode");
+			scheduledButton.classList.remove("active-mode");
 			this.renderUnifiedCards();
 		});
 
@@ -740,6 +756,22 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			});
 			const results = fuse.search(this.searchText.trim());
 			filteredCards = results.map((r) => r.item);
+		}
+
+		// NEW: If filtering by "note", restrict cards to the active note.
+		if (this.filterMode === "note") {
+			const activeFile = this.plugin.app.workspace.getActiveFile();
+			if (activeFile) {
+				filteredCards = filteredCards.filter((card) => {
+					const filePath = Object.keys(this.plugin.notes).find(
+						(fp) => card.cardUUID in this.plugin.notes[fp].cards
+					);
+					return filePath === activeFile.path;
+				});
+			} else {
+				// If no active file, show nothing.
+				filteredCards = [];
+			}
 		}
 
 		filteredCards.sort((a, b) => {
@@ -886,6 +918,17 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			});
 			const results = fuse.search(this.searchText.trim());
 			filtered = results.map((r) => r.item);
+		}
+		// NEW: If filtering by "note", restrict flashcards to the active note.
+		if (this.filterMode === "note") {
+			const activeFile = this.plugin.app.workspace.getActiveFile();
+			if (activeFile) {
+				filtered = filtered.filter(
+					(flashcard) => flashcard.filePath === activeFile.path
+				);
+			} else {
+				filtered = [];
+			}
 		}
 		filtered.sort((a, b) => {
 			const aDate = a.nextReviewDate

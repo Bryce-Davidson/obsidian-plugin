@@ -276,20 +276,23 @@
 =============================== */
 .mode-button-container {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 8px;
 	margin-bottom: 12px;
 }
 
-/* Existing mode buttons for Due and Scheduled */
 .mode-button {
-	padding: 6px 12px;
-	font-size: 0.9rem;
+	flex: 1 1 auto;
+	padding: 10px 16px;
+	font-size: 1rem;
 	border: none;
 	border-radius: 4px;
 	background-color: var(--background-modifier-border);
 	color: var(--text-normal);
 	cursor: pointer;
 	transition: background-color 0.2s ease;
+	text-align: center;
+	min-width: 80px;
 }
 
 .mode-button:hover {
@@ -302,16 +305,17 @@
 	color: #fff;
 }
 
-/* New styling for the Review button to make it distinct */
+/* Review button styling remains similar */
 .review-button {
-	padding: 6px 12px;
-	font-size: 0.9rem;
+	padding: 10px 16px;
+	font-size: 1rem;
 	border: none;
 	border-radius: 4px;
 	background-color: var(--interactive-accent);
 	color: #fff;
 	cursor: pointer;
 	transition: background-color 0.2s ease;
+	min-width: 80px;
 }
 
 .review-button:hover {
@@ -320,18 +324,20 @@
 
 .filter-controls {
 	margin-bottom: 1em;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
 }
 
 /* Search input styling for a cohesive look */
 .filter-search {
-	padding: 6px 12px;
-	font-size: 0.9rem;
+	padding: 10px 16px;
+	font-size: 1rem;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
 	color: var(--text-normal);
 	outline: none;
 	transition: border-color 0.2s ease;
-	margin-top: 8px;
 	width: 100%;
 	box-sizing: border-box;
 }
@@ -353,7 +359,7 @@
 	color: var(--text-muted);
 	top: 12px;
 	right: 12px;
-	z-index: 10; /* Ensure it's above other elements */
+	z-index: 10;
 }
 
 .flashcard-content-container {
@@ -419,24 +425,23 @@
 	align-items: center;
 	justify-content: space-between;
 	width: 100%;
-	gap: 1em; /* added space between navigation and rating tray */
-}
-
-/* Navigation buttons container (left side) */
-.flashcard-nav-buttons {
-	display: flex;
-	gap: 10px;
-	flex: 0 1 auto; /* do not grow; shrink to fit content */
-}
-
-/* Rating tray container (right side) */
-.flashcard-rating-tray {
-	display: flex;
-	flex: 1; /* expand to take available space */
 	gap: 1em;
 }
 
-/* Make each rating button inside the tray expand equally */
+/* Navigation buttons container */
+.flashcard-nav-buttons {
+	display: flex;
+	gap: 10px;
+	flex: 0 1 auto;
+}
+
+/* Rating tray container */
+.flashcard-rating-tray {
+	display: flex;
+	flex: 1;
+	gap: 1em;
+}
+
 .flashcard-rating-tray .rating-button {
 	flex: 1;
 	padding: 10px 15px;
@@ -483,7 +488,6 @@
 	opacity: 0.9;
 }
 
-/* Updated header styles for title and tag */
 .flashcard-modal-header {
 	display: flex;
 	align-items: center;
@@ -500,7 +504,6 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	margin: 0;
-	/* Removed text-align: center for left alignment */
 }
 
 .flashcard-note-tag {
@@ -546,7 +549,7 @@
 	background-color: rgba(255, 255, 255, 0.8);
 	border: 1px solid #ccc;
 	border-radius: 4px;
-	z-index: 10; /* Ensure controls are above the SVG */
+	z-index: 10;
 }
 
 .graph-view-controls label {
@@ -559,7 +562,6 @@
 	margin: 0 5px;
 }
 
-/* Optional: Adjust spacing between control rows */
 .graph-view-controls > div {
 	margin-bottom: 8px;
 }
