@@ -16,7 +16,6 @@ import { GraphView, VIEW_TYPE_GRAPH } from "graph-view";
 import { customAlphabet } from "nanoid";
 import Fuse from "fuse.js";
 
-// Create a custom nanoid generator with only letters and digits.
 const nanoid = customAlphabet(
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
 	10
