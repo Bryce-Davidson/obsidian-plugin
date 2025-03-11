@@ -717,84 +717,89 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		for (const note of Object.values(this.plugin.notes)) {
 			allCards.push(...Object.values(note.cards));
 		}
+
 		const now = new Date();
-		let filteredCards = allCards.filter((card) => {
-			if (!card.active || !card.nextReviewDate) return false;
-			const reviewDate = new Date(card.nextReviewDate);
-			return this.filterMode === "due"
-				? reviewDate <= now
-				: reviewDate > now;
-		});
+		let filteredCards = allCards;
 
-		if (this.tagFilter !== "all") {
-			filteredCards = filteredCards.filter((card) => {
-				const file = this.plugin.app.vault.getAbstractFileByPath(
-					Object.keys(this.plugin.notes).find(
-						(fp) => card.cardUUID in this.plugin.notes[fp].cards
-					) || ""
-				);
-				if (file && file instanceof TFile) {
-					const fileCache =
-						this.plugin.app.metadataCache.getFileCache(file);
-					const tags = fileCache?.frontmatter?.tags;
-					if (tags) {
-						if (Array.isArray(tags)) {
-							return tags.includes(this.tagFilter);
-						} else {
-							return tags === this.tagFilter;
-						}
-					}
-				}
-				return false;
-			});
-		}
-
-		if (this.searchText.trim() !== "") {
-			const fuse = new Fuse(filteredCards, {
-				keys: ["cardTitle", "cardContent"],
-				threshold: 0.4,
-			});
-			const results = fuse.search(this.searchText.trim());
-			filteredCards = results.map((r) => r.item);
-		}
-
-		// NEW: If filtering by "note", restrict cards to the active note.
+		// If "Note" mode is active, show ALL cards from the currently open note.
 		if (this.filterMode === "note") {
 			const activeFile = this.plugin.app.workspace.getActiveFile();
 			if (activeFile) {
-				filteredCards = filteredCards.filter((card) => {
-					const filePath = Object.keys(this.plugin.notes).find(
-						(fp) => card.cardUUID in this.plugin.notes[fp].cards
-					);
-					return filePath === activeFile.path;
-				});
+				filteredCards = allCards.filter(
+					(card) =>
+						Object.keys(this.plugin.notes).find(
+							(fp) => card.cardUUID in this.plugin.notes[fp].cards
+						) === activeFile.path
+				);
 			} else {
 				// If no active file, show nothing.
 				filteredCards = [];
 			}
+		} else {
+			// Apply filters for "Due" and "Scheduled" modes.
+			filteredCards = filteredCards.filter((card) => {
+				if (!card.active || !card.nextReviewDate) return false;
+				const reviewDate = new Date(card.nextReviewDate);
+				return this.filterMode === "due"
+					? reviewDate <= now
+					: reviewDate > now;
+			});
+
+			if (this.tagFilter !== "all") {
+				filteredCards = filteredCards.filter((card) => {
+					const file = this.plugin.app.vault.getAbstractFileByPath(
+						Object.keys(this.plugin.notes).find(
+							(fp) => card.cardUUID in this.plugin.notes[fp].cards
+						) || ""
+					);
+					if (file && file instanceof TFile) {
+						const fileCache =
+							this.plugin.app.metadataCache.getFileCache(file);
+						const tags = fileCache?.frontmatter?.tags;
+						if (tags) {
+							if (Array.isArray(tags)) {
+								return tags.includes(this.tagFilter);
+							} else {
+								return tags === this.tagFilter;
+							}
+						}
+					}
+					return false;
+				});
+			}
+
+			if (this.searchText.trim() !== "") {
+				const fuse = new Fuse(filteredCards, {
+					keys: ["cardTitle", "cardContent"],
+					threshold: 0.4,
+				});
+				const results = fuse.search(this.searchText.trim());
+				filteredCards = results.map((r) => r.item);
+			}
 		}
 
-		filteredCards.sort((a, b) => {
-			const aDate = a.nextReviewDate
-				? new Date(a.nextReviewDate).getTime()
-				: 0;
-			const bDate = b.nextReviewDate
-				? new Date(b.nextReviewDate).getTime()
-				: 0;
-			if (aDate !== bDate) return aDate - bDate;
-			return (a.ef || 0) - (b.ef || 0);
-		});
+		// Sort only for "Due" and "Scheduled" views (not for "Note" mode).
+		if (this.filterMode !== "note") {
+			filteredCards.sort((a, b) => {
+				const aDate = a.nextReviewDate
+					? new Date(a.nextReviewDate).getTime()
+					: 0;
+				const bDate = b.nextReviewDate
+					? new Date(b.nextReviewDate).getTime()
+					: 0;
+				if (aDate !== bDate) return aDate - bDate;
+				return (a.ef || 0) - (b.ef || 0);
+			});
+		}
 
-		// If no cards, render empty state in the card container.
+		// If no cards, show an empty state message.
 		if (filteredCards.length === 0) {
 			this.cardContainerEl.createEl(
 				"div",
 				{ cls: "review-empty" },
-				(emptyEl) => {
-					emptyEl.createEl("h3", { text: this.getEmptyStateTitle() });
-					emptyEl.createEl("p", {
-						text: this.getEmptyStateMessage(),
-					});
+				(el) => {
+					el.createEl("h3", { text: this.getEmptyStateTitle() });
+					el.createEl("p", { text: this.getEmptyStateMessage() });
 				}
 			);
 		} else {
@@ -827,16 +832,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 					text: displayTitle,
 					title: displayTitle,
 				});
-				const fileCache =
-					this.plugin.app.metadataCache.getFileCache(file);
-				const tags = fileCache?.frontmatter?.tags;
-				const firstTag = Array.isArray(tags) ? tags[0] : tags;
-				if (firstTag) {
-					const tagEl = titleRow.createEl("div", {
-						cls: "review-tag",
-					});
-					tagEl.createEl("span", { text: `#${firstTag}` });
-				}
 				this.addCardMeta(card, cardState, now);
 			});
 		}
