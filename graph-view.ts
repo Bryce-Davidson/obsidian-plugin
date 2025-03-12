@@ -4,7 +4,19 @@ import MyPlugin from "main";
 
 export const VIEW_TYPE_GRAPH = "graph-view";
 
-// Extend Node to include EF history and an optional interpolator.
+// Helper: map rating values to colours.
+const ratingMap = new Map<number, string>([
+	[1, "#FF4C4C"],
+	[2, "#FFA500"],
+	[3, "#FFFF66"],
+	[4, "#ADFF2F"],
+	[5, "#7CFC00"],
+]);
+function getRatingColor(rating: number): string {
+	return ratingMap.get(rating) || "#000000"; // fallback colour if rating not found
+}
+
+// Extend Node to include rating history and an optional interpolator.
 interface Node extends d3.SimulationNodeDatum {
 	id: string;
 	fileName?: string;
@@ -15,9 +27,9 @@ interface Node extends d3.SimulationNodeDatum {
 	parent?: string;
 	offsetX?: number;
 	offsetY?: number;
-	ef?: number;
-	efHistory?: { ef: number; timestamp: number }[];
-	efInterpolator?: d3.ScaleLinear<number, number>;
+	rating?: number;
+	ratingHistory?: { rating: number; timestamp: number }[];
+	ratingInterpolator?: d3.ScaleLinear<number, number>;
 }
 
 interface Link extends d3.SimulationLinkDatum<Node> {
@@ -36,7 +48,6 @@ export class GraphView extends ItemView {
 	private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private plugin: MyPlugin;
 	private colorScale = d3.scaleOrdinal(d3.schemeCategory10);
-	private efColorScale: d3.ScaleQuantize<string> = d3.scaleQuantize<string>();
 	private edgeLength: number = 100;
 	private chargeStrength: number = -100;
 
@@ -85,10 +96,10 @@ export class GraphView extends ItemView {
 				</label>
 			</div>
 			<div>
-				<button id="animateEF">Animate EF</button>
+				<button id="animateEF">Animate Rating</button>
 			</div>
 			<div id="efProgressContainer">
-				<label>EF Animation Progress:
+				<label>Rating Animation Progress:
 					<progress id="efProgressBar" value="0" max="100"></progress>
 					<span id="efProgressLabel">0%</span>
 				</label>
@@ -440,7 +451,7 @@ export class GraphView extends ItemView {
 		// Process flashcard data
 		this.processFlashcardData(flashcardData, noteMap);
 
-		// Update color scale for flashcards
+		// Update colours for flashcards based on rating
 		this.updateFlashcardColors();
 	}
 
@@ -518,12 +529,18 @@ export class GraphView extends ItemView {
 	) {
 		cardIds.forEach((cardId, index) => {
 			const cardData = cards[cardId];
-			const ef = cardData.ef;
-			// Convert efHistory timestamps from string to number (milliseconds)
-			const efHistory = (cardData.efHistory || []).map((entry: any) => ({
-				timestamp: Date.parse(entry.timestamp),
-				ef: entry.ef,
-			}));
+			// Set the initial rating from the 0th position of ratingHistory (default to 3 if not available)
+			const rating =
+				cardData.efHistory && cardData.efHistory.length > 0
+					? cardData.efHistory[0].rating
+					: 3;
+			// Convert ratingHistory timestamps from string to number (milliseconds)
+			const ratingHistory = (cardData.efHistory || []).map(
+				(entry: any) => ({
+					timestamp: Date.parse(entry.timestamp),
+					rating: entry.rating,
+				})
+			);
 			const angle = (2 * Math.PI * index) / count;
 			const offset = 30;
 
@@ -532,13 +549,13 @@ export class GraphView extends ItemView {
 				x: 0,
 				y: 0,
 				radius: 5,
-				color: "",
+				color: getRatingColor(rating),
 				type: "card",
 				parent: notePath,
 				offsetX: Math.cos(angle) * offset,
 				offsetY: Math.sin(angle) * offset,
-				ef: ef,
-				efHistory: efHistory,
+				rating: rating,
+				ratingHistory: ratingHistory,
 			};
 
 			this.cardNodes.push(cardNode);
@@ -548,17 +565,10 @@ export class GraphView extends ItemView {
 	private updateFlashcardColors() {
 		if (this.cardNodes.length === 0) return;
 
-		const minEF = d3.min(this.cardNodes, (d) => d.ef)!;
-		const maxEF = d3.max(this.cardNodes, (d) => d.ef)!;
-
-		this.efColorScale = d3
-			.scaleQuantize<string>()
-			.domain([minEF, maxEF])
-			.range(["red", "orange", "yellow", "green"]);
-
+		// Set each card's colour based on its current rating
 		this.cardNodes.forEach((card) => {
-			if (card.ef !== undefined) {
-				card.color = this.efColorScale(card.ef);
+			if (card.rating !== undefined) {
+				card.color = getRatingColor(card.rating);
 			}
 		});
 	}
@@ -587,13 +597,13 @@ export class GraphView extends ItemView {
 		}
 	}
 
-	// Animation of EF progression over time
+	// Animation of rating progression over time
 	private animateEFProgression() {
-		// 1. Gather all timestamps from all card histories
+		// 1. Gather all timestamps from all card rating histories.
 		let allTimestamps: number[] = [];
 		this.cardNodes.forEach((card) => {
-			if (card.efHistory && card.efHistory.length > 0) {
-				card.efHistory.forEach((entry) => {
+			if (card.ratingHistory && card.ratingHistory.length > 0) {
+				card.ratingHistory.forEach((entry) => {
 					allTimestamps.push(entry.timestamp);
 				});
 			}
@@ -601,45 +611,33 @@ export class GraphView extends ItemView {
 
 		if (allTimestamps.length === 0) return;
 
-		// Determine the min and max timestamps for the animation timeline.
+		// Determine the min and max timestamps.
 		const minTime = d3.min(allTimestamps)!;
 		const maxTime = d3.max(allTimestamps)!;
 		const normalizedMaxTime = maxTime - minTime;
 
-		// 2. Create or update the interpolator for each card’s EF history.
+		// 2. Create or update the interpolator for each card’s rating history.
 		this.cardNodes.forEach((card) => {
-			if (card.efHistory && card.efHistory.length >= 2) {
+			if (card.ratingHistory && card.ratingHistory.length >= 2) {
 				// Sort the history by timestamp.
-				card.efHistory.sort((a, b) => a.timestamp - b.timestamp);
-				card.efInterpolator = d3
+				card.ratingHistory.sort((a, b) => a.timestamp - b.timestamp);
+				card.ratingInterpolator = d3
 					.scaleLinear<number, number>()
-					.domain(card.efHistory.map((e) => e.timestamp - minTime))
-					.range(card.efHistory.map((e) => e.ef))
+					.domain(
+						card.ratingHistory.map((e) => e.timestamp - minTime)
+					)
+					.range(card.ratingHistory.map((e) => e.rating))
 					.clamp(true);
-			} else if (card.efHistory && card.efHistory.length === 1) {
-				const constantEF = card.efHistory[0].ef;
-				card.efInterpolator = d3
+			} else if (card.ratingHistory && card.ratingHistory.length === 1) {
+				const constantRating = card.ratingHistory[0].rating;
+				card.ratingInterpolator = d3
 					.scaleLinear<number, number>()
 					.domain([0, normalizedMaxTime])
-					.range([constantEF, constantEF]);
+					.range([constantRating, constantRating]);
 			}
 		});
 
-		// 3. (Optional) Recalculate the global EF domain based on the animated values.
-		const allEFs = this.cardNodes.flatMap((card) =>
-			card.efHistory ? card.efHistory.map((e) => e.ef) : []
-		);
-		if (allEFs.length > 0) {
-			const globalMinEF = d3.min(allEFs)!;
-			const globalMaxEF = d3.max(allEFs)!;
-			if (globalMinEF === globalMaxEF) {
-				this.efColorScale.domain([globalMinEF - 1, globalMaxEF + 1]);
-			} else {
-				this.efColorScale.domain([globalMinEF, globalMaxEF]);
-			}
-		}
-
-		// 4. Use d3.timer to update the animation.
+		// 3. Use d3.timer to update the animation.
 		const duration = 10000; // total animation duration in milliseconds
 		const timer = d3.timer((elapsed) => {
 			// Update the progress UI.
@@ -647,19 +645,20 @@ export class GraphView extends ItemView {
 			d3.select("#efProgressBar").attr("value", progressPercent);
 			d3.select("#efProgressLabel").text(`${progressPercent}%`);
 
-			// Map elapsed time to our normalized EF timeline.
+			// Map elapsed time to our normalized rating timeline.
 			const t = (normalizedMaxTime * elapsed) / duration;
 
-			// Update each card’s EF and color based on the interpolator.
+			// Update each card’s rating and colour based on the interpolator.
 			this.cardNodes.forEach((card) => {
-				if (card.efInterpolator) {
-					const currentEF = card.efInterpolator(t);
-					card.ef = currentEF;
-					card.color = this.efColorScale(currentEF);
+				if (card.ratingInterpolator) {
+					const currentRating = card.ratingInterpolator(t);
+					const roundedRating = Math.round(currentRating);
+					card.rating = roundedRating;
+					card.color = getRatingColor(roundedRating);
 				}
 			});
 
-			// Redraw the card nodes with the updated color.
+			// Redraw the card nodes with the updated colour.
 			this.container
 				.selectAll<SVGCircleElement, Node>(".card-node")
 				.attr("fill", (d) => {
@@ -669,7 +668,6 @@ export class GraphView extends ItemView {
 
 			// Stop the timer once elapsed time exceeds the duration.
 			if (elapsed > duration) {
-				// Ensure progress is set to 100% at the end.
 				d3.select("#efProgressBar").attr("value", 100);
 				d3.select("#efProgressLabel").text(`100%`);
 				timer.stop();
