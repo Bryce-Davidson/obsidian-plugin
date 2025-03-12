@@ -544,8 +544,18 @@
    Disable Image Fullscreen on Mobile
 =============================== */
 @media (max-width: 768px) {
-	.markdown-preview-view img {
+	/* Disable pointer events for Obsidian's 'is-clickable' or 'is-loaded' images,
+     which normally open fullscreen popups on mobile. */
+	.markdown-preview-view img.is-clickable,
+	.markdown-preview-view img.is-loaded {
 		pointer-events: none !important;
+		cursor: default !important;
+	}
+
+	/* Re-enable pointer events for images inside your toggle-hidden class
+     so that tapping them still toggles hidden vs. visible. */
+	.hidden-note.toggle-hidden img {
+		pointer-events: auto !important;
 	}
 }
 
