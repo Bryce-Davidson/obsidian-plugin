@@ -6,12 +6,13 @@ export const VIEW_TYPE_GRAPH = "graph-view";
 
 // Helper: map rating values to colours.
 const ratingMap = new Map<number, string>([
-	[1, "#FF4C4C"],
-	[2, "#FFA500"],
-	[3, "#FFFF66"],
-	[4, "#ADFF2F"],
-	[5, "#7CFC00"],
+	[1, "#D73027"], // Strong Red (Higher contrast)
+	[2, "#FC8D59"], // Vivid Orange
+	[3, "#FEE08B"], // Bright Yellow
+	[4, "#91CF60"], // Strong Green
+	[5, "#1A9850"], // Deep Green
 ]);
+
 function getRatingColor(rating: number): string {
 	return ratingMap.get(rating) || "#000000"; // fallback colour if rating not found
 }
@@ -83,28 +84,34 @@ export class GraphView extends ItemView {
 	private initControls() {
 		const controlBox = this.containerEl.createDiv("graph-view-controls");
 		controlBox.innerHTML = `
-			<div>
-				<label>Edge Length:
-					<input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" />
-					<span id="edgeLengthValue">${this.edgeLength}</span>
-				</label>
-			</div>
-			<div>
-				<label>Charge Force:
-					<input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" />
-					<span id="chargeForceValue">${this.chargeStrength}</span>
-				</label>
-			</div>
-			<div>
-				<button id="animateEF">Animate Rating</button>
-			</div>
-			<div id="efProgressContainer">
-				<label>Rating Animation Progress:
-					<progress id="efProgressBar" value="0" max="100"></progress>
-					<span id="efProgressLabel">0%</span>
-				</label>
-			</div>
-		`;
+        <div>
+            <label>Edge Length:
+                <input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" />
+                <span id="edgeLengthValue">${this.edgeLength}</span>
+            </label>
+        </div>
+        <div>
+            <label>Charge Force:
+                <input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" />
+                <span id="chargeForceValue">${this.chargeStrength}</span>
+            </label>
+        </div>
+        <div>
+            <label>Animation Speed:
+                <input type="range" id="animationSpeedInput" min="2000" max="20000" value="10000" step="1000" />
+                <span id="animationSpeedValue">10s</span>
+            </label>
+        </div>
+        <div>
+            <button id="animateEF">Animate Rating</button>
+        </div>
+        <div id="efProgressContainer">
+            <label>Rating Animation Progress:
+                <progress id="efProgressBar" value="0" max="100"></progress>
+                <span id="efProgressLabel">0%</span>
+            </label>
+        </div>
+    `;
 
 		this.setupControlListeners(controlBox);
 
@@ -595,9 +602,27 @@ export class GraphView extends ItemView {
 		}
 	}
 
-	// Animation of rating progression over time
 	private animateEFProgression() {
-		// 1. Gather all timestamps from all card rating histories.
+		let animationDuration = parseInt(
+			(document.getElementById("animationSpeedInput") as HTMLInputElement)
+				.value
+		);
+
+		const speedInput = document.getElementById(
+			"animationSpeedInput"
+		) as HTMLInputElement;
+		const speedValueLabel = document.getElementById(
+			"animationSpeedValue"
+		) as HTMLSpanElement;
+
+		// Update speed label dynamically
+		speedInput.addEventListener("input", () => {
+			animationDuration = parseInt(speedInput.value);
+			speedValueLabel.textContent = `${(animationDuration / 1000).toFixed(
+				1
+			)}s`;
+		});
+
 		let allTimestamps: number[] = [];
 		this.cardNodes.forEach((card) => {
 			if (card.ratingHistory && card.ratingHistory.length > 0) {
@@ -609,15 +634,12 @@ export class GraphView extends ItemView {
 
 		if (allTimestamps.length === 0) return;
 
-		// Determine the min and max timestamps.
 		const minTime = d3.min(allTimestamps)!;
 		const maxTime = d3.max(allTimestamps)!;
 		const normalizedMaxTime = maxTime - minTime;
 
-		// 2. Create or update the interpolator for each card’s rating history.
 		this.cardNodes.forEach((card) => {
 			if (card.ratingHistory && card.ratingHistory.length >= 2) {
-				// Sort the history by timestamp.
 				card.ratingHistory.sort((a, b) => a.timestamp - b.timestamp);
 				card.ratingInterpolator = d3
 					.scaleLinear<number, number>()
@@ -635,18 +657,15 @@ export class GraphView extends ItemView {
 			}
 		});
 
-		// 3. Use d3.timer to update the animation.
-		const duration = 10000; // total animation duration in milliseconds
 		const timer = d3.timer((elapsed) => {
-			// Update the progress UI.
-			const progressPercent = Math.round((elapsed / duration) * 100);
+			const progressPercent = Math.round(
+				(elapsed / animationDuration) * 100
+			);
 			d3.select("#efProgressBar").attr("value", progressPercent);
 			d3.select("#efProgressLabel").text(`${progressPercent}%`);
 
-			// Map elapsed time to our normalized rating timeline.
-			const t = (normalizedMaxTime * elapsed) / duration;
+			const t = (normalizedMaxTime * elapsed) / animationDuration;
 
-			// Update each card’s rating and colour based on the interpolator.
 			this.cardNodes.forEach((card) => {
 				if (card.ratingInterpolator) {
 					const currentRating = card.ratingInterpolator(t);
@@ -656,7 +675,6 @@ export class GraphView extends ItemView {
 				}
 			});
 
-			// Redraw the card nodes with the updated colour.
 			this.container
 				.selectAll<SVGCircleElement, Node>(".card-node")
 				.attr("fill", (d) => {
@@ -664,8 +682,7 @@ export class GraphView extends ItemView {
 					return card ? card.color : d.color;
 				});
 
-			// Stop the timer once elapsed time exceeds the duration.
-			if (elapsed > duration) {
+			if (elapsed > animationDuration) {
 				d3.select("#efProgressBar").attr("value", 100);
 				d3.select("#efProgressLabel").text(`100%`);
 				timer.stop();
