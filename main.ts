@@ -600,23 +600,32 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			cls: "filter-controls",
 		});
 
-		// Create a container for mode buttons and the review button.
+		// 1) Review Button (full width, top row)
+		const reviewButtonContainer = this.controlsContainerEl.createEl("div", {
+			cls: "review-button-container",
+		});
+		reviewButtonContainer.style.width = "100%";
+
+		const reviewButton = reviewButtonContainer.createEl("button", {
+			cls: "review-button full-width",
+			text: "Review",
+		});
+		reviewButton.style.width = "100%";
+
+		reviewButton.addEventListener("click", () => {
+			this.launchReviewModal();
+		});
+
+		// 2) Mode Buttons (Due, Note, Scheduled)
 		const modeButtonContainer = this.controlsContainerEl.createEl("div", {
 			cls: "mode-button-container",
 		});
 
-		// Due, Scheduled, and Note buttons.
 		const dueButton = modeButtonContainer.createEl("button", {
 			cls:
 				"mode-button" +
 				(this.filterMode === "due" ? " active-mode" : ""),
 			text: "Due",
-		});
-		const scheduledButton = modeButtonContainer.createEl("button", {
-			cls:
-				"mode-button" +
-				(this.filterMode === "scheduled" ? " active-mode" : ""),
-			text: "Scheduled",
 		});
 		const noteButton = modeButtonContainer.createEl("button", {
 			cls:
@@ -624,19 +633,18 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				(this.filterMode === "note" ? " active-mode" : ""),
 			text: "Note",
 		});
+		const scheduledButton = modeButtonContainer.createEl("button", {
+			cls:
+				"mode-button" +
+				(this.filterMode === "scheduled" ? " active-mode" : ""),
+			text: "Scheduled",
+		});
 
 		dueButton.addEventListener("click", () => {
 			this.filterMode = "due";
 			dueButton.classList.add("active-mode");
+			noteButton.classList.remove("active-mode");
 			scheduledButton.classList.remove("active-mode");
-			noteButton.classList.remove("active-mode");
-			this.renderUnifiedCards();
-		});
-		scheduledButton.addEventListener("click", () => {
-			this.filterMode = "scheduled";
-			scheduledButton.classList.add("active-mode");
-			dueButton.classList.remove("active-mode");
-			noteButton.classList.remove("active-mode");
 			this.renderUnifiedCards();
 		});
 		noteButton.addEventListener("click", () => {
@@ -646,17 +654,15 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			scheduledButton.classList.remove("active-mode");
 			this.renderUnifiedCards();
 		});
-
-		// Review button.
-		const reviewButton = modeButtonContainer.createEl("button", {
-			cls: "review-button",
-			text: "Review",
-		});
-		reviewButton.addEventListener("click", () => {
-			this.launchReviewModal();
+		scheduledButton.addEventListener("click", () => {
+			this.filterMode = "scheduled";
+			scheduledButton.classList.add("active-mode");
+			dueButton.classList.remove("active-mode");
+			noteButton.classList.remove("active-mode");
+			this.renderUnifiedCards();
 		});
 
-		// Tag filter.
+		// 3) Tag filter (select)
 		const tagSelect = this.controlsContainerEl.createEl("select");
 		tagSelect.createEl("option", { text: "All Tags", value: "all" });
 		const uniqueTags = new Set<string>();
@@ -684,7 +690,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			this.renderUnifiedCards();
 		});
 
-		// Search input.
+		// 4) Search input
 		const searchInput = this.controlsContainerEl.createEl("input", {
 			cls: "filter-search",
 			attr: { placeholder: "Search..." },
@@ -702,7 +708,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		// Initial render.
 		this.renderUnifiedCards();
 	}
-
 	/**
 	 * Render only the card container according to current filters.
 	 */
