@@ -711,16 +711,23 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 	/**
 	 * Render only the card container according to current filters.
 	 */
+	/**
+	 * Render only the card container according to current filters.
+	 */
 	renderUnifiedCards() {
+		// Clear out existing cards.
 		this.cardContainerEl.empty();
 
+		// Gather all cards from all notes.
 		let allCards: CardState[] = [];
 		for (const note of Object.values(this.plugin.notes)) {
 			allCards.push(...Object.values(note.cards));
 		}
+
 		const now = new Date();
 		let filteredCards = allCards;
 
+		// If we're in "note" mode, only show cards from the active note.
 		if (this.filterMode === "note") {
 			const activeFile = this.plugin.app.workspace.getActiveFile();
 			if (activeFile) {
@@ -734,22 +741,28 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				filteredCards = [];
 			}
 		} else {
-			// Apply filters for "Due" and "Scheduled" modes.
+			// Otherwise, we're in "due" or "scheduled" mode.
 			filteredCards = filteredCards.filter((card) => {
+				// Exclude cards with no nextReviewDate or not active.
 				if (!card.active || !card.nextReviewDate) return false;
 				const reviewDate = new Date(card.nextReviewDate);
+
+				// "due" means reviewDate <= now; "scheduled" means reviewDate > now.
 				return this.filterMode === "due"
 					? reviewDate <= now
 					: reviewDate > now;
 			});
 
+			// Apply tag filter if not "all".
 			if (this.tagFilter !== "all") {
 				filteredCards = filteredCards.filter((card) => {
-					const file = this.plugin.app.vault.getAbstractFileByPath(
-						Object.keys(this.plugin.notes).find(
-							(fp) => card.cardUUID in this.plugin.notes[fp].cards
-						) || ""
+					const filePath = Object.keys(this.plugin.notes).find(
+						(fp) => card.cardUUID in this.plugin.notes[fp].cards
 					);
+					if (!filePath) return false;
+
+					const file =
+						this.plugin.app.vault.getAbstractFileByPath(filePath);
 					if (file && file instanceof TFile) {
 						const fileCache =
 							this.plugin.app.metadataCache.getFileCache(file);
@@ -766,6 +779,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				});
 			}
 
+			// Apply search text.
 			if (this.searchText.trim() !== "") {
 				const fuse = new Fuse(filteredCards, {
 					keys: ["cardTitle", "cardContent"],
@@ -776,7 +790,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			}
 		}
 
-		// Sort for "Due" and "Scheduled" modes.
+		// Sort results (only for "due"/"scheduled" modes).
 		if (this.filterMode !== "note") {
 			filteredCards.sort((a, b) => {
 				const aDate = a.nextReviewDate
@@ -790,6 +804,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			});
 		}
 
+		// If no cards left after filters, show empty state.
 		if (filteredCards.length === 0) {
 			this.cardContainerEl.createEl(
 				"div",
@@ -799,92 +814,101 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 					el.createEl("p", { text: this.getEmptyStateMessage() });
 				}
 			);
-		} else {
-			// Render each card.
-			filteredCards.forEach((cardState) => {
-				const file = this.plugin.app.vault.getAbstractFileByPath(
-					Object.keys(this.plugin.notes).find(
-						(fp) =>
-							cardState.cardUUID in this.plugin.notes[fp].cards
-					) || ""
-				);
-				if (!file || !(file instanceof TFile)) return;
-				const card = this.cardContainerEl.createEl("div", {
-					cls: "review-card",
-				});
-				card.addEventListener("click", () => {
-					if (cardState.line !== undefined) {
-						const options = {
-							eState: { line: cardState.line - 1, ch: 0 },
-						};
-						this.plugin.app.workspace
-							.getLeaf()
-							.openFile(file, options);
-					} else {
-						this.plugin.app.workspace.getLeaf().openFile(file);
-					}
-				});
-				const titleRow = card.createEl("div", { cls: "title-row" });
-				const displayTitle = cardState.cardTitle || file.basename;
-				titleRow.createEl("h3", {
-					text: displayTitle,
-					title: displayTitle,
-				});
-				this.addCardMeta(card, cardState, now);
-			});
-
-			// Append the "Reset Filtered" button after all cards.
-			const resetButton = this.cardContainerEl.createEl("button", {
-				cls: "filter-reset-button",
-				text: "Reset Cards",
-			});
-			resetButton.addEventListener("click", async () => {
-				if (
-					!confirm(
-						"Are you sure you want to reset all filtered flashcards? This action cannot be undone."
-					)
-				) {
-					return;
-				}
-
-				// Use the same filteredCards as currently rendered.
-				const now = new Date();
-				filteredCards.forEach((card) => {
-					const filePath = Object.keys(this.plugin.notes).find(
-						(fp) => card.cardUUID in this.plugin.notes[fp].cards
-					);
-					if (filePath) {
-						const pluginCard =
-							this.plugin.notes[filePath].cards[card.cardUUID];
-						const originalCreatedAt = pluginCard.createdAt; // Preserve creation date.
-						pluginCard.ef = 2.5;
-						pluginCard.repetition = 0;
-						pluginCard.interval = 0;
-						pluginCard.lastReviewDate = now.toISOString();
-						pluginCard.nextReviewDate = addMinutes(
-							now,
-							LEARNING_STEPS[0]
-						).toISOString();
-						pluginCard.active = true;
-						pluginCard.isLearning = false;
-						pluginCard.learningStep = undefined;
-						pluginCard.efHistory = [];
-						pluginCard.createdAt = originalCreatedAt;
-					}
-				});
-
-				await this.plugin.savePluginData();
-				new Notice("All filtered flashcards reset successfully.");
-				this.plugin.refreshUnifiedQueue();
-			});
+			return;
 		}
+
+		// Otherwise, render each filtered card.
+		filteredCards.forEach((cardState) => {
+			const filePath = Object.keys(this.plugin.notes).find(
+				(fp) => cardState.cardUUID in this.plugin.notes[fp].cards
+			);
+			if (!filePath) return;
+
+			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+			if (!file || !(file instanceof TFile)) return;
+
+			// Create card element.
+			const card = this.cardContainerEl.createEl("div", {
+				cls: "review-card",
+			});
+
+			// Clicking the card => open file at the line (if available).
+			card.addEventListener("click", () => {
+				if (cardState.line !== undefined) {
+					const options = {
+						eState: { line: cardState.line - 1, ch: 0 },
+					};
+					this.plugin.app.workspace.getLeaf().openFile(file, options);
+				} else {
+					this.plugin.app.workspace.getLeaf().openFile(file);
+				}
+			});
+
+			// Title row
+			const titleRow = card.createEl("div", { cls: "title-row" });
+			const displayTitle = cardState.cardTitle || file.basename;
+			titleRow.createEl("h3", {
+				text: displayTitle,
+				title: displayTitle,
+			});
+
+			// Additional metadata
+			this.addCardMeta(card, cardState, now);
+		});
+
+		// Provide a reset button to reset all *currently filtered* cards.
+		const resetButton = this.cardContainerEl.createEl("button", {
+			cls: "filter-reset-button",
+			text: "Reset Cards",
+		});
+		resetButton.addEventListener("click", async () => {
+			if (
+				!confirm(
+					"Are you sure you want to reset all filtered flashcards? This action cannot be undone."
+				)
+			) {
+				return;
+			}
+
+			const now = new Date();
+			filteredCards.forEach((card) => {
+				const filePath = Object.keys(this.plugin.notes).find(
+					(fp) => card.cardUUID in this.plugin.notes[fp].cards
+				);
+				if (filePath) {
+					const pluginCard =
+						this.plugin.notes[filePath].cards[card.cardUUID];
+					const originalCreatedAt = pluginCard.createdAt; // preserve creation date
+					pluginCard.ef = 2.5;
+					pluginCard.repetition = 0;
+					pluginCard.interval = 0;
+					pluginCard.lastReviewDate = now.toISOString();
+					pluginCard.nextReviewDate = addMinutes(
+						now,
+						LEARNING_STEPS[0]
+					).toISOString();
+					pluginCard.active = true;
+					pluginCard.isLearning = false;
+					pluginCard.learningStep = undefined;
+					pluginCard.efHistory = [];
+					pluginCard.createdAt = originalCreatedAt;
+				}
+			});
+
+			await this.plugin.savePluginData();
+			new Notice("All filtered flashcards reset successfully.");
+			this.plugin.refreshUnifiedQueue();
+		});
 	}
 
 	/**
 	 * Launch the review modal for the filtered cards.
 	 */
+	/**
+	 * Launch the review modal for the filtered cards.
+	 */
 	async launchReviewModal() {
-		// Synchronize flashcards for all files in plugin.notes before launching the review.
+		// First, synchronize flashcards for all files.
 		const filePaths = Object.keys(this.plugin.notes);
 		for (const filePath of filePaths) {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
@@ -893,13 +917,14 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			}
 		}
 
+		// Collect all flashcards.
 		let allFlashcards: Flashcard[] = [];
 		for (const filePath in this.plugin.notes) {
 			for (const cardUUID in this.plugin.notes[filePath].cards) {
 				const card = this.plugin.notes[filePath].cards[cardUUID];
 				allFlashcards.push({
 					uuid: cardUUID,
-					content: card.cardContent, // note: property is "content"
+					content: card.cardContent, // note: property "content"
 					noteTitle:
 						this.plugin.app.vault.getAbstractFileByPath(
 							filePath
@@ -918,16 +943,33 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				});
 			}
 		}
-		const now = new Date();
-		let filtered = allFlashcards.filter((flashcard) => {
-			if (flashcard.nextReviewDate) {
+
+		// Decide how to filter based on filterMode.
+		let filtered: Flashcard[] = [];
+
+		if (this.filterMode === "note") {
+			// "Note" mode => only cards from the active note, ignoring whether they're due or scheduled.
+			const activeFile = this.plugin.app.workspace.getActiveFile();
+			if (activeFile) {
+				filtered = allFlashcards.filter(
+					(f) => f.filePath === activeFile.path
+				);
+			} else {
+				filtered = [];
+			}
+		} else {
+			// "Due" or "Scheduled" mode => filter by nextReviewDate relative to `now`.
+			const now = new Date();
+			filtered = allFlashcards.filter((flashcard) => {
+				if (!flashcard.nextReviewDate) return false;
 				const reviewDate = new Date(flashcard.nextReviewDate);
 				return this.filterMode === "due"
 					? reviewDate <= now
 					: reviewDate > now;
-			}
-			return false;
-		});
+			});
+		}
+
+		// Next, apply the tag filter if not set to "all".
 		if (this.tagFilter !== "all") {
 			filtered = filtered.filter((flashcard) => {
 				const file = this.plugin.app.vault.getAbstractFileByPath(
@@ -948,26 +990,19 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				return false;
 			});
 		}
+
+		// Apply search filter if there is any text.
 		if (this.searchText.trim() !== "") {
-			// Update Fuse keys: use "content" instead of "cardContent"
 			const fuse = new Fuse(filtered, {
+				// Notice the keys here: "cardTitle" and "content"
 				keys: ["cardTitle", "content"],
 				threshold: 0.4,
 			});
 			const results = fuse.search(this.searchText.trim());
 			filtered = results.map((r) => r.item);
 		}
-		// NEW: If filtering by "note", restrict flashcards to the active note.
-		if (this.filterMode === "note") {
-			const activeFile = this.plugin.app.workspace.getActiveFile();
-			if (activeFile) {
-				filtered = filtered.filter(
-					(flashcard) => flashcard.filePath === activeFile.path
-				);
-			} else {
-				filtered = [];
-			}
-		}
+
+		// Sort results for consistency — even in note mode, this keeps them consistent.
 		filtered.sort((a, b) => {
 			const aDate = a.nextReviewDate
 				? new Date(a.nextReviewDate).getTime()
@@ -978,9 +1013,13 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			if (aDate !== bDate) return aDate - bDate;
 			return (a.ef || 0) - (b.ef || 0);
 		});
+
+		// Optionally randomize after sorting, if settings demand it.
 		if (this.plugin.settings.randomizeFlashcards) {
 			filtered = shuffleArray(filtered);
 		}
+
+		// Finally, if there are no cards, let the user know.
 		if (filtered.length > 0) {
 			new FlashcardModal(
 				this.plugin.app,
