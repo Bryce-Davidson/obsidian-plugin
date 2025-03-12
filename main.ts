@@ -1152,7 +1152,7 @@ class FlashcardModal extends Modal {
 			cls: "flashcard-rating-tray",
 		});
 		const ratings = [
-			{ value: 0, color: "#FF4C4C" },
+			{ value: 1, color: "#FF4C4C" },
 			{ value: 2, color: "#FFA500" },
 			{ value: 3, color: "#FFFF66" },
 			{ value: 4, color: "#ADFF2F" },
