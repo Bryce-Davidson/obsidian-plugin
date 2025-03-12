@@ -36,7 +36,8 @@ interface CardState {
 	active: boolean;
 	isLearning?: boolean;
 	learningStep?: number;
-	efHistory?: { timestamp: string; ef: number }[];
+	// Updated: Now each history entry also includes the rating that produced the EF update.
+	efHistory?: { timestamp: string; ef: number; rating: number }[];
 	cardTitle?: string;
 	line?: number;
 	createdAt: string;
@@ -307,9 +308,11 @@ function updateCardState(
 	if (!newState.efHistory) {
 		newState.efHistory = [];
 	}
+	// Record the new EF along with the rating that produced it.
 	newState.efHistory.push({
 		timestamp: reviewDate.toISOString(),
 		ef: newState.ef,
+		rating: quality,
 	});
 
 	return newState;
@@ -711,9 +714,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 	/**
 	 * Render only the card container according to current filters.
 	 */
-	/**
-	 * Render only the card container according to current filters.
-	 */
 	renderUnifiedCards() {
 		// Clear out existing cards.
 		this.cardContainerEl.empty();
@@ -901,9 +901,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		});
 	}
 
-	/**
-	 * Launch the review modal for the filtered cards.
-	 */
 	/**
 	 * Launch the review modal for the filtered cards.
 	 */
@@ -1149,8 +1146,6 @@ class FlashcardModal extends Modal {
 				this.close();
 			}
 		});
-
-		// (Reset button removed from FlashcardModal)
 
 		// Rating buttons.
 		const ratingTray = bottomRow.createDiv({
