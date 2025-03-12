@@ -529,12 +529,10 @@ export class GraphView extends ItemView {
 	) {
 		cardIds.forEach((cardId, index) => {
 			const cardData = cards[cardId];
-			// Set the initial rating from the 0th position of ratingHistory (default to 3 if not available)
 			const rating =
 				cardData.efHistory && cardData.efHistory.length > 0
-					? cardData.efHistory[0].rating
+					? cardData.efHistory[cardData.efHistory.length - 1].rating
 					: 3;
-			// Convert ratingHistory timestamps from string to number (milliseconds)
 			const ratingHistory = (cardData.efHistory || []).map(
 				(entry: any) => ({
 					timestamp: Date.parse(entry.timestamp),
