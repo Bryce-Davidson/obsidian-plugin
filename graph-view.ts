@@ -98,7 +98,7 @@ export class GraphView extends ItemView {
         </div>
         <div>
             <label>Animation Speed:
-                <input type="range" id="animationSpeedInput" min="2000" max="20000" value="10000" step="1000" />
+                <input type="range" id="animationSpeedInput" min="2000" max="50000" value="10000" step="1000" />
                 <span id="animationSpeedValue">10s</span>
             </label>
         </div>
