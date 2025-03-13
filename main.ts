@@ -883,7 +883,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				if (filePath) {
 					const pluginCard =
 						this.plugin.notes[filePath].cards[card.cardUUID];
-					const originalCreatedAt = pluginCard.createdAt; // preserve creation date
+					const originalCreatedAt = pluginCard.createdAt;
 					pluginCard.ef = 2.5;
 					pluginCard.repetition = 0;
 					pluginCard.interval = 0;
@@ -895,7 +895,13 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 					pluginCard.active = true;
 					pluginCard.isLearning = false;
 					pluginCard.learningStep = undefined;
-					pluginCard.efHistory = [];
+					pluginCard.efHistory = [
+						{
+							timestamp: now.toISOString(),
+							ef: 2.5,
+							rating: 3,
+						},
+					];
 					pluginCard.createdAt = originalCreatedAt;
 				}
 			});
