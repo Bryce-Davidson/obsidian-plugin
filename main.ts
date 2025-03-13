@@ -836,6 +836,8 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			const card = this.cardContainerEl.createEl("div", {
 				cls: "review-card",
 			});
+			// Set position relative for absolute positioning of the button.
+			card.style.position = "relative";
 
 			// Clicking the card => open file at the line (if available).
 			card.addEventListener("click", () => {
@@ -849,7 +851,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				}
 			});
 
-			// Title row
+			// Title row.
 			const titleRow = card.createEl("div", { cls: "title-row" });
 			const displayTitle = cardState.cardTitle || file.basename;
 			titleRow.createEl("h3", {
@@ -857,8 +859,42 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				title: displayTitle,
 			});
 
-			// Additional metadata
+			// Additional metadata.
 			this.addCardMeta(card, cardState, now);
+
+			const flashcardButton = card.createEl("button", {
+				cls: "flashcard-launch-button",
+			});
+			flashcardButton.style.position = "absolute";
+			flashcardButton.style.bottom = "8px";
+			flashcardButton.style.right = "8px";
+			flashcardButton.style.width = "2.25em";
+			flashcardButton.style.height = "2.25em";
+			flashcardButton.style.border = "none";
+			flashcardButton.style.cursor = "pointer";
+			flashcardButton.style.background = "#007acc";
+			flashcardButton.style.color = "white";
+
+			flashcardButton.addEventListener("click", (e) => {
+				e.stopPropagation();
+				e.preventDefault();
+				const flashcard = {
+					uuid: cardState.cardUUID,
+					content: cardState.cardContent,
+					noteTitle: file.basename,
+					filePath: filePath,
+					cardTitle: cardState.cardTitle,
+					line: cardState.line,
+					nextReviewDate: cardState.nextReviewDate,
+					ef: cardState.ef,
+				};
+				new FlashcardModal(
+					this.plugin.app,
+					[flashcard],
+					this.plugin,
+					true
+				).open();
+			});
 		});
 
 		// Provide a reset button to reset all *currently filtered* cards.
