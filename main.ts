@@ -859,7 +859,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				title: displayTitle,
 			});
 
-			// Additional metadata.
 			this.addCardMeta(card, cardState, now);
 
 			const flashcardButton = card.createEl("button", {
@@ -872,7 +871,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			flashcardButton.style.height = "2.25em";
 			flashcardButton.style.border = "none";
 			flashcardButton.style.cursor = "pointer";
-			flashcardButton.style.background = "#007acc";
 			flashcardButton.style.color = "white";
 
 			flashcardButton.addEventListener("click", (e) => {
