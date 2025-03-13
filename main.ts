@@ -36,7 +36,6 @@ interface CardState {
 	active: boolean;
 	isLearning?: boolean;
 	learningStep?: number;
-	// Updated: Now each history entry also includes the rating that produced the EF update.
 	efHistory?: { timestamp: string; ef: number; rating: number }[];
 	cardTitle?: string;
 	line?: number;
@@ -194,7 +193,13 @@ async function syncFlashcardsForFile(
 					LEARNING_STEPS[0]
 				).toISOString(),
 				active: true,
-				efHistory: [],
+				efHistory: [
+					{
+						timestamp: now,
+						ef: 2.5,
+						rating: 3,
+					},
+				],
 				cardTitle: flashcard.cardTitle,
 				line: flashcard.line,
 			};
@@ -2039,7 +2044,6 @@ function processCustomHiddenCodeBlocks(
 			}
 		});
 
-		// Replace the entire code block (the <pre> element) with our container.
 		const pre = codeBlock.parentElement;
 		if (pre && pre.parentElement) {
 			pre.parentElement.replaceChild(container, pre);

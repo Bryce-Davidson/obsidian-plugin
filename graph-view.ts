@@ -4,17 +4,16 @@ import MyPlugin from "main";
 
 export const VIEW_TYPE_GRAPH = "graph-view";
 
-// Helper: map rating values to colours.
 const ratingMap = new Map<number, string>([
-	[1, "#D73027"], // Strong Red (Higher contrast)
-	[2, "#FC8D59"], // Vivid Orange
-	[3, "#FEE08B"], // Bright Yellow
-	[4, "#91CF60"], // Strong Green
-	[5, "#1A9850"], // Deep Green
+	[1, "#D73027"],
+	[2, "#FC8D59"],
+	[3, "#FEE08B"],
+	[4, "#91CF60"],
+	[5, "#1A9850"],
 ]);
 
 function getRatingColor(rating: number): string {
-	return ratingMap.get(rating) || "#000000"; // fallback colour if rating not found
+	return ratingMap.get(rating) || "#000000";
 }
 
 // Extend Node to include rating history and an optional interpolator.
