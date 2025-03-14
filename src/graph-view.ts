@@ -51,14 +51,12 @@ export class GraphView extends ItemView {
 	private edgeLength: number = 100;
 	private chargeStrength: number = -100;
 
-	// Timeline and animation state properties
 	private timelineEvents: number[] = [];
 	private currentEventIndex: number = 0;
 	private animationTimer: d3.Timer | null = null;
 	private isPlaying: boolean = false;
-	private eventDuration: number = 100; // default duration per event in ms
+	private eventDuration: number = 100;
 
-	// NEW: Grouping interval in ms. 0 means no grouping.
 	private groupingInterval: number = 0;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
@@ -90,72 +88,63 @@ export class GraphView extends ItemView {
 		this.registerEvents();
 	}
 
+	// Control panel is fixed at the top right.
+	// The progress bar is now included at the bottom of the control panel.
 	private initControls() {
-		// Create a more compact, modern control panel using Tailwind CSS components.
 		const controlBox = this.containerEl.createDiv();
 		controlBox.className =
-			"fixed z-50 flex flex-col gap-2 p-3 text-sm rounded-md shadow-md top-4 left-4 bg-white/90 backdrop-blur-sm";
+			"fixed z-50 flex flex-col gap-2 p-2 text-xs text-gray-300 bg-gray-800 rounded-md shadow-md top-4 right-4";
 
-		// NEW: Added grouping interval control in the timeline controls.
 		controlBox.innerHTML = `
-<div class="bg-gray-900 text-gray-300 p-4 rounded-md border border-gray-700 max-w-md mx-auto space-y-4">
-  <!-- Sliders Section -->
-  <div class="space-y-3">
-    <div class="flex flex-col">
-      <label for="edgeLengthInput" class="text-sm font-medium">Edge Length</label>
-      <div class="flex items-center mt-1">
-        <input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" class="flex-1 h-2 rounded bg-gray-800 focus:outline-none">
-        <span id="edgeLengthValue" class="ml-3 text-sm text-gray-400">${this.edgeLength}</span>
+<div class="space-y-2">
+  <div class="flex flex-col space-y-1">
+    <label for="edgeLengthInput" class="font-medium">Edge</label>
+    <div class="flex items-center">
+      <input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" class="flex-1 h-2 rounded bg-gray-700 focus:outline-none">
+      <span id="edgeLengthValue" class="ml-2 text-gray-400">${this.edgeLength}</span>
+    </div>
+  </div>
+  <div class="flex flex-col space-y-1">
+    <label for="chargeForceInput" class="font-medium">Charge</label>
+    <div class="flex items-center">
+      <input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" class="flex-1 h-2 rounded bg-gray-700 focus:outline-none">
+      <span id="chargeForceValue" class="ml-2 text-gray-400">${this.chargeStrength}</span>
+    </div>
+  </div>
+  <div class="space-y-2 border-t border-gray-700 pt-2">
+    <div class="flex flex-col space-y-1">
+      <label for="timelineSlider" class="font-medium">Time</label>
+      <div class="flex items-center">
+        <input type="range" id="timelineSlider" min="0" max="0" value="0" class="flex-1 h-2 rounded bg-gray-700 focus:outline-none">
+        <span id="timelineLabel" class="ml-2 text-gray-400">0 / 0</span>
       </div>
     </div>
-    <div class="flex flex-col">
-      <label for="chargeForceInput" class="text-sm font-medium">Charge Force</label>
-      <div class="flex items-center mt-1">
-        <input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" class="flex-1 h-2 rounded bg-gray-800 focus:outline-none">
-        <span id="chargeForceValue" class="ml-3 text-sm text-gray-400">${this.chargeStrength}</span>
+    <div class="flex justify-between space-x-2">
+      <button id="prevEvent" class="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 transition">Prev</button>
+      <button id="playPause" class="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 transition">Play</button>
+      <button id="nextEvent" class="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 transition">Next</button>
+    </div>
+    <div class="flex flex-col space-y-1">
+      <div class="flex items-center">
+        <label for="eventDurationInput" class="mr-2">Dur (ms)</label>
+        <input type="number" id="eventDurationInput" min="500" max="10000" value="2000" class="w-20 border border-gray-700 rounded bg-gray-700 text-center focus:outline-none">
+      </div>
+      <div class="flex items-center">
+        <label for="groupingIntervalInput" class="mr-2">Group (ms)</label>
+        <input type="number" id="groupingIntervalInput" min="0" max="10000000" value="0" class="w-20 border border-gray-700 rounded bg-gray-700 text-center focus:outline-none">
       </div>
     </div>
   </div>
-
-  <!-- Progress Section -->
-  <div class="flex items-center space-x-2">
-    <label for="efProgressBar" class="text-sm font-medium">Progress</label>
-    <progress id="efProgressBar" value="0" max="100" class="flex-1 h-2 rounded bg-gray-800"></progress>
-    <span id="efProgressLabel" class="text-sm text-gray-400">0%</span>
-  </div>
-
-  <!-- Timeline Controls -->
-  <div class="border-t border-gray-700 pt-4 space-y-4">
-    <div class="flex flex-col">
-      <label for="timelineSlider" class="text-sm font-medium">Timeline</label>
-      <div class="flex items-center mt-1">
-        <input type="range" id="timelineSlider" min="0" max="0" value="0" class="flex-1 h-2 rounded bg-gray-800 focus:outline-none">
-        <span id="timelineLabel" class="ml-3 text-sm text-gray-400">0 / 0</span>
-      </div>
-    </div>
-    <div class="flex justify-center space-x-3">
-      <button id="prevEvent" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 focus:outline-none transition duration-150">Prev</button>
-      <button id="playPause" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 focus:outline-none transition duration-150">Play</button>
-      <button id="nextEvent" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 focus:outline-none transition duration-150">Next</button>
-    </div>
-    <div class="flex items-center space-x-3">
-      <div class="flex items-center">
-        <label for="eventDurationInput" class="text-sm font-medium mr-2">Event Duration (ms)</label>
-        <input type="number" id="eventDurationInput" min="500" max="10000" value="2000" class="w-24 border border-gray-700 rounded bg-gray-800 text-sm text-gray-300 text-center focus:outline-none">
-      </div>
-      <!-- NEW: Grouping interval input -->
-      <div class="flex items-center">
-        <label for="groupingIntervalInput" class="text-sm font-medium mr-2">Grouping Interval (ms)</label>
-        <input type="number" id="groupingIntervalInput" min="0" max="10000000" value="0" class="w-24 border border-gray-700 rounded bg-gray-800 text-sm text-gray-300 text-center focus:outline-none">
-      </div>
-    </div>
+  <!-- Progress bar placed at the bottom of the control panel -->
+  <div>
+    <progress id="efProgressBar" value="0" max="100" class="w-full h-2 rounded bg-gray-700"></progress>
   </div>
 </div>
 		`;
 
 		this.setupControlListeners(controlBox);
 
-		// Timeline and playback control listeners
+		// Timeline and playback control listeners.
 		const timelineSlider =
 			controlBox.querySelector<HTMLInputElement>("#timelineSlider");
 		const timelineLabel =
@@ -223,7 +212,6 @@ export class GraphView extends ItemView {
 			});
 		}
 
-		// NEW: Update grouping interval on change.
 		if (groupingIntervalInput) {
 			groupingIntervalInput.addEventListener("input", () => {
 				this.groupingInterval = parseInt(groupingIntervalInput.value);
@@ -699,7 +687,7 @@ export class GraphView extends ItemView {
 
 	// Timeline & Playback Animation Functions
 
-	// NEW: Modified setupTimelineEvents to support groupingInterval.
+	// Modified setupTimelineEvents to support groupingInterval.
 	private setupTimelineEvents() {
 		const eventsSet = new Set<number>();
 		this.cardNodes.forEach((card) => {
@@ -719,16 +707,13 @@ export class GraphView extends ItemView {
 					groupStart = t;
 					groupMax = t;
 				} else if (t - groupStart < this.groupingInterval) {
-					// Within the same group, update representative timestamp.
 					groupMax = Math.max(groupMax!, t);
 				} else {
-					// New group starts.
 					groupedEvents.push(groupMax!);
 					groupStart = t;
 					groupMax = t;
 				}
 			});
-			// Push the final group.
 			if (groupMax !== null) {
 				groupedEvents.push(groupMax);
 			}
@@ -760,19 +745,17 @@ export class GraphView extends ItemView {
 		if (timelineSlider) {
 			timelineSlider.value = this.currentEventIndex.toString();
 		}
+		// Update the progress bar within the control panel.
 		const progressBar =
 			this.containerEl.querySelector<HTMLProgressElement>(
 				"#efProgressBar"
 			);
-		const progressLabel =
-			this.containerEl.querySelector<HTMLSpanElement>("#efProgressLabel");
-		if (progressBar && progressLabel && this.timelineEvents.length > 0) {
+		if (progressBar && this.timelineEvents.length > 0) {
 			const progressPercent = Math.round(
 				((this.currentEventIndex + 1) / this.timelineEvents.length) *
 					100
 			);
 			progressBar.value = progressPercent;
-			progressLabel.textContent = `${progressPercent}%`;
 		}
 	}
 
@@ -803,21 +786,18 @@ export class GraphView extends ItemView {
 	private startAnimation() {
 		if (this.timelineEvents.length === 0) return;
 
-		// Stop any existing timer
 		if (this.animationTimer) {
 			this.animationTimer.stop();
 			this.animationTimer = null;
 		}
 
 		this.isPlaying = true;
-		// Use a local variable to track when the last update occurred.
-		let lastUpdate = -this.eventDuration; // So the first update happens immediately
+		let lastUpdate = -this.eventDuration;
 
 		this.animationTimer = d3.timer((elapsed) => {
 			if (elapsed - lastUpdate >= this.eventDuration) {
 				lastUpdate = elapsed;
 				this.stepNext();
-				// When we reach the last event, pause and change button text to "Reset"
 				if (this.currentEventIndex >= this.timelineEvents.length - 1) {
 					this.pauseAnimation();
 					const playPauseButton =
