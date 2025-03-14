@@ -30,7 +30,7 @@ interface Node extends d3.SimulationNodeDatum {
 	offsetY?: number;
 	rating?: number;
 	ratingHistory?: { rating: number; timestamp: number }[];
-	ratingInterpolator?: d3.ScaleLinear<number, number>;
+	// no longer needed: ratingInterpolator?: d3.ScaleLinear<number, number>;
 }
 
 interface Link extends d3.SimulationLinkDatum<Node> {
@@ -52,6 +52,13 @@ export class GraphView extends ItemView {
 	private edgeLength: number = 100;
 	private chargeStrength: number = -100;
 
+	// New timeline and animation state properties
+	private timelineEvents: number[] = [];
+	private currentEventIndex: number = 0;
+	private animationTimer: d3.Timer | null = null;
+	private isPlaying: boolean = false;
+	private eventDuration: number = 2000; // default duration per event in ms
+
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -72,7 +79,6 @@ export class GraphView extends ItemView {
 	async onOpen() {
 		const containerEl = this.containerEl;
 		containerEl.empty();
-		// Ensure relative positioning for the fixed control panel.
 		containerEl.addClass("relative");
 
 		this.initControls();
@@ -83,10 +89,11 @@ export class GraphView extends ItemView {
 	}
 
 	private initControls() {
-		// Modern control panel using Tailwind CSS v3 with a backdrop blur and updated spacing
+		// Create a control box using Tailwind classes.
 		const controlBox = this.containerEl.createDiv();
 		controlBox.className =
 			"fixed z-50 flex flex-col gap-4 p-4 border border-gray-200 rounded-lg shadow-lg top-4 left-4 bg-white/90 backdrop-blur-md";
+
 		controlBox.innerHTML = `
 			<div class="flex flex-col gap-3">
 				<div class="flex items-center gap-2">
@@ -104,6 +111,7 @@ export class GraphView extends ItemView {
 					<input type="range" id="animationSpeedInput" min="2000" max="50000" value="10000" step="1000" class="w-32 h-2 appearance-none rounded-full bg-gray-200 focus:outline-none">
 					<span id="animationSpeedValue" class="text-sm text-gray-600">10s</span>
 				</div>
+				<!-- Original animate button (optional if still needed) -->
 				<div>
 					<button id="animateEF" class="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">Animate Rating</button>
 				</div>
@@ -112,16 +120,87 @@ export class GraphView extends ItemView {
 					<progress id="efProgressBar" value="0" max="100" class="w-32 h-2"></progress>
 					<span id="efProgressLabel" class="text-sm text-gray-600">0%</span>
 				</div>
+				<!-- New timeline and playback controls -->
+				<div id="timelineControls" class="flex flex-col gap-3 border-t pt-3">
+					<div class="flex items-center gap-2">
+						<label for="timelineSlider" class="text-sm font-medium text-gray-700">Timeline:</label>
+						<input type="range" id="timelineSlider" min="0" max="0" value="0" class="w-64 h-2 appearance-none rounded bg-gray-200 focus:outline-none">
+						<span id="timelineLabel" class="text-sm text-gray-600">0 / 0</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<button id="prevEvent" class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none">Prev</button>
+						<button id="playPause" class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none">Play</button>
+						<button id="nextEvent" class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none">Next</button>
+					</div>
+					<div class="flex items-center gap-2">
+						<label for="eventDurationInput" class="text-sm font-medium text-gray-700">Event Duration (ms):</label>
+						<input type="number" id="eventDurationInput" min="500" max="10000" value="2000" class="w-20 h-8 border rounded focus:outline-none">
+					</div>
+				</div>
 			</div>
 		`;
 
 		this.setupControlListeners(controlBox);
 
+		// Listeners for new timeline and playback controls
+		const timelineSlider =
+			controlBox.querySelector<HTMLInputElement>("#timelineSlider");
+		const timelineLabel =
+			controlBox.querySelector<HTMLSpanElement>("#timelineLabel");
+		const prevButton =
+			controlBox.querySelector<HTMLButtonElement>("#prevEvent");
+		const playPauseButton =
+			controlBox.querySelector<HTMLButtonElement>("#playPause");
+		const nextButton =
+			controlBox.querySelector<HTMLButtonElement>("#nextEvent");
+		const eventDurationInput = controlBox.querySelector<HTMLInputElement>(
+			"#eventDurationInput"
+		);
+
+		if (timelineSlider && timelineLabel) {
+			timelineSlider.addEventListener("input", () => {
+				this.currentEventIndex = parseInt(timelineSlider.value);
+				this.updateTimelineLabel();
+				this.updateGraphForEvent(this.currentEventIndex);
+			});
+		}
+
+		if (prevButton) {
+			prevButton.addEventListener("click", () => {
+				this.stepPrev();
+			});
+		}
+
+		if (nextButton) {
+			nextButton.addEventListener("click", () => {
+				this.stepNext();
+			});
+		}
+
+		if (playPauseButton) {
+			playPauseButton.addEventListener("click", () => {
+				if (this.isPlaying) {
+					this.pauseAnimation();
+					playPauseButton.textContent = "Play";
+				} else {
+					this.startAnimation();
+					playPauseButton.textContent = "Pause";
+				}
+			});
+		}
+
+		if (eventDurationInput) {
+			eventDurationInput.addEventListener("input", () => {
+				this.eventDuration = parseInt(eventDurationInput.value);
+			});
+		}
+
+		// Original animate button listener – can be repurposed or removed if desired.
 		const animateButton =
 			controlBox.querySelector<HTMLButtonElement>("#animateEF");
 		if (animateButton) {
 			animateButton.addEventListener("click", () =>
-				this.animateEFProgression()
+				this.startAnimation()
 			);
 		}
 	}
@@ -135,6 +214,12 @@ export class GraphView extends ItemView {
 			controlBox.querySelector<HTMLSpanElement>("#edgeLengthValue");
 		const chargeForceValue =
 			controlBox.querySelector<HTMLSpanElement>("#chargeForceValue");
+		const animationSpeedInput = controlBox.querySelector<HTMLInputElement>(
+			"#animationSpeedInput"
+		);
+		const animationSpeedValue = controlBox.querySelector<HTMLSpanElement>(
+			"#animationSpeedValue"
+		);
 
 		if (edgeLengthInput && edgeLengthValue) {
 			edgeLengthInput.addEventListener("input", () => {
@@ -151,6 +236,14 @@ export class GraphView extends ItemView {
 				this.chargeStrength = val;
 				chargeForceValue.textContent = val.toString();
 				this.updateForceParameters("charge", val);
+			});
+		}
+
+		if (animationSpeedInput && animationSpeedValue) {
+			animationSpeedInput.addEventListener("input", () => {
+				// This control is still present from the original code.
+				const val = parseInt(animationSpeedInput.value);
+				animationSpeedValue.textContent = `${(val / 1000).toFixed(1)}s`;
 			});
 		}
 	}
@@ -208,6 +301,10 @@ export class GraphView extends ItemView {
 		this.updateNoteNodes();
 		this.updateCardNodes();
 		this.updateSimulation();
+		// Recompute timeline events on refresh.
+		this.setupTimelineEvents();
+		this.updateTimelineLabel();
+		this.updateGraphForEvent(this.currentEventIndex);
 	}
 
 	private updateLinks() {
@@ -462,6 +559,12 @@ export class GraphView extends ItemView {
 
 		// Update colours for flashcards based on rating
 		this.updateFlashcardColors();
+
+		// After loading data, compute timeline events
+		this.setupTimelineEvents();
+		this.updateTimelineLabel();
+		// Start with initial event state.
+		this.updateGraphForEvent(this.currentEventIndex);
 	}
 
 	private createNoteNodes(
@@ -538,6 +641,7 @@ export class GraphView extends ItemView {
 	) {
 		cardIds.forEach((cardId, index) => {
 			const cardData = cards[cardId];
+			// Use the most recent rating or default to 3.
 			const rating =
 				cardData.efHistory && cardData.efHistory.length > 0
 					? cardData.efHistory[cardData.efHistory.length - 1].rating
@@ -604,92 +708,149 @@ export class GraphView extends ItemView {
 		}
 	}
 
-	private animateEFProgression() {
-		let animationDuration = parseInt(
-			(document.getElementById("animationSpeedInput") as HTMLInputElement)
-				.value
-		);
+	// New Timeline & Playback Animation Functions
 
-		const speedInput = document.getElementById(
-			"animationSpeedInput"
-		) as HTMLInputElement;
-		const speedValueLabel = document.getElementById(
-			"animationSpeedValue"
-		) as HTMLSpanElement;
-
-		// Update speed label dynamically
-		speedInput.addEventListener("input", () => {
-			animationDuration = parseInt(speedInput.value);
-			speedValueLabel.textContent = `${(animationDuration / 1000).toFixed(
-				1
-			)}s`;
+	/**
+	 * Build a sorted array of unique event timestamps from all card rating histories.
+	 */
+	private setupTimelineEvents() {
+		const eventsSet = new Set<number>();
+		this.cardNodes.forEach((card) => {
+			card.ratingHistory?.forEach((entry) =>
+				eventsSet.add(entry.timestamp)
+			);
 		});
+		this.timelineEvents = Array.from(eventsSet).sort((a, b) => a - b);
+		// Update the timeline slider max value.
+		const timelineSlider =
+			this.containerEl.querySelector<HTMLInputElement>("#timelineSlider");
+		if (timelineSlider) {
+			timelineSlider.max = (this.timelineEvents.length - 1).toString();
+		}
+		// Reset current index if out of range.
+		if (this.currentEventIndex >= this.timelineEvents.length) {
+			this.currentEventIndex = this.timelineEvents.length - 1;
+		}
+	}
 
-		let allTimestamps: number[] = [];
+	/**
+	 * Update the timeline label (e.g., "3 / 10").
+	 */
+	private updateTimelineLabel() {
+		const timelineLabel =
+			this.containerEl.querySelector<HTMLSpanElement>("#timelineLabel");
+		if (timelineLabel) {
+			timelineLabel.textContent = `${this.currentEventIndex + 1} / ${
+				this.timelineEvents.length
+			}`;
+		}
+		// Also update the slider's value.
+		const timelineSlider =
+			this.containerEl.querySelector<HTMLInputElement>("#timelineSlider");
+		if (timelineSlider) {
+			timelineSlider.value = this.currentEventIndex.toString();
+		}
+		// Optionally update the progress bar (if still in use)
+		const progressBar =
+			this.containerEl.querySelector<HTMLProgressElement>(
+				"#efProgressBar"
+			);
+		const progressLabel =
+			this.containerEl.querySelector<HTMLSpanElement>("#efProgressLabel");
+		if (progressBar && progressLabel && this.timelineEvents.length > 0) {
+			const progressPercent = Math.round(
+				((this.currentEventIndex + 1) / this.timelineEvents.length) *
+					100
+			);
+			progressBar.value = progressPercent;
+			progressLabel.textContent = `${progressPercent}%`;
+		}
+	}
+
+	/**
+	 * For a given event index, update each card's rating and color based on its history.
+	 */
+	private updateGraphForEvent(eventIndex: number) {
+		if (this.timelineEvents.length === 0) return;
+		const currentTimestamp = this.timelineEvents[eventIndex];
+
 		this.cardNodes.forEach((card) => {
 			if (card.ratingHistory && card.ratingHistory.length > 0) {
-				card.ratingHistory.forEach((entry) => {
-					allTimestamps.push(entry.timestamp);
-				});
-			}
-		});
-
-		if (allTimestamps.length === 0) return;
-
-		const minTime = d3.min(allTimestamps)!;
-		const maxTime = d3.max(allTimestamps)!;
-		const normalizedMaxTime = maxTime - minTime;
-
-		this.cardNodes.forEach((card) => {
-			if (card.ratingHistory && card.ratingHistory.length >= 2) {
-				card.ratingHistory.sort((a, b) => a.timestamp - b.timestamp);
-				card.ratingInterpolator = d3
-					.scaleLinear<number, number>()
-					.domain(
-						card.ratingHistory.map((e) => e.timestamp - minTime)
-					)
-					.range(card.ratingHistory.map((e) => e.rating))
-					.clamp(true);
-			} else if (card.ratingHistory && card.ratingHistory.length === 1) {
-				const constantRating = card.ratingHistory[0].rating;
-				card.ratingInterpolator = d3
-					.scaleLinear<number, number>()
-					.domain([0, normalizedMaxTime])
-					.range([constantRating, constantRating]);
-			}
-		});
-
-		const timer = d3.timer((elapsed) => {
-			const progressPercent = Math.round(
-				(elapsed / animationDuration) * 100
-			);
-			d3.select("#efProgressBar").attr("value", progressPercent);
-			d3.select("#efProgressLabel").text(`${progressPercent}%`);
-
-			const t = (normalizedMaxTime * elapsed) / animationDuration;
-
-			this.cardNodes.forEach((card) => {
-				if (card.ratingInterpolator) {
-					const currentRating = card.ratingInterpolator(t);
-					const roundedRating = Math.round(currentRating);
-					card.rating = roundedRating;
-					card.color = getRatingColor(roundedRating);
+				// Find the latest event in this card's history that is <= currentTimestamp.
+				const relevantEvent = card.ratingHistory
+					.filter((e) => e.timestamp <= currentTimestamp)
+					.sort((a, b) => b.timestamp - a.timestamp)[0];
+				if (relevantEvent) {
+					card.rating = relevantEvent.rating;
+					card.color = getRatingColor(relevantEvent.rating);
 				}
-			});
-
-			this.container
-				.selectAll<SVGCircleElement, Node>(".card-node")
-				.attr("fill", (d) => {
-					const card = this.cardNodes.find((c) => c.id === d.id);
-					return card ? card.color : d.color;
-				});
-
-			if (elapsed > animationDuration) {
-				d3.select("#efProgressBar").attr("value", 100);
-				d3.select("#efProgressLabel").text(`100%`);
-				timer.stop();
 			}
 		});
+
+		// Update the card node colours on the graph.
+		this.container
+			.selectAll<SVGCircleElement, Node>(".card-node")
+			.attr("fill", (d) => {
+				const card = this.cardNodes.find((c) => c.id === d.id);
+				return card ? card.color : d.color;
+			});
+	}
+
+	/**
+	 * Start playing the timeline animation.
+	 */
+	private startAnimation() {
+		if (this.timelineEvents.length === 0) return;
+		this.isPlaying = true;
+		this.animationTimer = d3.timer((elapsed) => {
+			// Move to next event after each eventDuration.
+			if (elapsed > this.eventDuration) {
+				elapsed = 0; // reset elapsed (d3.timer does not support resetting, so we update manually)
+				this.stepNext();
+				// If we've reached the end, pause.
+				if (this.currentEventIndex >= this.timelineEvents.length - 1) {
+					this.pauseAnimation();
+					const playPauseButton =
+						this.containerEl.querySelector<HTMLButtonElement>(
+							"#playPause"
+						);
+					if (playPauseButton) playPauseButton.textContent = "Play";
+				}
+			}
+		});
+	}
+
+	/**
+	 * Pause the timeline animation.
+	 */
+	private pauseAnimation() {
+		this.isPlaying = false;
+		if (this.animationTimer) {
+			this.animationTimer.stop();
+			this.animationTimer = null;
+		}
+	}
+
+	/**
+	 * Advance to the next event (if available).
+	 */
+	private stepNext() {
+		if (this.currentEventIndex < this.timelineEvents.length - 1) {
+			this.currentEventIndex++;
+			this.updateTimelineLabel();
+			this.updateGraphForEvent(this.currentEventIndex);
+		}
+	}
+
+	/**
+	 * Step to the previous event (if available).
+	 */
+	private stepPrev() {
+		if (this.currentEventIndex > 0) {
+			this.currentEventIndex--;
+			this.updateTimelineLabel();
+			this.updateGraphForEvent(this.currentEventIndex);
+		}
 	}
 
 	async onClose() {
