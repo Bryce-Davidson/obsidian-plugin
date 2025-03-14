@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { resolve } from "path";
+import builtinModules from "builtin-modules";
 
 export default defineConfig({
 	css: {
@@ -11,7 +12,7 @@ export default defineConfig({
 	build: {
 		lib: {
 			entry: resolve(__dirname, "main.ts"),
-			formats: ["cjs"],
+			formats: ["es"],
 			fileName: () => "main.js",
 		},
 		rollupOptions: {
@@ -29,7 +30,7 @@ export default defineConfig({
 				"@lezer/common",
 				"@lezer/highlight",
 				"@lezer/lr",
-				...require("builtin-modules"),
+				...builtinModules, // ✅ Use ESM imported modules
 			],
 			output: {
 				banner: `/*
@@ -38,7 +39,7 @@ if you want to view the source, please visit the github repository of this plugi
 */`,
 				entryFileNames: "main.js",
 				sourcemap: process.env.NODE_ENV !== "production",
-				format: "cjs",
+				format: "es", // ✅ Ensure format is "es" (ESM)
 			},
 		},
 		outDir: "./dist",
