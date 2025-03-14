@@ -1486,6 +1486,20 @@ export default class MyPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "sync-all-cards-in-vault",
+			name: "Synchronize All Cards in Vault",
+			callback: async () => {
+				const markdownFiles = this.app.vault.getMarkdownFiles();
+				for (const file of markdownFiles) {
+					await syncFlashcardsForFile(this, file);
+				}
+				await this.savePluginData();
+				new Notice("Synchronized all cards across the vault.");
+				this.refreshUnifiedQueue();
+			},
+		});
+
+		this.addCommand({
 			id: "reset-card-under-cursor",
 			name: "Reset Card Under Cursor",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
