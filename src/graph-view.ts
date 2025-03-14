@@ -589,7 +589,7 @@ export class GraphView extends ItemView {
 				path: file.path,
 				x: Math.random() * 800 - 400,
 				y: Math.random() * 800 - 400,
-				radius: 12,
+				radius: 10,
 				color: this.colorScale(file.extension),
 				type: "note",
 			};
@@ -662,7 +662,7 @@ export class GraphView extends ItemView {
 				})
 			);
 			const angle = (2 * Math.PI * index) / count;
-			const offset = 30;
+			const offset = 16;
 
 			const cardNode: Node = {
 				id: `${notePath}_${cardId}`,
