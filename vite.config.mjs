@@ -30,7 +30,7 @@ export default defineConfig({
 				"@lezer/common",
 				"@lezer/highlight",
 				"@lezer/lr",
-				...builtinModules, // ✅ Use ESM imported modules
+				...builtinModules,
 			],
 			output: {
 				banner: `/*
@@ -39,7 +39,7 @@ if you want to view the source, please visit the github repository of this plugi
 */`,
 				entryFileNames: "main.js",
 				sourcemap: process.env.NODE_ENV !== "production",
-				format: "es", // ✅ Ensure format is "es" (ESM)
+				format: "es",
 			},
 		},
 		outDir: "./dist",
