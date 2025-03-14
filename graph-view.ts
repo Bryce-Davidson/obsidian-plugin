@@ -1,4 +1,4 @@
-import './styles.css';
+import "./main.css";
 
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import * as d3 from "d3";
@@ -18,7 +18,6 @@ function getRatingColor(rating: number): string {
 	return ratingMap.get(rating) || "#000000";
 }
 
-// Extend Node to include rating history and an optional interpolator.
 interface Node extends d3.SimulationNodeDatum {
 	id: string;
 	fileName?: string;
@@ -73,7 +72,8 @@ export class GraphView extends ItemView {
 	async onOpen() {
 		const containerEl = this.containerEl;
 		containerEl.empty();
-		containerEl.addClass("graph-view-container");
+		// Ensure relative positioning for the fixed control panel.
+		containerEl.addClass("relative");
 
 		this.initControls();
 		this.initSvg();
@@ -83,36 +83,37 @@ export class GraphView extends ItemView {
 	}
 
 	private initControls() {
-		const controlBox = this.containerEl.createDiv("graph-view-controls");
+		// Modern control panel using Tailwind CSS v3 with a backdrop blur and updated spacing
+		const controlBox = this.containerEl.createDiv();
+		controlBox.className =
+			"fixed z-50 flex flex-col gap-4 p-4 border border-gray-200 rounded-lg shadow-lg top-4 left-4 bg-white/90 backdrop-blur-md";
 		controlBox.innerHTML = `
-        <div>
-            <label>Edge Length:
-                <input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" />
-                <span id="edgeLengthValue">${this.edgeLength}</span>
-            </label>
-        </div>
-        <div>
-            <label>Charge Force:
-                <input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" />
-                <span id="chargeForceValue">${this.chargeStrength}</span>
-            </label>
-        </div>
-        <div>
-            <label>Animation Speed:
-                <input type="range" id="animationSpeedInput" min="2000" max="50000" value="10000" step="1000" />
-                <span id="animationSpeedValue">10s</span>
-            </label>
-        </div>
-        <div>
-            <button id="animateEF">Animate Rating</button>
-        </div>
-        <div id="efProgressContainer">
-            <label>Rating Animation Progress:
-                <progress id="efProgressBar" value="0" max="100"></progress>
-                <span id="efProgressLabel">0%</span>
-            </label>
-        </div>
-    `;
+			<div class="flex flex-col gap-3">
+				<div class="flex items-center gap-2">
+					<label class="text-sm font-medium text-gray-700" for="edgeLengthInput">Edge Length:</label>
+					<input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" class="w-32 h-2 appearance-none rounded-full bg-gray-200 focus:outline-none">
+					<span id="edgeLengthValue" class="text-sm text-gray-600">${this.edgeLength}</span>
+				</div>
+				<div class="flex items-center gap-2">
+					<label class="text-sm font-medium text-gray-700" for="chargeForceInput">Charge Force:</label>
+					<input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" class="w-32 h-2 appearance-none rounded-full bg-gray-200 focus:outline-none">
+					<span id="chargeForceValue" class="text-sm text-gray-600">${this.chargeStrength}</span>
+				</div>
+				<div class="flex items-center gap-2">
+					<label class="text-sm font-medium text-gray-700" for="animationSpeedInput">Animation Speed:</label>
+					<input type="range" id="animationSpeedInput" min="2000" max="50000" value="10000" step="1000" class="w-32 h-2 appearance-none rounded-full bg-gray-200 focus:outline-none">
+					<span id="animationSpeedValue" class="text-sm text-gray-600">10s</span>
+				</div>
+				<div>
+					<button id="animateEF" class="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">Animate Rating</button>
+				</div>
+				<div id="efProgressContainer" class="flex items-center gap-2">
+					<label class="text-sm font-medium text-gray-700" for="efProgressBar">Animation Progress:</label>
+					<progress id="efProgressBar" value="0" max="100" class="w-32 h-2"></progress>
+					<span id="efProgressLabel" class="text-sm text-gray-600">0%</span>
+				</div>
+			</div>
+		`;
 
 		this.setupControlListeners(controlBox);
 
@@ -176,7 +177,7 @@ export class GraphView extends ItemView {
 			.append("svg")
 			.attr("width", "100%")
 			.attr("height", "100%")
-			.attr("class", "graph-view-svg");
+			.classed("w-full h-full", true);
 
 		this.zoom = d3
 			.zoom<SVGSVGElement, unknown>()
@@ -186,7 +187,7 @@ export class GraphView extends ItemView {
 			});
 
 		this.svg.call(this.zoom);
-		this.container = this.svg.append("g").attr("class", "graph-container");
+		this.container = this.svg.append("g").classed("graph-container", true);
 	}
 
 	private registerEvents() {
