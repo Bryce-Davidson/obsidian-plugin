@@ -40,12 +40,15 @@ interface Link extends d3.SimulationLinkDatum<Node> {
 
 export class GraphView extends ItemView {
 	private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
+	private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
+	// Two separate layers: textLayer (for note labels) and nodeLayer (for circles and links)
+	private textLayer!: d3.Selection<SVGGElement, unknown, null, undefined>;
+	private nodeLayer!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private simulation!: d3.Simulation<Node, Link>;
 	private noteNodes: Node[] = [];
 	private cardNodes: Node[] = [];
 	private links: Link[] = [];
 	private zoom!: d3.ZoomBehavior<SVGSVGElement, unknown>;
-	private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private plugin: MyPlugin;
 	private colorScale = d3.scaleOrdinal(d3.schemeCategory10);
 	private edgeLength: number = 100;
@@ -56,7 +59,6 @@ export class GraphView extends ItemView {
 	private animationTimer: d3.Timer | null = null;
 	private isPlaying: boolean = false;
 	private eventDuration: number = 100;
-
 	private groupingInterval: number = 0;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
@@ -88,8 +90,7 @@ export class GraphView extends ItemView {
 		this.registerEvents();
 	}
 
-	// Control panel is fixed at the top right.
-	// The progress bar is now included at the bottom of the control panel.
+	// Create the control panel (fixed top-right) with the progress bar at the bottom of the panel.
 	private initControls() {
 		const controlBox = this.containerEl.createDiv();
 		controlBox.className =
@@ -267,6 +268,7 @@ export class GraphView extends ItemView {
 		this.simulation.alpha(0.3).restart();
 	}
 
+	// Initialize the SVG and create two groups: one for text (behind) and one for nodes and links (above)
 	private initSvg() {
 		this.svg = d3
 			.select(this.containerEl)
@@ -283,7 +285,11 @@ export class GraphView extends ItemView {
 			});
 
 		this.svg.call(this.zoom);
+		// Main container
 		this.container = this.svg.append("g").classed("graph-container", true);
+		// Separate layers: textLayer (behind) and nodeLayer (above)
+		this.textLayer = this.container.append("g").attr("class", "text-layer");
+		this.nodeLayer = this.container.append("g").attr("class", "node-layer");
 	}
 
 	private registerEvents() {
@@ -310,7 +316,7 @@ export class GraphView extends ItemView {
 	}
 
 	private updateLinks() {
-		const link = this.container
+		const link = this.nodeLayer
 			.selectAll<SVGLineElement, Link>(".link")
 			.data(this.links, this.getLinkId);
 
@@ -330,45 +336,52 @@ export class GraphView extends ItemView {
 		}`;
 	}
 
+	// Render note nodes (circles) and note texts in separate layers.
 	private updateNoteNodes() {
-		const noteGroup = this.container
-			.selectAll<SVGGElement, Node>(".note-node")
-			.data(this.noteNodes, (d: Node) => d.id);
-
-		noteGroup
+		// Update circles in existing note groups.
+		this.nodeLayer
+			.selectAll(".note-node")
 			.select("circle")
 			.attr("r", (d: Node) => d.radius)
 			.attr("fill", (d: Node) => d.color);
 
-		noteGroup
-			.select("text")
-			.attr("y", (d: Node) => d.radius + 15)
+		// Update text positions in the text layer.
+		this.textLayer
+			.selectAll(".note-text")
+			.attr("x", (d: Node) => d.x!)
+			.attr("y", (d: Node) => d.y! + d.radius + 15)
 			.text(this.truncateNodeLabel);
 
-		const noteGroupEnter = noteGroup
+		// Enter new note nodes (for circles).
+		const noteGroup = this.nodeLayer
+			.selectAll<SVGGElement, Node>(".note-node")
+			.data(this.noteNodes, (d: Node) => d.id)
 			.enter()
 			.append("g")
 			.attr("class", "note-node")
 			.call(this.setupDragBehavior())
 			.on("click", (event, d) => this.nodeClicked(d));
 
-		noteGroupEnter
+		noteGroup
 			.append("circle")
 			.attr("r", (d: Node) => d.radius)
 			.attr("fill", (d: Node) => d.color)
 			.attr("stroke", "#fff")
 			.attr("stroke-width", 1.5);
 
-		noteGroupEnter
+		// Enter new note texts (in the text layer).
+		this.textLayer
+			.selectAll<SVGTextElement, Node>(".note-text")
+			.data(this.noteNodes, (d: Node) => d.id)
+			.enter()
 			.append("text")
-			.attr("x", 0)
-			.attr("y", (d: Node) => d.radius + 15)
+			.attr("class", "note-text")
 			.attr("text-anchor", "middle")
+			.attr("x", (d: Node) => d.x!)
+			.attr("y", (d: Node) => d.y! + d.radius + 15)
 			.text(this.truncateNodeLabel)
 			.attr("font-size", "10px")
 			.attr("font-family", "sans-serif");
-
-		noteGroup.exit().remove();
 	}
 
 	private truncateNodeLabel(d: Node): string {
@@ -385,7 +398,7 @@ export class GraphView extends ItemView {
 	}
 
 	private updateCardNodes() {
-		this.container
+		this.nodeLayer
 			.selectAll<SVGGElement, Node>(".note-node")
 			.each((noteNode: Node, i, groups) => {
 				const parentGroup = d3.select(groups[i]);
@@ -425,13 +438,17 @@ export class GraphView extends ItemView {
 		this.simulation.alpha(0.3).restart();
 	}
 
+	// Render the graph using the separate layers.
 	renderGraph() {
 		const width = this.containerEl.clientWidth;
 		const height = this.containerEl.clientHeight;
 
-		this.container.selectAll("*").remove();
+		// Clear existing layers.
+		this.nodeLayer.selectAll("*").remove();
+		this.textLayer.selectAll("*").remove();
 
-		this.container
+		// Render links in the node layer.
+		this.nodeLayer
 			.selectAll(".link")
 			.data(this.links)
 			.enter()
@@ -441,7 +458,8 @@ export class GraphView extends ItemView {
 			.attr("stroke-opacity", 0.6)
 			.attr("stroke-width", 1.5);
 
-		const noteGroup = this.container
+		// Render note groups (circles) in the node layer.
+		const noteGroup = this.nodeLayer
 			.selectAll(".note-node")
 			.data(this.noteNodes, (d: Node) => d.id)
 			.enter()
@@ -457,11 +475,16 @@ export class GraphView extends ItemView {
 			.attr("stroke", "#fff")
 			.attr("stroke-width", 1.5);
 
-		noteGroup
+		// Render note texts in the text layer.
+		this.textLayer
+			.selectAll(".note-text")
+			.data(this.noteNodes, (d: Node) => d.id)
+			.enter()
 			.append("text")
-			.attr("x", 0)
-			.attr("y", (d: Node) => d.radius + 15)
+			.attr("class", "note-text")
 			.attr("text-anchor", "middle")
+			.attr("x", (d: Node) => d.x!)
+			.attr("y", (d: Node) => d.y! + d.radius + 15)
 			.text(this.truncateNodeLabel)
 			.attr("font-size", "10px")
 			.attr("font-family", "sans-serif");
@@ -470,6 +493,7 @@ export class GraphView extends ItemView {
 		this.setupSimulation(width, height);
 	}
 
+	// Append card nodes as before.
 	private addCardNodes(
 		noteGroup: d3.Selection<d3.BaseType, Node, SVGGElement, unknown>
 	) {
@@ -494,7 +518,8 @@ export class GraphView extends ItemView {
 		});
 	}
 
-	private setupSimulation(width: number, height: number) {
+	// Define setupSimulation with an explicit return type.
+	private setupSimulation(width: number, height: number): void {
 		this.simulation = d3
 			.forceSimulation<Node>(this.noteNodes)
 			.force(
@@ -512,8 +537,9 @@ export class GraphView extends ItemView {
 			.on("tick", () => this.ticked());
 	}
 
+	// Update positions of links, note nodes, and note texts.
 	ticked() {
-		this.container
+		this.nodeLayer
 			.selectAll<SVGLineElement, Link>(".link")
 			.attr("x1", (d) => (typeof d.source === "object" ? d.source.x! : 0))
 			.attr("y1", (d) => (typeof d.source === "object" ? d.source.y! : 0))
@@ -522,9 +548,14 @@ export class GraphView extends ItemView {
 				typeof d.target === "object" ? d.target.y! : 0
 			);
 
-		this.container
+		this.nodeLayer
 			.selectAll<SVGGElement, Node>(".note-node")
-			.attr("transform", (d) => `translate(${d.x}, ${d.y})`);
+			.attr("transform", (d) => `translate(${d.x!}, ${d.y!})`);
+
+		this.textLayer
+			.selectAll<SVGTextElement, Node>(".note-text")
+			.attr("x", (d) => d.x!)
+			.attr("y", (d) => d.y! + d.radius + 15);
 	}
 
 	async loadGraphData() {
@@ -685,9 +716,6 @@ export class GraphView extends ItemView {
 		}
 	}
 
-	// Timeline & Playback Animation Functions
-
-	// Modified setupTimelineEvents to support groupingInterval.
 	private setupTimelineEvents() {
 		const eventsSet = new Set<number>();
 		this.cardNodes.forEach((card) => {
@@ -775,7 +803,7 @@ export class GraphView extends ItemView {
 			}
 		});
 
-		this.container
+		this.nodeLayer
 			.selectAll<SVGCircleElement, Node>(".card-node")
 			.attr("fill", (d) => {
 				const card = this.cardNodes.find((c) => c.id === d.id);
