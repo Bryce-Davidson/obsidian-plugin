@@ -30,7 +30,6 @@ interface Node extends d3.SimulationNodeDatum {
 	offsetY?: number;
 	rating?: number;
 	ratingHistory?: { rating: number; timestamp: number }[];
-	// no longer needed: ratingInterpolator?: d3.ScaleLinear<number, number>;
 }
 
 interface Link extends d3.SimulationLinkDatum<Node> {
@@ -52,12 +51,15 @@ export class GraphView extends ItemView {
 	private edgeLength: number = 100;
 	private chargeStrength: number = -100;
 
-	// New timeline and animation state properties
+	// Timeline and animation state properties
 	private timelineEvents: number[] = [];
 	private currentEventIndex: number = 0;
 	private animationTimer: d3.Timer | null = null;
 	private isPlaying: boolean = false;
-	private eventDuration: number = 2000; // default duration per event in ms
+	private eventDuration: number = 100; // default duration per event in ms
+
+	// NEW: Grouping interval in ms. 0 means no grouping.
+	private groupingInterval: number = 0;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
@@ -89,60 +91,71 @@ export class GraphView extends ItemView {
 	}
 
 	private initControls() {
-		// Create a control box using Tailwind classes.
+		// Create a more compact, modern control panel using Tailwind CSS components.
 		const controlBox = this.containerEl.createDiv();
 		controlBox.className =
-			"fixed z-50 flex flex-col gap-4 p-4 border border-gray-200 rounded-lg shadow-lg top-4 left-4 bg-white/90 backdrop-blur-md";
+			"fixed z-50 flex flex-col gap-2 p-3 text-sm rounded-md shadow-md top-4 left-4 bg-white/90 backdrop-blur-sm";
 
+		// NEW: Added grouping interval control in the timeline controls.
 		controlBox.innerHTML = `
-			<div class="flex flex-col gap-3">
-				<div class="flex items-center gap-2">
-					<label class="text-sm font-medium text-gray-700" for="edgeLengthInput">Edge Length:</label>
-					<input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" class="w-32 h-2 appearance-none rounded-full bg-gray-200 focus:outline-none">
-					<span id="edgeLengthValue" class="text-sm text-gray-600">${this.edgeLength}</span>
-				</div>
-				<div class="flex items-center gap-2">
-					<label class="text-sm font-medium text-gray-700" for="chargeForceInput">Charge Force:</label>
-					<input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" class="w-32 h-2 appearance-none rounded-full bg-gray-200 focus:outline-none">
-					<span id="chargeForceValue" class="text-sm text-gray-600">${this.chargeStrength}</span>
-				</div>
-				<div class="flex items-center gap-2">
-					<label class="text-sm font-medium text-gray-700" for="animationSpeedInput">Animation Speed:</label>
-					<input type="range" id="animationSpeedInput" min="2000" max="50000" value="10000" step="1000" class="w-32 h-2 appearance-none rounded-full bg-gray-200 focus:outline-none">
-					<span id="animationSpeedValue" class="text-sm text-gray-600">10s</span>
-				</div>
-				<!-- Original animate button (optional if still needed) -->
-				<div>
-					<button id="animateEF" class="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">Animate Rating</button>
-				</div>
-				<div id="efProgressContainer" class="flex items-center gap-2">
-					<label class="text-sm font-medium text-gray-700" for="efProgressBar">Animation Progress:</label>
-					<progress id="efProgressBar" value="0" max="100" class="w-32 h-2"></progress>
-					<span id="efProgressLabel" class="text-sm text-gray-600">0%</span>
-				</div>
-				<!-- New timeline and playback controls -->
-				<div id="timelineControls" class="flex flex-col gap-3 border-t pt-3">
-					<div class="flex items-center gap-2">
-						<label for="timelineSlider" class="text-sm font-medium text-gray-700">Timeline:</label>
-						<input type="range" id="timelineSlider" min="0" max="0" value="0" class="w-64 h-2 appearance-none rounded bg-gray-200 focus:outline-none">
-						<span id="timelineLabel" class="text-sm text-gray-600">0 / 0</span>
-					</div>
-					<div class="flex items-center gap-2">
-						<button id="prevEvent" class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none">Prev</button>
-						<button id="playPause" class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none">Play</button>
-						<button id="nextEvent" class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none">Next</button>
-					</div>
-					<div class="flex items-center gap-2">
-						<label for="eventDurationInput" class="text-sm font-medium text-gray-700">Event Duration (ms):</label>
-						<input type="number" id="eventDurationInput" min="500" max="10000" value="2000" class="w-20 h-8 border rounded focus:outline-none">
-					</div>
-				</div>
-			</div>
+<div class="bg-gray-900 text-gray-300 p-4 rounded-md border border-gray-700 max-w-md mx-auto space-y-4">
+  <!-- Sliders Section -->
+  <div class="space-y-3">
+    <div class="flex flex-col">
+      <label for="edgeLengthInput" class="text-sm font-medium">Edge Length</label>
+      <div class="flex items-center mt-1">
+        <input type="range" id="edgeLengthInput" min="50" max="300" value="${this.edgeLength}" class="flex-1 h-2 rounded bg-gray-800 focus:outline-none">
+        <span id="edgeLengthValue" class="ml-3 text-sm text-gray-400">${this.edgeLength}</span>
+      </div>
+    </div>
+    <div class="flex flex-col">
+      <label for="chargeForceInput" class="text-sm font-medium">Charge Force</label>
+      <div class="flex items-center mt-1">
+        <input type="range" id="chargeForceInput" min="-300" max="0" value="${this.chargeStrength}" class="flex-1 h-2 rounded bg-gray-800 focus:outline-none">
+        <span id="chargeForceValue" class="ml-3 text-sm text-gray-400">${this.chargeStrength}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress Section -->
+  <div class="flex items-center space-x-2">
+    <label for="efProgressBar" class="text-sm font-medium">Progress</label>
+    <progress id="efProgressBar" value="0" max="100" class="flex-1 h-2 rounded bg-gray-800"></progress>
+    <span id="efProgressLabel" class="text-sm text-gray-400">0%</span>
+  </div>
+
+  <!-- Timeline Controls -->
+  <div class="border-t border-gray-700 pt-4 space-y-4">
+    <div class="flex flex-col">
+      <label for="timelineSlider" class="text-sm font-medium">Timeline</label>
+      <div class="flex items-center mt-1">
+        <input type="range" id="timelineSlider" min="0" max="0" value="0" class="flex-1 h-2 rounded bg-gray-800 focus:outline-none">
+        <span id="timelineLabel" class="ml-3 text-sm text-gray-400">0 / 0</span>
+      </div>
+    </div>
+    <div class="flex justify-center space-x-3">
+      <button id="prevEvent" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 focus:outline-none transition duration-150">Prev</button>
+      <button id="playPause" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 focus:outline-none transition duration-150">Play</button>
+      <button id="nextEvent" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 focus:outline-none transition duration-150">Next</button>
+    </div>
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center">
+        <label for="eventDurationInput" class="text-sm font-medium mr-2">Event Duration (ms)</label>
+        <input type="number" id="eventDurationInput" min="500" max="10000" value="2000" class="w-24 border border-gray-700 rounded bg-gray-800 text-sm text-gray-300 text-center focus:outline-none">
+      </div>
+      <!-- NEW: Grouping interval input -->
+      <div class="flex items-center">
+        <label for="groupingIntervalInput" class="text-sm font-medium mr-2">Grouping Interval (ms)</label>
+        <input type="number" id="groupingIntervalInput" min="0" max="10000000" value="0" class="w-24 border border-gray-700 rounded bg-gray-800 text-sm text-gray-300 text-center focus:outline-none">
+      </div>
+    </div>
+  </div>
+</div>
 		`;
 
 		this.setupControlListeners(controlBox);
 
-		// Listeners for new timeline and playback controls
+		// Timeline and playback control listeners
 		const timelineSlider =
 			controlBox.querySelector<HTMLInputElement>("#timelineSlider");
 		const timelineLabel =
@@ -156,6 +169,10 @@ export class GraphView extends ItemView {
 		const eventDurationInput = controlBox.querySelector<HTMLInputElement>(
 			"#eventDurationInput"
 		);
+		const groupingIntervalInput =
+			controlBox.querySelector<HTMLInputElement>(
+				"#groupingIntervalInput"
+			);
 
 		if (timelineSlider && timelineLabel) {
 			timelineSlider.addEventListener("input", () => {
@@ -179,10 +196,21 @@ export class GraphView extends ItemView {
 
 		if (playPauseButton) {
 			playPauseButton.addEventListener("click", () => {
+				if (playPauseButton.textContent === "Reset") {
+					this.currentEventIndex = 0;
+					this.updateTimelineLabel();
+					this.updateGraphForEvent(this.currentEventIndex);
+					playPauseButton.textContent = "Play";
+					return;
+				}
 				if (this.isPlaying) {
 					this.pauseAnimation();
 					playPauseButton.textContent = "Play";
 				} else {
+					if (this.animationTimer) {
+						this.animationTimer.stop();
+						this.animationTimer = null;
+					}
 					this.startAnimation();
 					playPauseButton.textContent = "Pause";
 				}
@@ -195,13 +223,14 @@ export class GraphView extends ItemView {
 			});
 		}
 
-		// Original animate button listener – can be repurposed or removed if desired.
-		const animateButton =
-			controlBox.querySelector<HTMLButtonElement>("#animateEF");
-		if (animateButton) {
-			animateButton.addEventListener("click", () =>
-				this.startAnimation()
-			);
+		// NEW: Update grouping interval on change.
+		if (groupingIntervalInput) {
+			groupingIntervalInput.addEventListener("input", () => {
+				this.groupingInterval = parseInt(groupingIntervalInput.value);
+				this.setupTimelineEvents();
+				this.updateTimelineLabel();
+				this.updateGraphForEvent(this.currentEventIndex);
+			});
 		}
 	}
 
@@ -214,12 +243,6 @@ export class GraphView extends ItemView {
 			controlBox.querySelector<HTMLSpanElement>("#edgeLengthValue");
 		const chargeForceValue =
 			controlBox.querySelector<HTMLSpanElement>("#chargeForceValue");
-		const animationSpeedInput = controlBox.querySelector<HTMLInputElement>(
-			"#animationSpeedInput"
-		);
-		const animationSpeedValue = controlBox.querySelector<HTMLSpanElement>(
-			"#animationSpeedValue"
-		);
 
 		if (edgeLengthInput && edgeLengthValue) {
 			edgeLengthInput.addEventListener("input", () => {
@@ -236,14 +259,6 @@ export class GraphView extends ItemView {
 				this.chargeStrength = val;
 				chargeForceValue.textContent = val.toString();
 				this.updateForceParameters("charge", val);
-			});
-		}
-
-		if (animationSpeedInput && animationSpeedValue) {
-			animationSpeedInput.addEventListener("input", () => {
-				// This control is still present from the original code.
-				const val = parseInt(animationSpeedInput.value);
-				animationSpeedValue.textContent = `${(val / 1000).toFixed(1)}s`;
 			});
 		}
 	}
@@ -301,7 +316,6 @@ export class GraphView extends ItemView {
 		this.updateNoteNodes();
 		this.updateCardNodes();
 		this.updateSimulation();
-		// Recompute timeline events on refresh.
 		this.setupTimelineEvents();
 		this.updateTimelineLabel();
 		this.updateGraphForEvent(this.currentEventIndex);
@@ -333,7 +347,6 @@ export class GraphView extends ItemView {
 			.selectAll<SVGGElement, Node>(".note-node")
 			.data(this.noteNodes, (d: Node) => d.id);
 
-		// Update existing nodes
 		noteGroup
 			.select("circle")
 			.attr("r", (d: Node) => d.radius)
@@ -344,7 +357,6 @@ export class GraphView extends ItemView {
 			.attr("y", (d: Node) => d.radius + 15)
 			.text(this.truncateNodeLabel);
 
-		// Add new nodes
 		const noteGroupEnter = noteGroup
 			.enter()
 			.append("g")
@@ -396,14 +408,12 @@ export class GraphView extends ItemView {
 					.selectAll<SVGCircleElement, Node>(".card-node")
 					.data(cardsForNote, (d: Node) => d.id);
 
-				// Update existing cards
 				cardSelection
 					.attr("r", (d: Node) => d.radius)
 					.attr("cx", (d: Node) => d.offsetX!)
 					.attr("cy", (d: Node) => d.offsetY!)
 					.attr("fill", (d: Node) => d.color);
 
-				// Add new cards
 				cardSelection
 					.enter()
 					.append("circle")
@@ -433,7 +443,6 @@ export class GraphView extends ItemView {
 
 		this.container.selectAll("*").remove();
 
-		// Add links
 		this.container
 			.selectAll(".link")
 			.data(this.links)
@@ -444,7 +453,6 @@ export class GraphView extends ItemView {
 			.attr("stroke-opacity", 0.6)
 			.attr("stroke-width", 1.5);
 
-		// Create note nodes
 		const noteGroup = this.container
 			.selectAll(".note-node")
 			.data(this.noteNodes, (d: Node) => d.id)
@@ -454,7 +462,6 @@ export class GraphView extends ItemView {
 			.call(this.setupDragBehavior())
 			.on("click", (event, d) => this.nodeClicked(d));
 
-		// Add circles for notes
 		noteGroup
 			.append("circle")
 			.attr("r", (d: Node) => d.radius)
@@ -462,7 +469,6 @@ export class GraphView extends ItemView {
 			.attr("stroke", "#fff")
 			.attr("stroke-width", 1.5);
 
-		// Add labels for notes
 		noteGroup
 			.append("text")
 			.attr("x", 0)
@@ -472,10 +478,7 @@ export class GraphView extends ItemView {
 			.attr("font-size", "10px")
 			.attr("font-family", "sans-serif");
 
-		// Add card nodes within each note
 		this.addCardNodes(noteGroup);
-
-		// Setup force simulation
 		this.setupSimulation(width, height);
 	}
 
@@ -522,7 +525,6 @@ export class GraphView extends ItemView {
 	}
 
 	ticked() {
-		// Update link positions
 		this.container
 			.selectAll<SVGLineElement, Link>(".link")
 			.attr("x1", (d) => (typeof d.source === "object" ? d.source.x! : 0))
@@ -532,7 +534,6 @@ export class GraphView extends ItemView {
 				typeof d.target === "object" ? d.target.y! : 0
 			);
 
-		// Update node positions
 		this.container
 			.selectAll<SVGGElement, Node>(".note-node")
 			.attr("transform", (d) => `translate(${d.x}, ${d.y})`);
@@ -548,22 +549,12 @@ export class GraphView extends ItemView {
 		const noteMap = new Map<string, Node>();
 		const basenameMap = new Map<string, Node>();
 
-		// Create note nodes
 		this.createNoteNodes(files, noteMap, basenameMap);
-
-		// Create links between notes
 		await this.createNoteLinks(files, noteMap, basenameMap);
-
-		// Process flashcard data
 		this.processFlashcardData(flashcardData, noteMap);
-
-		// Update colours for flashcards based on rating
 		this.updateFlashcardColors();
-
-		// After loading data, compute timeline events
 		this.setupTimelineEvents();
 		this.updateTimelineLabel();
-		// Start with initial event state.
 		this.updateGraphForEvent(this.currentEventIndex);
 	}
 
@@ -641,7 +632,6 @@ export class GraphView extends ItemView {
 	) {
 		cardIds.forEach((cardId, index) => {
 			const cardData = cards[cardId];
-			// Use the most recent rating or default to 3.
 			const rating =
 				cardData.efHistory && cardData.efHistory.length > 0
 					? cardData.efHistory[cardData.efHistory.length - 1].rating
@@ -676,7 +666,6 @@ export class GraphView extends ItemView {
 	private updateFlashcardColors() {
 		if (this.cardNodes.length === 0) return;
 
-		// Set each card's colour based on its current rating
 		this.cardNodes.forEach((card) => {
 			if (card.rating !== undefined) {
 				card.color = getRatingColor(card.rating);
@@ -708,11 +697,9 @@ export class GraphView extends ItemView {
 		}
 	}
 
-	// New Timeline & Playback Animation Functions
+	// Timeline & Playback Animation Functions
 
-	/**
-	 * Build a sorted array of unique event timestamps from all card rating histories.
-	 */
+	// NEW: Modified setupTimelineEvents to support groupingInterval.
 	private setupTimelineEvents() {
 		const eventsSet = new Set<number>();
 		this.cardNodes.forEach((card) => {
@@ -720,22 +707,46 @@ export class GraphView extends ItemView {
 				eventsSet.add(entry.timestamp)
 			);
 		});
-		this.timelineEvents = Array.from(eventsSet).sort((a, b) => a - b);
-		// Update the timeline slider max value.
+		const allEvents = Array.from(eventsSet).sort((a, b) => a - b);
+
+		if (this.groupingInterval > 0) {
+			const groupedEvents: number[] = [];
+			let groupStart: number | null = null;
+			let groupMax: number | null = null;
+
+			allEvents.forEach((t) => {
+				if (groupStart === null) {
+					groupStart = t;
+					groupMax = t;
+				} else if (t - groupStart < this.groupingInterval) {
+					// Within the same group, update representative timestamp.
+					groupMax = Math.max(groupMax!, t);
+				} else {
+					// New group starts.
+					groupedEvents.push(groupMax!);
+					groupStart = t;
+					groupMax = t;
+				}
+			});
+			// Push the final group.
+			if (groupMax !== null) {
+				groupedEvents.push(groupMax);
+			}
+			this.timelineEvents = groupedEvents;
+		} else {
+			this.timelineEvents = allEvents;
+		}
+
 		const timelineSlider =
 			this.containerEl.querySelector<HTMLInputElement>("#timelineSlider");
 		if (timelineSlider) {
 			timelineSlider.max = (this.timelineEvents.length - 1).toString();
 		}
-		// Reset current index if out of range.
 		if (this.currentEventIndex >= this.timelineEvents.length) {
 			this.currentEventIndex = this.timelineEvents.length - 1;
 		}
 	}
 
-	/**
-	 * Update the timeline label (e.g., "3 / 10").
-	 */
 	private updateTimelineLabel() {
 		const timelineLabel =
 			this.containerEl.querySelector<HTMLSpanElement>("#timelineLabel");
@@ -744,13 +755,11 @@ export class GraphView extends ItemView {
 				this.timelineEvents.length
 			}`;
 		}
-		// Also update the slider's value.
 		const timelineSlider =
 			this.containerEl.querySelector<HTMLInputElement>("#timelineSlider");
 		if (timelineSlider) {
 			timelineSlider.value = this.currentEventIndex.toString();
 		}
-		// Optionally update the progress bar (if still in use)
 		const progressBar =
 			this.containerEl.querySelector<HTMLProgressElement>(
 				"#efProgressBar"
@@ -767,16 +776,12 @@ export class GraphView extends ItemView {
 		}
 	}
 
-	/**
-	 * For a given event index, update each card's rating and color based on its history.
-	 */
 	private updateGraphForEvent(eventIndex: number) {
 		if (this.timelineEvents.length === 0) return;
 		const currentTimestamp = this.timelineEvents[eventIndex];
 
 		this.cardNodes.forEach((card) => {
 			if (card.ratingHistory && card.ratingHistory.length > 0) {
-				// Find the latest event in this card's history that is <= currentTimestamp.
 				const relevantEvent = card.ratingHistory
 					.filter((e) => e.timestamp <= currentTimestamp)
 					.sort((a, b) => b.timestamp - a.timestamp)[0];
@@ -787,7 +792,6 @@ export class GraphView extends ItemView {
 			}
 		});
 
-		// Update the card node colours on the graph.
 		this.container
 			.selectAll<SVGCircleElement, Node>(".card-node")
 			.attr("fill", (d) => {
@@ -796,33 +800,36 @@ export class GraphView extends ItemView {
 			});
 	}
 
-	/**
-	 * Start playing the timeline animation.
-	 */
 	private startAnimation() {
 		if (this.timelineEvents.length === 0) return;
+
+		// Stop any existing timer
+		if (this.animationTimer) {
+			this.animationTimer.stop();
+			this.animationTimer = null;
+		}
+
 		this.isPlaying = true;
+		// Use a local variable to track when the last update occurred.
+		let lastUpdate = -this.eventDuration; // So the first update happens immediately
+
 		this.animationTimer = d3.timer((elapsed) => {
-			// Move to next event after each eventDuration.
-			if (elapsed > this.eventDuration) {
-				elapsed = 0; // reset elapsed (d3.timer does not support resetting, so we update manually)
+			if (elapsed - lastUpdate >= this.eventDuration) {
+				lastUpdate = elapsed;
 				this.stepNext();
-				// If we've reached the end, pause.
+				// When we reach the last event, pause and change button text to "Reset"
 				if (this.currentEventIndex >= this.timelineEvents.length - 1) {
 					this.pauseAnimation();
 					const playPauseButton =
 						this.containerEl.querySelector<HTMLButtonElement>(
 							"#playPause"
 						);
-					if (playPauseButton) playPauseButton.textContent = "Play";
+					if (playPauseButton) playPauseButton.textContent = "Reset";
 				}
 			}
 		});
 	}
 
-	/**
-	 * Pause the timeline animation.
-	 */
 	private pauseAnimation() {
 		this.isPlaying = false;
 		if (this.animationTimer) {
@@ -831,9 +838,6 @@ export class GraphView extends ItemView {
 		}
 	}
 
-	/**
-	 * Advance to the next event (if available).
-	 */
 	private stepNext() {
 		if (this.currentEventIndex < this.timelineEvents.length - 1) {
 			this.currentEventIndex++;
@@ -842,9 +846,6 @@ export class GraphView extends ItemView {
 		}
 	}
 
-	/**
-	 * Step to the previous event (if available).
-	 */
 	private stepPrev() {
 		if (this.currentEventIndex > 0) {
 			this.currentEventIndex--;
