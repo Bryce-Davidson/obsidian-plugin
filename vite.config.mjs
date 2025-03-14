@@ -10,7 +10,7 @@ export default defineConfig({
 	},
 	build: {
 		lib: {
-			entry: resolve(__dirname, "main.ts"),
+			entry: resolve(__dirname, "src/main.ts"),
 			formats: ["cjs"],
 			fileName: () => "main.js",
 		},
