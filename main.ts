@@ -1,3 +1,5 @@
+import './styles.css';
+
 import {
 	App,
 	Editor,
@@ -12,7 +14,7 @@ import {
 	ItemView,
 	MarkdownRenderer,
 } from "obsidian";
-import { GraphView, VIEW_TYPE_GRAPH } from "graph-view";
+import { GraphView, VIEW_TYPE_GRAPH } from "./graph-view";
 import { customAlphabet } from "nanoid";
 import Fuse from "fuse.js";
 

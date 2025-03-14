@@ -1,6 +1,8 @@
+import './styles.css';
+
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import * as d3 from "d3";
-import MyPlugin from "main";
+import MyPlugin from "./main";
 
 export const VIEW_TYPE_GRAPH = "graph-view";
 
