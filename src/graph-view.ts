@@ -30,6 +30,7 @@ interface Node extends d3.SimulationNodeDatum {
 	offsetY?: number;
 	rating?: number;
 	ratingHistory?: { rating: number; timestamp: number }[];
+	createdAt?: number; // Optional: timestamp at which a card node is created
 }
 
 interface Link extends d3.SimulationLinkDatum<Node> {
@@ -41,7 +42,7 @@ interface Link extends d3.SimulationLinkDatum<Node> {
 export class GraphView extends ItemView {
 	private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
 	private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
-	// Two separate layers: textLayer (for note labels) and nodeLayer (for circles and links)
+	// Two layers: textLayer (for note labels) and nodeLayer (for nodes, links, and cards)
 	private textLayer!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private nodeLayer!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private simulation!: d3.Simulation<Node, Link>;
@@ -90,7 +91,7 @@ export class GraphView extends ItemView {
 		this.registerEvents();
 	}
 
-	// Create the control panel (fixed top-right) with the progress bar at the bottom of the panel.
+	// Control panel (fixed top-right) with a progress bar at the bottom.
 	private initControls() {
 		const controlBox = this.containerEl.createDiv();
 		controlBox.className =
@@ -136,7 +137,7 @@ export class GraphView extends ItemView {
       </div>
     </div>
   </div>
-  <!-- Progress bar placed at the bottom of the control panel -->
+  <!-- Progress bar placed at the bottom -->
   <div>
     <progress id="efProgressBar" value="0" max="100" class="w-full h-2 rounded bg-gray-700"></progress>
   </div>
@@ -397,6 +398,8 @@ export class GraphView extends ItemView {
 			.on("end", (event, d) => this.dragEnded(event, d));
 	}
 
+	// When updating card nodes, if the animation is playing we only display a card if
+	// current timeline >= its createdAt time; otherwise, if paused, show all cards.
 	private updateCardNodes() {
 		this.nodeLayer
 			.selectAll<SVGGElement, Node>(".note-node")
@@ -413,7 +416,20 @@ export class GraphView extends ItemView {
 					.attr("r", (d: Node) => d.radius)
 					.attr("cx", (d: Node) => d.offsetX!)
 					.attr("cy", (d: Node) => d.offsetY!)
-					.attr("fill", (d: Node) => d.color);
+					.attr("fill", (d: Node) => d.color)
+					.attr("display", (d: Node) => {
+						const card = this.cardNodes.find((c) => c.id === d.id);
+						// If animation is playing, honor createdAt; otherwise, show all cards.
+						if (this.isPlaying && card?.createdAt !== undefined) {
+							const currentTimestamp =
+								this.timelineEvents[this.currentEventIndex] ||
+								0;
+							return currentTimestamp >= card.createdAt
+								? "inline"
+								: "none";
+						}
+						return "inline";
+					});
 
 				cardSelection
 					.enter()
@@ -424,7 +440,19 @@ export class GraphView extends ItemView {
 					.attr("cy", (d: Node) => d.offsetY!)
 					.attr("fill", (d: Node) => d.color)
 					.attr("stroke", "#fff")
-					.attr("stroke-width", 1);
+					.attr("stroke-width", 1)
+					.attr("display", (d: Node) => {
+						const card = this.cardNodes.find((c) => c.id === d.id);
+						if (this.isPlaying && card?.createdAt !== undefined) {
+							const currentTimestamp =
+								this.timelineEvents[this.currentEventIndex] ||
+								0;
+							return currentTimestamp >= card.createdAt
+								? "inline"
+								: "none";
+						}
+						return "inline";
+					});
 
 				cardSelection.exit().remove();
 			});
@@ -514,7 +542,18 @@ export class GraphView extends ItemView {
 				.attr("cy", (d: Node) => d.offsetY!)
 				.attr("fill", (d: Node) => d.color)
 				.attr("stroke", "#fff")
-				.attr("stroke-width", 1);
+				.attr("stroke-width", 1)
+				.attr("display", (d: Node) => {
+					const card = this.cardNodes.find((c) => c.id === d.id);
+					if (this.isPlaying && card?.createdAt !== undefined) {
+						const currentTimestamp =
+							this.timelineEvents[this.currentEventIndex] || 0;
+						return currentTimestamp >= card.createdAt
+							? "inline"
+							: "none";
+					}
+					return "inline";
+				});
 		});
 	}
 
@@ -643,6 +682,7 @@ export class GraphView extends ItemView {
 		}
 	}
 
+	// When creating card nodes, set the createdAt property (if provided) by parsing the cardData.createdAt string.
 	private createCardNodesForNote(
 		notePath: string,
 		cards: any,
@@ -677,6 +717,11 @@ export class GraphView extends ItemView {
 				rating: rating,
 				ratingHistory: ratingHistory,
 			};
+
+			// If the cardData has a createdAt property, store it as a timestamp.
+			if (cardData.createdAt) {
+				cardNode.createdAt = Date.parse(cardData.createdAt);
+			}
 
 			this.cardNodes.push(cardNode);
 		});
@@ -803,11 +848,22 @@ export class GraphView extends ItemView {
 			}
 		});
 
+		// Update card nodes appearance and visibility.
 		this.nodeLayer
 			.selectAll<SVGCircleElement, Node>(".card-node")
 			.attr("fill", (d) => {
 				const card = this.cardNodes.find((c) => c.id === d.id);
 				return card ? card.color : d.color;
+			})
+			.attr("display", (d) => {
+				const card = this.cardNodes.find((c) => c.id === d.id);
+				// When animation is playing, only show if currentTimestamp >= createdAt; otherwise, show all cards.
+				if (this.isPlaying && card?.createdAt !== undefined) {
+					return currentTimestamp >= card.createdAt
+						? "inline"
+						: "none";
+				}
+				return "inline";
 			});
 	}
 
