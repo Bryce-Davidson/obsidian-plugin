@@ -128,7 +128,7 @@ export class GraphView extends ItemView {
     <div class="flex flex-col space-y-1">
       <div class="flex items-center">
         <label for="eventDurationInput" class="mr-2">Dur (ms)</label>
-        <input type="number" id="eventDurationInput" min="500" max="10000" value="2000" class="w-20 border border-gray-700 rounded bg-gray-700 text-center focus:outline-none">
+        <input type="number" id="eventDurationInput" min="500" max="10000" value="100" class="w-20 border border-gray-700 rounded bg-gray-700 text-center focus:outline-none">
       </div>
       <div class="flex items-center">
         <label for="groupingIntervalInput" class="mr-2">Group (ms)</label>
