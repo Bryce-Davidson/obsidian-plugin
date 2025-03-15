@@ -721,7 +721,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 	/**
 	 * Render only the card container according to current filters.
 	 */
-	renderUnifiedCards() {
+	renderUnifiedCards(): void {
 		// Clear out existing cards.
 		this.cardContainerEl.empty();
 
@@ -732,18 +732,18 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		}
 
 		const now = new Date();
-		let filteredCards = allCards;
+		let filteredCards: CardState[] = allCards;
 
 		// If we're in "note" mode, only show cards from the active note.
 		if (this.filterMode === "note") {
 			const activeFile = this.plugin.app.workspace.getActiveFile();
 			if (activeFile) {
-				filteredCards = allCards.filter(
-					(card) =>
-						Object.keys(this.plugin.notes).find(
-							(fp) => card.cardUUID in this.plugin.notes[fp].cards
-						) === activeFile.path
-				);
+				filteredCards = allCards.filter((card) => {
+					const filePath = Object.keys(this.plugin.notes).find(
+						(fp) => card.cardUUID in this.plugin.notes[fp].cards
+					);
+					return filePath === activeFile.path;
+				});
 			} else {
 				filteredCards = [];
 			}
@@ -753,7 +753,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				// Exclude cards with no nextReviewDate or not active.
 				if (!card.active || !card.nextReviewDate) return false;
 				const reviewDate = new Date(card.nextReviewDate);
-
 				// "due" means reviewDate <= now; "scheduled" means reviewDate > now.
 				return this.filterMode === "due"
 					? reviewDate <= now
@@ -767,7 +766,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 						(fp) => card.cardUUID in this.plugin.notes[fp].cards
 					);
 					if (!filePath) return false;
-
 					const file =
 						this.plugin.app.vault.getAbstractFileByPath(filePath);
 					if (file && file instanceof TFile) {
@@ -775,18 +773,16 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 							this.plugin.app.metadataCache.getFileCache(file);
 						const tags = fileCache?.frontmatter?.tags;
 						if (tags) {
-							if (Array.isArray(tags)) {
-								return tags.includes(this.tagFilter);
-							} else {
-								return tags === this.tagFilter;
-							}
+							return Array.isArray(tags)
+								? tags.includes(this.tagFilter)
+								: tags === this.tagFilter;
 						}
 					}
 					return false;
 				});
 			}
 
-			// Apply search text.
+			// Apply search text if provided.
 			if (this.searchText.trim() !== "") {
 				const fuse = new Fuse(filteredCards, {
 					keys: ["cardTitle", "cardContent"],
@@ -797,19 +793,16 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			}
 		}
 
-		// Sort results (only for "due"/"scheduled" modes).
-		if (this.filterMode !== "note") {
-			filteredCards.sort((a, b) => {
-				const aDate = a.nextReviewDate
-					? new Date(a.nextReviewDate).getTime()
-					: 0;
-				const bDate = b.nextReviewDate
-					? new Date(b.nextReviewDate).getTime()
-					: 0;
-				if (aDate !== bDate) return aDate - bDate;
-				return (a.ef || 0) - (b.ef || 0);
-			});
-		}
+		// Add a Tailwind-styled UI element that shows the number of filtered cards.
+		// The "text-center" class centers the text.
+		const countEl = this.cardContainerEl.createEl("div", {
+			cls: "text-sm font-bold text-blue-500 mb-2 text-center",
+		});
+		countEl.setText(
+			`${filteredCards.length} flashcard${
+				filteredCards.length === 1 ? "" : "s"
+			}`
+		);
 
 		// If no cards left after filters, show empty state.
 		if (filteredCards.length === 0) {
@@ -830,7 +823,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 				(fp) => cardState.cardUUID in this.plugin.notes[fp].cards
 			);
 			if (!filePath) return;
-
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			if (!file || !(file instanceof TFile)) return;
 
@@ -841,7 +833,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			// Set position relative for absolute positioning of the button.
 			card.style.position = "relative";
 
-			// Clicking the card => open file at the line (if available).
+			// Clicking the card opens the file at the specific line if available.
 			card.addEventListener("click", () => {
 				if (cardState.line !== undefined) {
 					const options = {
@@ -863,6 +855,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 
 			this.addCardMeta(card, cardState, now);
 
+			// Add a button to launch the flashcard modal for the individual card.
 			const flashcardButton = card.createEl("button", {
 				cls: "flashcard-launch-button",
 			});
@@ -897,7 +890,7 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			});
 		});
 
-		// Provide a reset button to reset all *currently filtered* cards.
+		// Provide a reset button to reset all currently filtered cards.
 		const resetButton = this.cardContainerEl.createEl("button", {
 			cls: "filter-reset-button",
 			text: "Reset Cards",
@@ -910,7 +903,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 			) {
 				return;
 			}
-
 			const now = new Date();
 			filteredCards.forEach((card) => {
 				const filePath = Object.keys(this.plugin.notes).find(
@@ -942,7 +934,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 					pluginCard.createdAt = originalCreatedAt;
 				}
 			});
-
 			await this.plugin.savePluginData();
 			new Notice("All filtered flashcards reset successfully.");
 			this.plugin.refreshUnifiedQueue();
