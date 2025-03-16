@@ -1,4 +1,4 @@
-import { App, Plugin, Notice, TFile, WorkspaceLeaf, ItemView } from "obsidian";
+import { Plugin, Notice, TFile, WorkspaceLeaf, ItemView } from "obsidian";
 import Konva from "konva";
 
 // Define an interface for a single occlusion shape.
@@ -13,7 +13,7 @@ interface OcclusionShape {
 
 // Define the occlusion data structure.
 interface OcclusionData {
-	fileData: { [filePath: string]: OcclusionShape[] };
+	notes: { [filePath: string]: OcclusionShape[] };
 }
 
 export default class OcclusionPlugin extends Plugin {
@@ -69,6 +69,10 @@ class OcclusionView extends ItemView {
 	colorInput: HTMLInputElement;
 	widthInput: HTMLInputElement;
 	heightInput: HTMLInputElement;
+	// Container for editing controls.
+	controlsDiv: HTMLElement;
+	// Button to toggle review/edit mode.
+	modeToggleButton: HTMLButtonElement;
 
 	// Konva objects.
 	stage: Konva.Stage;
@@ -78,6 +82,9 @@ class OcclusionView extends ItemView {
 
 	// Currently selected rectangle (if any).
 	selectedRect: Konva.Rect | null = null;
+
+	// Mode flag: if true, we’re in review mode.
+	reviewMode: boolean = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: OcclusionPlugin) {
 		super(leaf);
@@ -114,45 +121,42 @@ class OcclusionView extends ItemView {
 			this.loadImage(this.fileSelectEl.value);
 		};
 
-		// Create a container div for Konva.
-		this.konvaContainer = this.containerEl.createDiv(
-			"konva-container"
-		) as HTMLDivElement;
-		this.konvaContainer.style.border = "1px solid #ccc";
-		// Set fixed dimensions for simplicity.
-		this.konvaContainer.style.width = "800px";
-		this.konvaContainer.style.height = "600px";
+		// Add a button to toggle between edit and review mode.
+		this.modeToggleButton = this.containerEl.createEl("button", {
+			text: "Switch to Review Mode",
+		});
+		this.modeToggleButton.onclick = () => this.toggleReviewMode();
 
-		// Create control inputs.
-		const controlsDiv = this.containerEl.createDiv("controls");
+		// Create a container div for editing controls.
+		this.controlsDiv = this.containerEl.createDiv("controls");
 		// Colour picker.
-		this.colorInput = controlsDiv.createEl("input", { type: "color" });
+		this.colorInput = this.controlsDiv.createEl("input", { type: "color" });
 		this.colorInput.onchange = (e: Event) => {
-			if (this.selectedRect) {
+			if (this.selectedRect && !this.reviewMode) {
 				this.selectedRect.fill((e.target as HTMLInputElement).value);
 				this.shapeLayer.draw();
 			}
 		};
 		// Width input.
-		this.widthInput = controlsDiv.createEl("input", {
+		this.widthInput = this.controlsDiv.createEl("input", {
 			type: "number",
 			value: "100",
 			attr: { placeholder: "Width" },
 		});
 		this.widthInput.onchange = () => {
-			if (this.selectedRect) {
+			if (this.selectedRect && !this.reviewMode) {
 				this.selectedRect.width(parseFloat(this.widthInput.value));
 				this.shapeLayer.draw();
 			}
 		};
 		// Height input.
-		this.heightInput = controlsDiv.createEl("input", {
+		this.heightInput = this.controlsDiv.createEl("input", {
 			type: "number",
 			value: "100",
 			attr: { placeholder: "Height" },
 		});
 		this.heightInput.onchange = () => {
-			if (this.selectedRect) {
+			if (this.selectedRect && !this.reviewMode) {
 				this.selectedRect.height(parseFloat(this.heightInput.value));
 				this.shapeLayer.draw();
 			}
@@ -169,9 +173,18 @@ class OcclusionView extends ItemView {
 		}) as HTMLButtonElement;
 		this.saveButton.onclick = () => this.saveOcclusionData();
 
+		// Create a container div for Konva.
+		this.konvaContainer = this.containerEl.createDiv(
+			"konva-container"
+		) as HTMLDivElement;
+		this.konvaContainer.style.border = "1px solid #ccc";
+		// Set fixed dimensions for simplicity.
+		this.konvaContainer.style.width = "800px";
+		this.konvaContainer.style.height = "600px";
+
 		// Initialize the Konva stage and layers.
 		this.stage = new Konva.Stage({
-			container: this.konvaContainer, // now a HTMLDivElement
+			container: this.konvaContainer,
 			width: 800,
 			height: 600,
 		});
@@ -184,37 +197,64 @@ class OcclusionView extends ItemView {
 		this.transformer = new Konva.Transformer();
 		this.shapeLayer.add(this.transformer);
 
-		// Attach a click handler on the stage to select shapes.
+		// Attach a click handler on the stage.
 		this.stage.on("click", (e) => {
-			// Deselect if clicked on an empty area.
+			if (this.reviewMode) {
+				// In review mode, let the rectangle click events handle toggling.
+				return;
+			}
+			// In edit mode, deselect if clicking on an empty area.
 			if (e.target === this.stage) {
 				this.transformer.nodes([]);
 				this.selectedRect = null;
 				return;
 			}
-			// If a rectangle is clicked, select it.
-			if (e.target instanceof Konva.Rect) {
-				this.selectedRect = e.target;
-				this.transformer.nodes([this.selectedRect]);
-				// Update control values to match the selected shape.
-				this.colorInput.value = this.selectedRect.fill() as string;
-				this.widthInput.value = this.selectedRect.width().toString();
-				this.heightInput.value = this.selectedRect.height().toString();
-			}
-		});
-
-		// Update control values when a shape is transformed.
-		this.shapeLayer.on("transformend", () => {
-			if (this.selectedRect) {
-				this.widthInput.value = this.selectedRect.width().toString();
-				this.heightInput.value = this.selectedRect.height().toString();
-			}
+			// (The rectangle click events below handle selection in edit mode.)
 		});
 
 		// Load the image (and any saved shapes) for the initially selected file, if any.
 		if (this.fileSelectEl.value) {
 			this.loadImage(this.fileSelectEl.value);
 		}
+	}
+
+	/**
+	 * Toggle between edit mode and review mode.
+	 * In review mode the editing controls are hidden, the transformer is disabled,
+	 * and rectangles are set to non-draggable. In review mode clicking a rectangle toggles its visibility.
+	 */
+	toggleReviewMode(): void {
+		this.reviewMode = !this.reviewMode;
+		if (this.reviewMode) {
+			// Hide editing controls.
+			this.controlsDiv.style.display = "none";
+			this.addRectButton.style.display = "none";
+			this.saveButton.style.display = "none";
+			// Disable transformer.
+			this.transformer.nodes([]);
+			this.transformer.visible(false);
+			// Disable dragging for all rectangles.
+			this.shapeLayer.getChildren().forEach((child) => {
+				if (child instanceof Konva.Rect) {
+					child.draggable(false);
+				}
+			});
+			this.modeToggleButton.textContent = "Switch to Edit Mode";
+		} else {
+			// Show editing controls.
+			this.controlsDiv.style.display = "";
+			this.addRectButton.style.display = "";
+			this.saveButton.style.display = "";
+			this.transformer.visible(true);
+			// Enable dragging for all rectangles.
+			this.shapeLayer.getChildren().forEach((child) => {
+				if (child instanceof Konva.Rect) {
+					child.draggable(true);
+				}
+			});
+			this.modeToggleButton.textContent = "Switch to Review Mode";
+		}
+		this.shapeLayer.draw();
 	}
 
 	// Load an image from the vault and render it as a Konva image.
@@ -263,16 +303,24 @@ class OcclusionView extends ItemView {
 			width: 100,
 			height: 100,
 			fill: "#000000",
-			opacity: 0.5,
+			opacity: 1,
 			draggable: true,
 		});
-		// Optionally, add a click handler directly on the rectangle.
-		rect.on("click", () => {
-			this.selectedRect = rect;
-			this.transformer.nodes([rect]);
-			this.colorInput.value = rect.fill() as string;
-			this.widthInput.value = rect.width().toString();
-			this.heightInput.value = rect.height().toString();
+		// Attach a click handler that behaves differently depending on mode.
+		rect.on("click", (e) => {
+			e.cancelBubble = true;
+			if (this.reviewMode) {
+				// In review mode, toggle the rectangle’s visibility.
+				rect.visible(!rect.visible());
+				this.shapeLayer.draw();
+			} else {
+				// In edit mode, select the rectangle for editing.
+				this.selectedRect = rect;
+				this.transformer.nodes([rect]);
+				this.colorInput.value = rect.fill() as string;
+				this.widthInput.value = rect.width().toString();
+				this.heightInput.value = rect.height().toString();
+			}
 		});
 		this.shapeLayer.add(rect);
 		this.shapeLayer.draw();
@@ -303,9 +351,9 @@ class OcclusionView extends ItemView {
 		// Load any existing occlusion data.
 		const savedData =
 			(await this.plugin.loadData()) as OcclusionData | null;
-		const saved: OcclusionData = savedData || { fileData: {} };
+		const saved: OcclusionData = savedData || { notes: {} };
 		// Save shapes for the current file.
-		saved.fileData[filePath] = shapes;
+		saved.notes[filePath] = shapes;
 		await this.plugin.saveData(saved);
 		new Notice("Occlusion data saved!");
 	}
@@ -314,9 +362,9 @@ class OcclusionView extends ItemView {
 	async loadSavedShapes(filePath: string): Promise<void> {
 		const savedData =
 			(await this.plugin.loadData()) as OcclusionData | null;
-		const saved: OcclusionData = savedData || { fileData: {} };
-		if (saved.fileData[filePath]) {
-			saved.fileData[filePath].forEach((s: OcclusionShape) => {
+		const saved: OcclusionData = savedData || { notes: {} };
+		if (saved.notes[filePath]) {
+			saved.notes[filePath].forEach((s: OcclusionShape) => {
 				const rect = new Konva.Rect({
 					x: s.x,
 					y: s.y,
@@ -324,14 +372,22 @@ class OcclusionView extends ItemView {
 					height: s.height,
 					fill: s.fill,
 					opacity: s.opacity,
-					draggable: true,
+					draggable: !this.reviewMode,
 				});
-				rect.on("click", () => {
-					this.selectedRect = rect;
-					this.transformer.nodes([rect]);
-					this.colorInput.value = rect.fill() as string;
-					this.widthInput.value = rect.width().toString();
-					this.heightInput.value = rect.height().toString();
+				rect.on("click", (e) => {
+					e.cancelBubble = true;
+					if (this.reviewMode) {
+						// In review mode, toggle the rectangle’s visibility.
+						rect.visible(!rect.visible());
+						this.shapeLayer.draw();
+					} else {
+						// In edit mode, select the rectangle.
+						this.selectedRect = rect;
+						this.transformer.nodes([rect]);
+						this.colorInput.value = rect.fill() as string;
+						this.widthInput.value = rect.width().toString();
+						this.heightInput.value = rect.height().toString();
+					}
 				});
 				this.shapeLayer.add(rect);
 			});
