@@ -1,20 +1,7 @@
 import { Plugin, Notice, TFile, WorkspaceLeaf, ItemView } from "obsidian";
 import Konva from "konva";
 import MyPlugin from "./main"; // Import the main plugin class
-
-// Define an interface for a single occlusion shape.
-interface OcclusionShape {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-	fill: string;
-	opacity: number;
-}
-
-interface OcclusionData {
-	attachments: { [filePath: string]: OcclusionShape[] };
-}
+import { OcclusionShape, OcclusionData } from "./main"; // Import the interfaces from main.ts
 
 export const VIEW_TYPE_OCCLUSION = "occlusion-view";
 
@@ -360,47 +347,43 @@ export class OcclusionView extends ItemView {
 				return null;
 			})
 			.filter((s): s is OcclusionShape => s !== null);
-		const savedData =
-			(await this.plugin.loadData()) as OcclusionData | null;
-		const saved: OcclusionData = savedData || { attachments: {} };
-		saved.attachments[filePath] = shapes;
-		await this.plugin.saveData(saved);
-		this.plugin.cachedOcclusionData = saved;
+
+		// Update the plugin's occlusion data directly
+		this.plugin.occlusion.attachments[filePath] = shapes;
+		await this.plugin.savePluginData();
 		new Notice("Occlusion data saved!");
 	}
 
 	async loadSavedShapes(filePath: string): Promise<void> {
-		const savedData =
-			(await this.plugin.loadData()) as OcclusionData | null;
-		const saved: OcclusionData = savedData || { attachments: {} };
-		if (saved.attachments[filePath]) {
-			saved.attachments[filePath].forEach((s: OcclusionShape) => {
-				const rect = new Konva.Rect({
-					x: s.x,
-					y: s.y,
-					width: s.width,
-					height: s.height,
-					fill: s.fill,
-					opacity: s.opacity,
-					draggable: !this.reviewMode,
-				});
-				rect.on("click", (e) => {
-					e.cancelBubble = true;
-					if (this.reviewMode) {
-						rect.visible(!rect.visible());
-						this.shapeLayer.draw();
-					} else {
-						this.selectedRect = rect;
-						this.transformer.nodes([rect]);
-						this.colorInput.value = rect.fill() as string;
-						this.widthInput.value = rect.width().toString();
-						this.heightInput.value = rect.height().toString();
-					}
-				});
-				this.shapeLayer.add(rect);
+		// Access the occlusion data directly from the plugin
+		const shapes = this.plugin.occlusion.attachments[filePath] || [];
+
+		shapes.forEach((s: OcclusionShape) => {
+			const rect = new Konva.Rect({
+				x: s.x,
+				y: s.y,
+				width: s.width,
+				height: s.height,
+				fill: s.fill,
+				opacity: s.opacity,
+				draggable: !this.reviewMode,
 			});
-			this.shapeLayer.draw();
-		}
+			rect.on("click", (e) => {
+				e.cancelBubble = true;
+				if (this.reviewMode) {
+					rect.visible(!rect.visible());
+					this.shapeLayer.draw();
+				} else {
+					this.selectedRect = rect;
+					this.transformer.nodes([rect]);
+					this.colorInput.value = rect.fill() as string;
+					this.widthInput.value = rect.width().toString();
+					this.heightInput.value = rect.height().toString();
+				}
+			});
+			this.shapeLayer.add(rect);
+		});
+		this.shapeLayer.draw();
 	}
 
 	// Add a new method to handle stage resizing
@@ -442,6 +425,3 @@ export class OcclusionView extends ItemView {
 // Change the default export to be a class that extends MyPlugin
 // This is no longer needed since we're using MyPlugin directly
 // export default class OcclusionPlugin extends Plugin { ... }
-
-// Instead, export the OcclusionData interface for use in MyPlugin
-export type { OcclusionData };

@@ -17,7 +17,7 @@ import {
 import { GraphView, VIEW_TYPE_GRAPH } from "./graph-view";
 import { customAlphabet } from "nanoid";
 import Fuse from "fuse.js";
-import { OcclusionView, VIEW_TYPE_OCCLUSION, OcclusionData } from "./konva";
+import { OcclusionView, VIEW_TYPE_OCCLUSION } from "./konva";
 
 const nanoid = customAlphabet(
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
@@ -66,9 +66,26 @@ interface Note {
 	data: NoteData;
 }
 
-interface PluginData {
+// Define the OcclusionShape interface here in main.ts
+export interface OcclusionShape {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	fill: string;
+	opacity: number;
+}
+
+// Define OcclusionData here in main.ts
+export interface OcclusionData {
+	attachments: { [filePath: string]: OcclusionShape[] };
+}
+
+// Unified PluginData interface
+export interface PluginData {
 	settings: MyPluginSettings;
 	notes: { [filePath: string]: Note };
+	occlusion: OcclusionData;
 }
 
 // Extended Flashcard interface.
@@ -1319,12 +1336,10 @@ function findCardStateAndFile(
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	notes: { [filePath: string]: Note } = {};
+	occlusion: OcclusionData = { attachments: {} };
 
 	private allHidden: boolean = true;
 	private refreshTimeout: number | null = null;
-
-	// Add this property to match what OcclusionView expects
-	cachedOcclusionData: OcclusionData = { attachments: {} };
 	globalObserver: MutationObserver;
 
 	async onload() {
@@ -1350,9 +1365,11 @@ export default class MyPlugin extends Plugin {
 		if (data) {
 			this.settings = data.settings || DEFAULT_SETTINGS;
 			this.notes = data.notes || {};
+			this.occlusion = data.occlusion || { attachments: {} };
 		} else {
 			this.settings = DEFAULT_SETTINGS;
 			this.notes = {};
+			this.occlusion = { attachments: {} };
 		}
 		document.documentElement.style.setProperty(
 			"--hidden-color",
@@ -1364,6 +1381,7 @@ export default class MyPlugin extends Plugin {
 		const data: PluginData = {
 			settings: this.settings,
 			notes: this.notes,
+			occlusion: this.occlusion,
 		};
 		await this.saveData(data);
 	}
@@ -1882,9 +1900,7 @@ export default class MyPlugin extends Plugin {
 			const bDate = b.nextReviewDate
 				? new Date(b.nextReviewDate).getTime()
 				: 0;
-			if (aDate !== bDate) {
-				return aDate - bDate;
-			}
+			if (aDate !== bDate) return aDate - bDate;
 			return (a.ef || 0) - (b.ef || 0);
 		});
 
