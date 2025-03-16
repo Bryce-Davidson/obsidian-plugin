@@ -222,6 +222,7 @@ class OcclusionView extends ItemView {
 	heightInput: HTMLInputElement;
 	controlsDiv: HTMLElement;
 	modeToggleButton: HTMLButtonElement;
+	resizeObserver: ResizeObserver;
 
 	stage: Konva.Stage;
 	imageLayer: Konva.Layer;
@@ -250,13 +251,14 @@ class OcclusionView extends ItemView {
 
 	async onOpen() {
 		this.containerEl = this.contentEl.createDiv("occlusion-editor");
+		this.containerEl.style.display = "flex";
+		this.containerEl.style.flexDirection = "column";
+		this.containerEl.style.height = "100%";
 
 		// Create a fixed toolbar for controls.
 		const toolbarEl = this.containerEl.createDiv("toolbar");
-		toolbarEl.style.position = "fixed";
-		toolbarEl.style.top = "10px";
-		toolbarEl.style.left = "10px";
-		toolbarEl.style.right = "10px";
+		toolbarEl.style.position = "sticky";
+		toolbarEl.style.top = "0";
 		toolbarEl.style.zIndex = "1000";
 		toolbarEl.style.background = "rgba(255,255,255,0.9)";
 		toolbarEl.style.padding = "10px";
@@ -264,6 +266,7 @@ class OcclusionView extends ItemView {
 		toolbarEl.style.display = "flex";
 		toolbarEl.style.flexWrap = "wrap";
 		toolbarEl.style.gap = "10px";
+		toolbarEl.style.flexShrink = "0";
 
 		// File selector control.
 		this.fileSelectEl = toolbarEl.createEl("select") as HTMLSelectElement;
@@ -377,19 +380,16 @@ class OcclusionView extends ItemView {
 		}) as HTMLButtonElement;
 		this.saveButton.onclick = () => this.saveOcclusionData();
 
-		// Add a spacer so the canvas starts below the fixed toolbar.
-		const spacer = this.containerEl.createDiv("spacer");
-		spacer.style.height = "80px";
-
-		// Create the Konva container.
+		// Create the Konva container with flex properties
 		this.konvaContainer = this.containerEl.createEl("div", {
 			cls: "konva-container",
 		}) as HTMLDivElement;
 		this.konvaContainer.style.border = "1px solid #ccc";
-		// Default dimensions will be updated in loadImage.
-		this.konvaContainer.style.width = "800px";
-		this.konvaContainer.style.height = "600px";
+		this.konvaContainer.style.flex = "1";
+		this.konvaContainer.style.position = "relative";
+		this.konvaContainer.style.overflow = "auto";
 
+		// Initialize stage with placeholder dimensions
 		this.stage = new Konva.Stage({
 			container: this.konvaContainer,
 			width: 800,
@@ -410,6 +410,24 @@ class OcclusionView extends ItemView {
 				this.selectedRect = null;
 			}
 		});
+
+		// Instead of using ResizeObserver, we can listen for leaf resize events
+		this.registerInterval(
+			window.setInterval(() => {
+				// Check if container dimensions have changed
+				if (this.konvaContainer && this.stage) {
+					const containerWidth = this.konvaContainer.clientWidth;
+					const containerHeight = this.konvaContainer.clientHeight;
+
+					if (
+						this.stage.width() !== containerWidth ||
+						this.stage.height() !== containerHeight
+					) {
+						this.resizeStage();
+					}
+				}
+			}, 500) // Check every 500ms
+		);
 
 		if (this.fileSelectEl.value) {
 			this.loadImage(this.fileSelectEl.value);
@@ -464,31 +482,7 @@ class OcclusionView extends ItemView {
 			const nativeWidth = img.naturalWidth;
 			const nativeHeight = img.naturalHeight;
 
-			// Define margins and toolbar height estimates.
-			const margin = 20;
-			const toolbarHeight = 80; // Adjust if necessary.
-			// Calculate available dimensions.
-			const availW = window.innerWidth - margin * 2;
-			const availH = window.innerHeight - toolbarHeight - margin * 2;
-			// Compute scale factor so the image fits in the available space.
-			const scaleFactor = Math.min(
-				availW / nativeWidth,
-				availH / nativeHeight,
-				1
-			);
-			this.initialScale = scaleFactor;
-			this.currentScale = scaleFactor;
-
-			// Update the container and stage dimensions.
-			this.konvaContainer.style.width = availW + "px";
-			this.konvaContainer.style.height = availH + "px";
-			this.stage.width(availW);
-			this.stage.height(availH);
-
-			// Apply the scale factor.
-			this.stage.scale({ x: scaleFactor, y: scaleFactor });
-
-			// Add the image to the stage.
+			// Add the image to the stage
 			const kImage = new Konva.Image({
 				image: img,
 				x: 0,
@@ -497,7 +491,10 @@ class OcclusionView extends ItemView {
 				height: nativeHeight,
 			});
 			this.imageLayer.add(kImage);
-			this.imageLayer.draw();
+
+			// Resize the stage to fit the container
+			this.resizeStage();
+
 			this.loadSavedShapes(filePath);
 		};
 		img.src = url;
@@ -592,7 +589,38 @@ class OcclusionView extends ItemView {
 		}
 	}
 
+	// Add a new method to handle stage resizing
+	resizeStage(): void {
+		if (!this.stage) return;
+
+		const containerWidth = this.konvaContainer.clientWidth;
+		const containerHeight = this.konvaContainer.clientHeight;
+
+		this.stage.width(containerWidth);
+		this.stage.height(containerHeight);
+
+		// If we have an image loaded, adjust the scale to fit
+		const backgroundImage = this.imageLayer.findOne("Image") as Konva.Image;
+		if (backgroundImage) {
+			const imgWidth = backgroundImage.width();
+			const imgHeight = backgroundImage.height();
+
+			// Calculate scale to fit the container while maintaining aspect ratio
+			const scale = Math.min(
+				containerWidth / imgWidth,
+				containerHeight / imgHeight,
+				1
+			);
+
+			this.initialScale = scale;
+			this.currentScale = scale;
+			this.stage.scale({ x: scale, y: scale });
+		}
+
+		this.stage.draw();
+	}
+
 	async onClose(): Promise<void> {
-		// Optional cleanup.
+		// Optional cleanup if needed in the future
 	}
 }
