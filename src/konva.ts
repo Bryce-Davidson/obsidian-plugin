@@ -51,26 +51,36 @@ export class OcclusionView extends ItemView {
 	}
 
 	async onOpen() {
-		this.containerEl = this.contentEl.createDiv("occlusion-editor");
-		this.containerEl.style.display = "flex";
-		this.containerEl.style.flexDirection = "column";
-		this.containerEl.style.height = "100%";
+		// Create main container with Tailwind classes
+		this.containerEl = this.contentEl.createDiv({
+			cls: "flex flex-col h-full bg-gray-50 dark:bg-gray-800",
+		});
 
-		// Create a fixed toolbar for controls.
-		const toolbarEl = this.containerEl.createDiv("toolbar");
-		toolbarEl.style.position = "sticky";
-		toolbarEl.style.top = "0";
-		toolbarEl.style.zIndex = "1000";
-		toolbarEl.style.background = "rgba(255,255,255,0.9)";
-		toolbarEl.style.padding = "10px";
-		toolbarEl.style.border = "1px solid #ccc";
-		toolbarEl.style.display = "flex";
-		toolbarEl.style.flexWrap = "wrap";
-		toolbarEl.style.gap = "10px";
-		toolbarEl.style.flexShrink = "0";
+		// Create a fixed toolbar for controls with Tailwind classes
+		const toolbarEl = this.containerEl.createDiv({
+			cls: "sticky top-0 z-10 bg-white dark:bg-gray-700 shadow-md p-3 flex flex-wrap gap-2 items-center border-b border-gray-200 dark:border-gray-600",
+		});
 
-		// File selector control.
-		this.fileSelectEl = toolbarEl.createEl("select") as HTMLSelectElement;
+		// Create a responsive toolbar layout with two rows for mobile
+		const topRowContainer = toolbarEl.createDiv({
+			cls: "w-full flex flex-wrap items-center gap-2 justify-between",
+		});
+
+		// Create file selector section with improved mobile styling
+		const fileSelectContainer = topRowContainer.createDiv({
+			cls: "flex-grow max-w-full sm:max-w-xs",
+		});
+
+		// Add a label above the select for better mobile UX
+		fileSelectContainer.createEl("label", {
+			text: "Image",
+			cls: "block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1",
+		});
+
+		this.fileSelectEl = fileSelectContainer.createEl("select", {
+			cls: "bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white",
+		});
+
 		const files = this.plugin.app.vault.getFiles();
 		const imageFiles = files.filter((f) =>
 			f.extension.match(/(png|jpe?g|gif)/i)
@@ -85,20 +95,43 @@ export class OcclusionView extends ItemView {
 			this.loadImage(this.fileSelectEl.value);
 		};
 
-		// Mode toggle button.
-		this.modeToggleButton = toolbarEl.createEl("button", {
-			text: "Switch to Review Mode",
+		// Create mode toggle and zoom controls in a group
+		const controlsGroup = topRowContainer.createDiv({
+			cls: "flex items-center gap-2",
+		});
+
+		// Create mode toggle button with Tailwind classes
+		this.modeToggleButton = controlsGroup.createEl("button", {
+			text: "Review",
+			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800",
 		});
 		this.modeToggleButton.onclick = () => this.toggleReviewMode();
 
-		// Add zoom controls to the toolbar.
-		const zoomInButton = toolbarEl.createEl("button", { text: "Zoom In" });
-		const zoomOutButton = toolbarEl.createEl("button", {
-			text: "Zoom Out",
+		// Create zoom controls group
+		const zoomControlsGroup = controlsGroup.createDiv({
+			cls: "flex items-center gap-1",
 		});
-		const resetZoomButton = toolbarEl.createEl("button", {
-			text: "Reset Zoom",
+
+		const zoomInButton = zoomControlsGroup.createEl("button", {
+			cls: "p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500",
+			attr: { title: "Zoom In", "aria-label": "Zoom In" },
 		});
+		zoomInButton.innerHTML =
+			'<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" /></svg>';
+
+		const zoomOutButton = zoomControlsGroup.createEl("button", {
+			cls: "p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500",
+			attr: { title: "Zoom Out", "aria-label": "Zoom Out" },
+		});
+		zoomOutButton.innerHTML =
+			'<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clip-rule="evenodd" /></svg>';
+
+		const resetZoomButton = zoomControlsGroup.createEl("button", {
+			cls: "p-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500",
+			attr: { title: "Reset Zoom", "aria-label": "Reset Zoom" },
+		});
+		resetZoomButton.innerHTML =
+			'<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg>';
 
 		zoomInButton.onclick = () => {
 			this.currentScale *= 1.1;
@@ -118,11 +151,28 @@ export class OcclusionView extends ItemView {
 			this.stage.draw();
 		};
 
-		// Create a sub-container for additional controls.
-		this.controlsDiv = toolbarEl.createDiv("controls");
+		// Create a second row for shape controls and action buttons
+		const bottomRowContainer = toolbarEl.createDiv({
+			cls: "w-full flex flex-wrap items-center gap-2 justify-between mt-2",
+		});
 
-		// Color input.
-		this.colorInput = this.controlsDiv.createEl("input", { type: "color" });
+		// Create a collapsible panel for shape controls - improved for mobile
+		this.controlsDiv = bottomRowContainer.createDiv({
+			cls: "flex flex-wrap items-center gap-2",
+		});
+
+		// Color input with improved mobile styling
+		const colorContainer = this.controlsDiv.createDiv({
+			cls: "flex flex-col items-start",
+		});
+		colorContainer.createEl("label", {
+			text: "Color",
+			cls: "block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1",
+		});
+		this.colorInput = colorContainer.createEl("input", {
+			type: "color",
+			cls: "h-8 w-10 rounded cursor-pointer border border-gray-300 dark:border-gray-600",
+		});
 		this.colorInput.onchange = (e: Event) => {
 			if (this.selectedRect && !this.reviewMode) {
 				this.selectedRect.fill((e.target as HTMLInputElement).value);
@@ -130,11 +180,32 @@ export class OcclusionView extends ItemView {
 			}
 		};
 
-		// Width input.
-		this.widthInput = this.controlsDiv.createEl("input", {
+		// Create a container for width and height inputs to group them
+		const dimensionsContainer = this.controlsDiv.createDiv({
+			cls: "flex flex-col items-start",
+		});
+		dimensionsContainer.createEl("label", {
+			text: "Size",
+			cls: "block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1",
+		});
+
+		const inputsContainer = dimensionsContainer.createDiv({
+			cls: "flex items-center gap-1",
+		});
+
+		// Width input with improved mobile styling
+		const widthContainer = inputsContainer.createDiv({
+			cls: "flex items-center",
+		});
+		widthContainer.createEl("span", {
+			text: "W:",
+			cls: "text-xs font-medium text-gray-700 dark:text-gray-300 mr-1",
+		});
+		this.widthInput = widthContainer.createEl("input", {
 			type: "number",
 			value: "100",
-			attr: { placeholder: "Width" },
+			cls: "bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-14 p-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white",
+			attr: { placeholder: "W", min: "10" },
 		});
 		this.widthInput.onchange = () => {
 			if (this.selectedRect && !this.reviewMode) {
@@ -143,11 +214,19 @@ export class OcclusionView extends ItemView {
 			}
 		};
 
-		// Height input.
-		this.heightInput = this.controlsDiv.createEl("input", {
+		// Height input with improved mobile styling
+		const heightContainer = inputsContainer.createDiv({
+			cls: "flex items-center",
+		});
+		heightContainer.createEl("span", {
+			text: "H:",
+			cls: "text-xs font-medium text-gray-700 dark:text-gray-300 mr-1",
+		});
+		this.heightInput = heightContainer.createEl("input", {
 			type: "number",
 			value: "100",
-			attr: { placeholder: "Height" },
+			cls: "bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-14 p-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white",
+			attr: { placeholder: "H", min: "10" },
 		});
 		this.heightInput.onchange = () => {
 			if (this.selectedRect && !this.reviewMode) {
@@ -156,16 +235,23 @@ export class OcclusionView extends ItemView {
 			}
 		};
 
-		// Add occlusion button.
-		this.addRectButton = toolbarEl.createEl("button", {
-			text: "Add Occlusion",
-		}) as HTMLButtonElement;
+		// Create action buttons container
+		const actionsContainer = bottomRowContainer.createDiv({
+			cls: "flex flex-wrap gap-2",
+		});
+
+		// Add occlusion button - renamed to "Add"
+		this.addRectButton = actionsContainer.createEl("button", {
+			text: "Add",
+			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 focus:ring-4 focus:ring-green-300 dark:bg-green-500 dark:hover:bg-green-600 dark:focus:ring-green-800",
+		});
 		this.addRectButton.onclick = () => this.addRectangle();
 
-		// Delete occlusion button.
-		this.deleteButton = toolbarEl.createEl("button", {
-			text: "Delete Occlusion",
-		}) as HTMLButtonElement;
+		// Delete occlusion button
+		this.deleteButton = actionsContainer.createEl("button", {
+			text: "Delete",
+			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 focus:ring-4 focus:ring-red-300 dark:bg-red-500 dark:hover:bg-red-600 dark:focus:ring-red-800",
+		});
 		this.deleteButton.onclick = () => {
 			if (this.selectedRect && !this.reviewMode) {
 				this.selectedRect.destroy();
@@ -175,20 +261,17 @@ export class OcclusionView extends ItemView {
 			}
 		};
 
-		// Save button.
-		this.saveButton = toolbarEl.createEl("button", {
+		// Save button
+		this.saveButton = actionsContainer.createEl("button", {
 			text: "Save",
-		}) as HTMLButtonElement;
+			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800",
+		});
 		this.saveButton.onclick = () => this.saveOcclusionData();
 
-		// Create the Konva container with flex properties
+		// Create the Konva container with Tailwind classes
 		this.konvaContainer = this.containerEl.createEl("div", {
-			cls: "konva-container",
-		}) as HTMLDivElement;
-		this.konvaContainer.style.border = "1px solid #ccc";
-		this.konvaContainer.style.flex = "1";
-		this.konvaContainer.style.position = "relative";
-		this.konvaContainer.style.overflow = "auto";
+			cls: "flex-1 relative overflow-auto border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900",
+		});
 
 		// Initialize stage with placeholder dimensions
 		this.stage = new Konva.Stage({
@@ -247,7 +330,15 @@ export class OcclusionView extends ItemView {
 			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
 				if (child instanceof Konva.Rect) child.draggable(false);
 			});
-			this.modeToggleButton.textContent = "Switch to Edit Mode";
+			this.modeToggleButton.textContent = "Edit";
+			this.modeToggleButton.classList.remove(
+				"bg-blue-600",
+				"hover:bg-blue-700"
+			);
+			this.modeToggleButton.classList.add(
+				"bg-purple-600",
+				"hover:bg-purple-700"
+			);
 		} else {
 			this.controlsDiv.style.display = "";
 			this.addRectButton.style.display = "";
@@ -257,7 +348,15 @@ export class OcclusionView extends ItemView {
 			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
 				if (child instanceof Konva.Rect) child.draggable(true);
 			});
-			this.modeToggleButton.textContent = "Switch to Review Mode";
+			this.modeToggleButton.textContent = "Review";
+			this.modeToggleButton.classList.remove(
+				"bg-purple-600",
+				"hover:bg-purple-700"
+			);
+			this.modeToggleButton.classList.add(
+				"bg-blue-600",
+				"hover:bg-blue-700"
+			);
 		}
 		this.shapeLayer.draw();
 	}
