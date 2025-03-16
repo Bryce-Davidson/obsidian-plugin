@@ -1,4 +1,11 @@
-import { Plugin, Notice, TFile, WorkspaceLeaf, ItemView } from "obsidian";
+import {
+	Plugin,
+	Notice,
+	TFile,
+	WorkspaceLeaf,
+	ItemView,
+	MarkdownView,
+} from "obsidian";
 import Konva from "konva";
 import MyPlugin from "./main"; // Import the main plugin class
 import { OcclusionShape, OcclusionData } from "./main"; // Import the interfaces from main.ts
@@ -462,7 +469,24 @@ export class OcclusionView extends ItemView {
 		this.plugin.occlusion.attachments[filePath] = shapes;
 		await this.plugin.savePluginData();
 
+		// Refresh any open reading views to apply the changes
+		this.refreshReadingViews();
+
 		new Notice("Occlusion data saved!");
+	}
+
+	// Add this new method to refresh reading views
+	private refreshReadingViews(): void {
+		const leaves = this.plugin.app.workspace.getLeavesOfType("markdown");
+
+		for (const leaf of leaves) {
+			const view = leaf.view;
+
+			if (view instanceof MarkdownView && view.getMode() === "preview") {
+				// Force a re-render of the reading view
+				view.previewMode.rerender(true);
+			}
+		}
 	}
 
 	async loadSavedShapes(filePath: string): Promise<void> {
