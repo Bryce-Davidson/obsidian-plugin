@@ -19,6 +19,7 @@ export class OcclusionView extends ItemView {
 	heightInput: HTMLInputElement;
 	controlsDiv: HTMLElement;
 	modeToggleButton: HTMLButtonElement;
+	resetButton: HTMLButtonElement;
 	resizeObserver: ResizeObserver;
 
 	stage: Konva.Stage;
@@ -106,6 +107,14 @@ export class OcclusionView extends ItemView {
 			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800",
 		});
 		this.modeToggleButton.onclick = () => this.toggleReviewMode();
+
+		// Create reset button for review mode (initially hidden)
+		this.resetButton = controlsGroup.createEl("button", {
+			text: "Reset All",
+			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 focus:ring-4 focus:ring-yellow-300 dark:bg-yellow-500 dark:hover:bg-yellow-600 dark:focus:ring-yellow-800",
+			attr: { style: "display: none;" },
+		});
+		this.resetButton.onclick = () => this.resetOcclusions();
 
 		// Create zoom controls group
 		const zoomControlsGroup = controlsGroup.createDiv({
@@ -325,6 +334,7 @@ export class OcclusionView extends ItemView {
 			this.addRectButton.style.display = "none";
 			this.deleteButton.style.display = "none";
 			this.saveButton.style.display = "none";
+			this.resetButton.style.display = "";
 			this.transformer.nodes([]);
 			this.transformer.visible(false);
 			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
@@ -344,6 +354,7 @@ export class OcclusionView extends ItemView {
 			this.addRectButton.style.display = "";
 			this.deleteButton.style.display = "";
 			this.saveButton.style.display = "";
+			this.resetButton.style.display = "none";
 			this.transformer.visible(true);
 			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
 				if (child instanceof Konva.Rect) child.draggable(true);
@@ -450,6 +461,7 @@ export class OcclusionView extends ItemView {
 		// Update the plugin's occlusion data directly
 		this.plugin.occlusion.attachments[filePath] = shapes;
 		await this.plugin.savePluginData();
+
 		new Notice("Occlusion data saved!");
 	}
 
@@ -518,6 +530,20 @@ export class OcclusionView extends ItemView {
 
 	async onClose(): Promise<void> {
 		// Optional cleanup if needed in the future
+	}
+
+	resetOcclusions(): void {
+		if (!this.reviewMode) return;
+
+		// Make all rectangles visible again
+		this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
+			if (child instanceof Konva.Rect) {
+				child.visible(true);
+			}
+		});
+
+		this.shapeLayer.draw();
+		new Notice("All occlusions reset");
 	}
 }
 
