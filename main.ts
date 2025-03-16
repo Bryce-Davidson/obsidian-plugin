@@ -38,31 +38,30 @@ export default class OcclusionPlugin extends Plugin {
 		});
 
 		// Global MutationObserver to watch for new <img> elements.
-		// When an image is added, if we have occlusion data for it,
-		// we swap the image for a Konva-rendered version with occlusions.
+		// When a new image is added, check if it has occlusion data.
 		const processImageElement = (imgElement: HTMLImageElement) => {
-			// Avoid processing the same element more than once.
+			// Avoid processing an image more than once.
 			if (imgElement.getAttribute("data-occlusion-processed")) return;
 			imgElement.setAttribute("data-occlusion-processed", "true");
 
-			// Use the alt attribute (assumed to be the file name) to help resolve the file.
+			// Use the alt attribute (assumed to be the file name) to resolve the file.
 			const alt = imgElement.getAttribute("alt");
 			if (!alt) return;
-
-			// Find the file in the vault that matches the alt text.
 			const file = this.app.vault
 				.getFiles()
 				.find((f) => f.name === alt || f.path.endsWith(alt));
 			if (!file) return;
 			const key = file.path;
-			// If we don't have occlusion data for this file, do nothing.
+			// If there is no occlusion data for this file, do nothing.
 			if (!this.cachedOcclusionData.attachments[key]) return;
 
-			// Create a container element to host the custom rendering.
+			// Create a container element that will host our custom rendering.
 			const container = document.createElement("div");
 			container.classList.add("occluded-image-container");
+			// Set relative positioning so we can absolutely position the reset button.
+			container.style.position = "relative";
 
-			// Create a new Image object to load the source.
+			// Create a new image element to load the source.
 			const newImg = new Image();
 			newImg.onload = () => {
 				const nativeWidth = newImg.naturalWidth;
@@ -70,7 +69,7 @@ export default class OcclusionPlugin extends Plugin {
 				container.style.width = nativeWidth + "px";
 				container.style.height = nativeHeight + "px";
 
-				// Create a Konva stage in the container.
+				// Create a Konva stage to render the image and occlusions.
 				const stage = new Konva.Stage({
 					container: container,
 					width: nativeWidth,
@@ -81,7 +80,7 @@ export default class OcclusionPlugin extends Plugin {
 				stage.add(imageLayer);
 				stage.add(shapeLayer);
 
-				// Add the image to the stage.
+				// Add the background image.
 				const kImage = new Konva.Image({
 					image: newImg,
 					x: 0,
@@ -92,7 +91,32 @@ export default class OcclusionPlugin extends Plugin {
 				imageLayer.add(kImage);
 				imageLayer.draw();
 
-				// Render the occlusion shapes, each with a click handler to toggle visibility.
+				// Create a reset button; it is initially hidden.
+				const resetButton = document.createElement("button");
+				resetButton.innerText = "reset";
+				resetButton.style.position = "absolute";
+				resetButton.style.bottom = "10px";
+				resetButton.style.right = "10px";
+				resetButton.style.padding = "4px 8px";
+				resetButton.style.fontSize = "12px";
+				resetButton.style.display = "none";
+				resetButton.style.zIndex = "100";
+				container.appendChild(resetButton);
+
+				// Helper function: check if all occlusions are hidden.
+				const checkResetButton = () => {
+					const allHidden = shapeLayer
+						.getChildren()
+						.every((child: Konva.Node) => {
+							if (child instanceof Konva.Rect) {
+								return !child.visible();
+							}
+							return true;
+						});
+					resetButton.style.display = allHidden ? "block" : "none";
+				};
+
+				// Render occlusion shapes with a click handler to toggle visibility.
 				const shapes = this.cachedOcclusionData.attachments[key];
 				if (shapes && shapes.length > 0) {
 					shapes.forEach((s: OcclusionShape) => {
@@ -104,19 +128,32 @@ export default class OcclusionPlugin extends Plugin {
 							fill: s.fill,
 							opacity: s.opacity,
 						});
-						// When a rectangle is clicked, toggle its visibility.
 						rect.on("click", (e) => {
 							e.cancelBubble = true;
 							rect.visible(!rect.visible());
 							shapeLayer.draw();
+							checkResetButton();
 						});
 						shapeLayer.add(rect);
 					});
 					shapeLayer.draw();
+					checkResetButton();
 				}
+
+				// Reset button: clicking it makes all occlusions visible.
+				resetButton.onclick = (e) => {
+					e.stopPropagation();
+					shapeLayer.getChildren().forEach((child: Konva.Node) => {
+						if (child instanceof Konva.Rect) {
+							child.visible(true);
+						}
+					});
+					shapeLayer.draw();
+					resetButton.style.display = "none";
+				};
 			};
 			newImg.src = imgElement.src;
-			// Replace the original <img> element with the custom container.
+			// Replace the original <img> element with our custom container.
 			imgElement.replaceWith(container);
 		};
 
@@ -128,10 +165,9 @@ export default class OcclusionPlugin extends Plugin {
 						if (element.tagName === "IMG") {
 							processImageElement(element as HTMLImageElement);
 						} else {
-							const imgs = element.querySelectorAll("img");
-							imgs.forEach((img) =>
-								processImageElement(img as HTMLImageElement)
-							);
+							element.querySelectorAll("img").forEach((img) => {
+								processImageElement(img as HTMLImageElement);
+							});
 						}
 					}
 				});
@@ -273,9 +309,9 @@ class OcclusionView extends ItemView {
 		}) as HTMLButtonElement;
 		this.saveButton.onclick = () => this.saveOcclusionData();
 
-		this.konvaContainer = this.containerEl.createDiv(
-			"konva-container"
-		) as HTMLDivElement;
+		this.konvaContainer = this.containerEl.createEl("div", {
+			cls: "konva-container",
+		}) as HTMLDivElement;
 		this.konvaContainer.style.border = "1px solid #ccc";
 		this.konvaContainer.style.width = "800px";
 		this.konvaContainer.style.height = "600px";
@@ -314,7 +350,7 @@ class OcclusionView extends ItemView {
 			this.saveButton.style.display = "none";
 			this.transformer.nodes([]);
 			this.transformer.visible(false);
-			this.shapeLayer.getChildren().forEach((child) => {
+			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
 				if (child instanceof Konva.Rect) child.draggable(false);
 			});
 			this.modeToggleButton.textContent = "Switch to Edit Mode";
@@ -323,7 +359,7 @@ class OcclusionView extends ItemView {
 			this.addRectButton.style.display = "";
 			this.saveButton.style.display = "";
 			this.transformer.visible(true);
-			this.shapeLayer.getChildren().forEach((child) => {
+			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
 				if (child instanceof Konva.Rect) child.draggable(true);
 			});
 			this.modeToggleButton.textContent = "Switch to Review Mode";
