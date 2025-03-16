@@ -214,6 +214,7 @@ class OcclusionView extends ItemView {
 	containerEl: HTMLElement;
 	fileSelectEl: HTMLSelectElement;
 	addRectButton: HTMLButtonElement;
+	deleteButton: HTMLButtonElement;
 	saveButton: HTMLButtonElement;
 	konvaContainer: HTMLDivElement;
 	colorInput: HTMLInputElement;
@@ -229,6 +230,10 @@ class OcclusionView extends ItemView {
 
 	selectedRect: Konva.Rect | null = null;
 	reviewMode: boolean = false;
+
+	// New zoom properties
+	currentScale: number = 1;
+	initialScale: number = 1;
 
 	constructor(leaf: WorkspaceLeaf, plugin: OcclusionPlugin) {
 		super(leaf);
@@ -246,9 +251,22 @@ class OcclusionView extends ItemView {
 	async onOpen() {
 		this.containerEl = this.contentEl.createDiv("occlusion-editor");
 
-		this.fileSelectEl = this.containerEl.createEl(
-			"select"
-		) as HTMLSelectElement;
+		// Create a fixed toolbar for controls.
+		const toolbarEl = this.containerEl.createDiv("toolbar");
+		toolbarEl.style.position = "fixed";
+		toolbarEl.style.top = "10px";
+		toolbarEl.style.left = "10px";
+		toolbarEl.style.right = "10px";
+		toolbarEl.style.zIndex = "1000";
+		toolbarEl.style.background = "rgba(255,255,255,0.9)";
+		toolbarEl.style.padding = "10px";
+		toolbarEl.style.border = "1px solid #ccc";
+		toolbarEl.style.display = "flex";
+		toolbarEl.style.flexWrap = "wrap";
+		toolbarEl.style.gap = "10px";
+
+		// File selector control.
+		this.fileSelectEl = toolbarEl.createEl("select") as HTMLSelectElement;
 		const files = this.plugin.app.vault.getFiles();
 		const imageFiles = files.filter((f) =>
 			f.extension.match(/(png|jpe?g|gif)/i)
@@ -263,12 +281,43 @@ class OcclusionView extends ItemView {
 			this.loadImage(this.fileSelectEl.value);
 		};
 
-		this.modeToggleButton = this.containerEl.createEl("button", {
+		// Mode toggle button.
+		this.modeToggleButton = toolbarEl.createEl("button", {
 			text: "Switch to Review Mode",
 		});
 		this.modeToggleButton.onclick = () => this.toggleReviewMode();
 
-		this.controlsDiv = this.containerEl.createDiv("controls");
+		// Add zoom controls to the toolbar.
+		const zoomInButton = toolbarEl.createEl("button", { text: "Zoom In" });
+		const zoomOutButton = toolbarEl.createEl("button", {
+			text: "Zoom Out",
+		});
+		const resetZoomButton = toolbarEl.createEl("button", {
+			text: "Reset Zoom",
+		});
+
+		zoomInButton.onclick = () => {
+			this.currentScale *= 1.1;
+			this.stage.scale({ x: this.currentScale, y: this.currentScale });
+			this.stage.draw();
+		};
+
+		zoomOutButton.onclick = () => {
+			this.currentScale *= 0.9;
+			this.stage.scale({ x: this.currentScale, y: this.currentScale });
+			this.stage.draw();
+		};
+
+		resetZoomButton.onclick = () => {
+			this.currentScale = this.initialScale;
+			this.stage.scale({ x: this.currentScale, y: this.currentScale });
+			this.stage.draw();
+		};
+
+		// Create a sub-container for additional controls.
+		this.controlsDiv = toolbarEl.createDiv("controls");
+
+		// Color input.
 		this.colorInput = this.controlsDiv.createEl("input", { type: "color" });
 		this.colorInput.onchange = (e: Event) => {
 			if (this.selectedRect && !this.reviewMode) {
@@ -276,6 +325,8 @@ class OcclusionView extends ItemView {
 				this.shapeLayer.draw();
 			}
 		};
+
+		// Width input.
 		this.widthInput = this.controlsDiv.createEl("input", {
 			type: "number",
 			value: "100",
@@ -287,6 +338,8 @@ class OcclusionView extends ItemView {
 				this.shapeLayer.draw();
 			}
 		};
+
+		// Height input.
 		this.heightInput = this.controlsDiv.createEl("input", {
 			type: "number",
 			value: "100",
@@ -299,20 +352,41 @@ class OcclusionView extends ItemView {
 			}
 		};
 
-		this.addRectButton = this.containerEl.createEl("button", {
+		// Add occlusion button.
+		this.addRectButton = toolbarEl.createEl("button", {
 			text: "Add Occlusion",
 		}) as HTMLButtonElement;
 		this.addRectButton.onclick = () => this.addRectangle();
 
-		this.saveButton = this.containerEl.createEl("button", {
+		// Delete occlusion button.
+		this.deleteButton = toolbarEl.createEl("button", {
+			text: "Delete Occlusion",
+		}) as HTMLButtonElement;
+		this.deleteButton.onclick = () => {
+			if (this.selectedRect && !this.reviewMode) {
+				this.selectedRect.destroy();
+				this.transformer.nodes([]);
+				this.selectedRect = null;
+				this.shapeLayer.draw();
+			}
+		};
+
+		// Save button.
+		this.saveButton = toolbarEl.createEl("button", {
 			text: "Save",
 		}) as HTMLButtonElement;
 		this.saveButton.onclick = () => this.saveOcclusionData();
 
+		// Add a spacer so the canvas starts below the fixed toolbar.
+		const spacer = this.containerEl.createDiv("spacer");
+		spacer.style.height = "80px";
+
+		// Create the Konva container.
 		this.konvaContainer = this.containerEl.createEl("div", {
 			cls: "konva-container",
 		}) as HTMLDivElement;
 		this.konvaContainer.style.border = "1px solid #ccc";
+		// Default dimensions will be updated in loadImage.
 		this.konvaContainer.style.width = "800px";
 		this.konvaContainer.style.height = "600px";
 
@@ -347,6 +421,7 @@ class OcclusionView extends ItemView {
 		if (this.reviewMode) {
 			this.controlsDiv.style.display = "none";
 			this.addRectButton.style.display = "none";
+			this.deleteButton.style.display = "none";
 			this.saveButton.style.display = "none";
 			this.transformer.nodes([]);
 			this.transformer.visible(false);
@@ -357,6 +432,7 @@ class OcclusionView extends ItemView {
 		} else {
 			this.controlsDiv.style.display = "";
 			this.addRectButton.style.display = "";
+			this.deleteButton.style.display = "";
 			this.saveButton.style.display = "";
 			this.transformer.visible(true);
 			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
@@ -387,10 +463,32 @@ class OcclusionView extends ItemView {
 		img.onload = () => {
 			const nativeWidth = img.naturalWidth;
 			const nativeHeight = img.naturalHeight;
-			this.stage.width(nativeWidth);
-			this.stage.height(nativeHeight);
-			this.konvaContainer.style.width = nativeWidth + "px";
-			this.konvaContainer.style.height = nativeHeight + "px";
+
+			// Define margins and toolbar height estimates.
+			const margin = 20;
+			const toolbarHeight = 80; // Adjust if necessary.
+			// Calculate available dimensions.
+			const availW = window.innerWidth - margin * 2;
+			const availH = window.innerHeight - toolbarHeight - margin * 2;
+			// Compute scale factor so the image fits in the available space.
+			const scaleFactor = Math.min(
+				availW / nativeWidth,
+				availH / nativeHeight,
+				1
+			);
+			this.initialScale = scaleFactor;
+			this.currentScale = scaleFactor;
+
+			// Update the container and stage dimensions.
+			this.konvaContainer.style.width = availW + "px";
+			this.konvaContainer.style.height = availH + "px";
+			this.stage.width(availW);
+			this.stage.height(availH);
+
+			// Apply the scale factor.
+			this.stage.scale({ x: scaleFactor, y: scaleFactor });
+
+			// Add the image to the stage.
 			const kImage = new Konva.Image({
 				image: img,
 				x: 0,
