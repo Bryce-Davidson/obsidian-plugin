@@ -1,5 +1,6 @@
 import { Plugin, Notice, TFile, WorkspaceLeaf, ItemView } from "obsidian";
 import Konva from "konva";
+import MyPlugin from "./main"; // Import the main plugin class
 
 // Define an interface for a single occlusion shape.
 interface OcclusionShape {
@@ -11,205 +12,14 @@ interface OcclusionShape {
 	opacity: number;
 }
 
-// Define the occlusion data structure.
 interface OcclusionData {
 	attachments: { [filePath: string]: OcclusionShape[] };
 }
 
-export default class OcclusionPlugin extends Plugin {
-	cachedOcclusionData: OcclusionData = { attachments: {} };
-	globalObserver: MutationObserver;
+export const VIEW_TYPE_OCCLUSION = "occlusion-view";
 
-	async onload() {
-		// Load occlusion data from disk.
-		this.cachedOcclusionData = (await this.loadData()) || {
-			attachments: {},
-		};
-
-		// Register the custom occlusion editor view.
-		this.registerView(
-			OcclusionView.VIEW_TYPE,
-			(leaf: WorkspaceLeaf) => new OcclusionView(leaf, this)
-		);
-
-		// Add a ribbon icon to launch the occlusion editor.
-		this.addRibbonIcon("image-file", "Open Occlusion Editor", () => {
-			this.activateView();
-		});
-
-		// Global MutationObserver to watch for new <img> elements.
-		// When a new image is added, check if it has occlusion data.
-		const processImageElement = (imgElement: HTMLImageElement) => {
-			// Avoid processing an image more than once.
-			if (imgElement.getAttribute("data-occlusion-processed")) return;
-			imgElement.setAttribute("data-occlusion-processed", "true");
-
-			// Use the alt attribute (assumed to be the file name) to resolve the file.
-			const alt = imgElement.getAttribute("alt");
-			if (!alt) return;
-			const file = this.app.vault
-				.getFiles()
-				.find((f) => f.name === alt || f.path.endsWith(alt));
-			if (!file) return;
-			const key = file.path;
-			// If there is no occlusion data for this file, do nothing.
-			if (!this.cachedOcclusionData.attachments[key]) return;
-
-			// Create a container element that will host our custom rendering.
-			const container = document.createElement("div");
-			container.classList.add("occluded-image-container");
-			// Set relative positioning so we can absolutely position the reset button.
-			container.style.position = "relative";
-
-			// Create a new image element to load the source.
-			const newImg = new Image();
-			newImg.onload = () => {
-				const nativeWidth = newImg.naturalWidth;
-				const nativeHeight = newImg.naturalHeight;
-				container.style.width = nativeWidth + "px";
-				container.style.height = nativeHeight + "px";
-
-				// Create a Konva stage to render the image and occlusions.
-				const stage = new Konva.Stage({
-					container: container,
-					width: nativeWidth,
-					height: nativeHeight,
-				});
-				const imageLayer = new Konva.Layer();
-				const shapeLayer = new Konva.Layer();
-				stage.add(imageLayer);
-				stage.add(shapeLayer);
-
-				// Add the background image.
-				const kImage = new Konva.Image({
-					image: newImg,
-					x: 0,
-					y: 0,
-					width: nativeWidth,
-					height: nativeHeight,
-				});
-				imageLayer.add(kImage);
-				imageLayer.draw();
-
-				// Create a reset button; it is initially hidden.
-				const resetButton = document.createElement("button");
-				resetButton.innerText = "reset";
-				resetButton.style.position = "absolute";
-				resetButton.style.bottom = "10px";
-				resetButton.style.right = "10px";
-				resetButton.style.padding = "4px 8px";
-				resetButton.style.fontSize = "12px";
-				resetButton.style.display = "none";
-				resetButton.style.zIndex = "100";
-				container.appendChild(resetButton);
-
-				// Helper function: check if all occlusions are hidden.
-				const checkResetButton = () => {
-					const allHidden = shapeLayer
-						.getChildren()
-						.every((child: Konva.Node) => {
-							if (child instanceof Konva.Rect) {
-								return !child.visible();
-							}
-							return true;
-						});
-					resetButton.style.display = allHidden ? "block" : "none";
-				};
-
-				// Render occlusion shapes with a click handler to toggle visibility.
-				const shapes = this.cachedOcclusionData.attachments[key];
-				if (shapes && shapes.length > 0) {
-					shapes.forEach((s: OcclusionShape) => {
-						const rect = new Konva.Rect({
-							x: s.x,
-							y: s.y,
-							width: s.width,
-							height: s.height,
-							fill: s.fill,
-							opacity: s.opacity,
-						});
-						rect.on("click", (e) => {
-							e.cancelBubble = true;
-							rect.visible(!rect.visible());
-							shapeLayer.draw();
-							checkResetButton();
-						});
-						shapeLayer.add(rect);
-					});
-					shapeLayer.draw();
-					checkResetButton();
-				}
-
-				// Reset button: clicking it makes all occlusions visible.
-				resetButton.onclick = (e) => {
-					e.stopPropagation();
-					shapeLayer.getChildren().forEach((child: Konva.Node) => {
-						if (child instanceof Konva.Rect) {
-							child.visible(true);
-						}
-					});
-					shapeLayer.draw();
-					resetButton.style.display = "none";
-				};
-			};
-			newImg.src = imgElement.src;
-			// Replace the original <img> element with our custom container.
-			imgElement.replaceWith(container);
-		};
-
-		this.globalObserver = new MutationObserver((mutations) => {
-			mutations.forEach((mutation) => {
-				mutation.addedNodes.forEach((node) => {
-					if (node.nodeType === Node.ELEMENT_NODE) {
-						const element = node as HTMLElement;
-						if (element.tagName === "IMG") {
-							processImageElement(element as HTMLImageElement);
-						} else {
-							element.querySelectorAll("img").forEach((img) => {
-								processImageElement(img as HTMLImageElement);
-							});
-						}
-					}
-				});
-			});
-		});
-		this.globalObserver.observe(document.body, {
-			childList: true,
-			subtree: true,
-		});
-		console.log("Global mutation observer attached to document.body");
-	}
-
-	async onunload() {
-		this.app.workspace
-			.getLeavesOfType(OcclusionView.VIEW_TYPE)
-			.forEach((leaf) => {
-				if (leaf) leaf.detach();
-			});
-		if (this.globalObserver) {
-			this.globalObserver.disconnect();
-			console.log("Global mutation observer disconnected.");
-		}
-	}
-
-	async activateView() {
-		this.app.workspace.detachLeavesOfType(OcclusionView.VIEW_TYPE);
-		const leaf = this.app.workspace.getRightLeaf(false);
-		if (!leaf) {
-			new Notice("Could not get a workspace leaf");
-			return;
-		}
-		await leaf.setViewState({
-			type: OcclusionView.VIEW_TYPE,
-			active: true,
-		});
-		this.app.workspace.revealLeaf(leaf);
-	}
-}
-
-class OcclusionView extends ItemView {
-	static VIEW_TYPE = "occlusion-view";
-	plugin: OcclusionPlugin;
+export class OcclusionView extends ItemView {
+	plugin: MyPlugin; // Change the type to MyPlugin
 
 	containerEl: HTMLElement;
 	fileSelectEl: HTMLSelectElement;
@@ -236,17 +46,21 @@ class OcclusionView extends ItemView {
 	currentScale: number = 1;
 	initialScale: number = 1;
 
-	constructor(leaf: WorkspaceLeaf, plugin: OcclusionPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
 	}
 
 	getViewType(): string {
-		return OcclusionView.VIEW_TYPE;
+		return VIEW_TYPE_OCCLUSION;
 	}
 
 	getDisplayText(): string {
 		return "Occlusion Editor";
+	}
+
+	getIcon(): string {
+		return "image-file";
 	}
 
 	async onOpen() {
@@ -624,3 +438,10 @@ class OcclusionView extends ItemView {
 		// Optional cleanup if needed in the future
 	}
 }
+
+// Change the default export to be a class that extends MyPlugin
+// This is no longer needed since we're using MyPlugin directly
+// export default class OcclusionPlugin extends Plugin { ... }
+
+// Instead, export the OcclusionData interface for use in MyPlugin
+export type { OcclusionData };

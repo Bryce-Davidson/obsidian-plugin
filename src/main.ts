@@ -17,6 +17,7 @@ import {
 import { GraphView, VIEW_TYPE_GRAPH } from "./graph-view";
 import { customAlphabet } from "nanoid";
 import Fuse from "fuse.js";
+import { OcclusionView, VIEW_TYPE_OCCLUSION, OcclusionData } from "./konva";
 
 const nanoid = customAlphabet(
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
@@ -107,10 +108,10 @@ function generateUUID(): string {
 }
 
 /**
- * Scans a note’s content for [card] blocks.
+ * Scans a note's content for [card] blocks.
  */
 /**
- * Scans a note’s content for [card] blocks.
+ * Scans a note's content for [card] blocks.
  * If a card doesn't have an explicit title, it attempts to use the first markdown heading within the card.
  */
 function ensureCardUUIDs(content: string): {
@@ -1322,6 +1323,10 @@ export default class MyPlugin extends Plugin {
 	private allHidden: boolean = true;
 	private refreshTimeout: number | null = null;
 
+	// Add this property to match what OcclusionView expects
+	cachedOcclusionData: OcclusionData = { attachments: {} };
+	globalObserver: MutationObserver;
+
 	async onload() {
 		await this.loadPluginData();
 		this.initializeUI();
@@ -1387,6 +1392,10 @@ export default class MyPlugin extends Plugin {
 
 		this.addRibbonIcon("file-text", "Open Review Queue", () => {
 			this.activateUnifiedQueue();
+		});
+
+		this.addRibbonIcon("image-file", "Open Occlusion Editor", () => {
+			this.activateOcclusionView();
 		});
 
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
@@ -1617,6 +1626,12 @@ export default class MyPlugin extends Plugin {
 				this.deleteHideWrappers(editor);
 			},
 		});
+
+		this.addCommand({
+			id: "open-occlusion-editor",
+			name: "Open Occlusion Editor",
+			callback: () => this.activateOcclusionView(),
+		});
 	}
 
 	private registerEvents(): void {
@@ -1687,6 +1702,12 @@ export default class MyPlugin extends Plugin {
 			(leaf) => new UnifiedQueueSidebarView(leaf, this)
 		);
 		this.registerView(VIEW_TYPE_GRAPH, (leaf) => new GraphView(leaf, this));
+
+		// Register the Occlusion View
+		this.registerView(
+			VIEW_TYPE_OCCLUSION,
+			(leaf) => new OcclusionView(leaf, this)
+		);
 	}
 
 	deleteAllCardWrappers(editor: Editor) {
@@ -1956,6 +1977,26 @@ export default class MyPlugin extends Plugin {
 			textEls.forEach((el) => el.classList.add("toggle-hidden"));
 		}
 		this.allHidden = !this.allHidden;
+	}
+
+	async activateOcclusionView() {
+		let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_OCCLUSION)[0];
+		if (!leaf) {
+			leaf =
+				this.app.workspace.getRightLeaf(false) ||
+				this.app.workspace.getLeaf(true);
+			await leaf.setViewState({
+				type: VIEW_TYPE_OCCLUSION,
+				active: true,
+			});
+		}
+		this.app.workspace.revealLeaf(leaf);
+	}
+
+	// Add this method that OcclusionView might call
+	async activateView() {
+		// This can just call your existing activateOcclusionView method
+		await this.activateOcclusionView();
 	}
 }
 
