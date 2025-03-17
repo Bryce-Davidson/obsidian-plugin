@@ -1482,28 +1482,43 @@ export default class MyPlugin extends Plugin {
 		// If there is no occlusion data for this file, do nothing
 		if (!this.occlusion.attachments[key]) return;
 
+		// Get the displayed dimensions of the original image
+		const displayedWidth = imgElement.width || imgElement.clientWidth;
+		const displayedHeight = imgElement.height || imgElement.clientHeight;
+
 		// Create a container element that will host our custom rendering
 		const container = document.createElement("div");
 		container.classList.add("occluded-image-container");
 		// Set relative positioning so we can absolutely position the reset button
 		container.style.position = "relative";
+		// Set the container to match the displayed size of the original image
+		container.style.width = "100%"; // Make container responsive
+		container.style.maxWidth = displayedWidth + "px"; // Limit maximum width
 
 		// Create a new image element to load the source
 		const newImg = new Image();
+		let stage: Konva.Stage;
+		let imageLayer: Konva.Layer;
+		let shapeLayer: Konva.Layer;
+		let resetButton: HTMLButtonElement;
+		let originalWidth: number;
+		let originalHeight: number;
+		let aspectRatio: number;
+
 		newImg.onload = () => {
-			const nativeWidth = newImg.naturalWidth;
-			const nativeHeight = newImg.naturalHeight;
-			container.style.width = nativeWidth + "px";
-			container.style.height = nativeHeight + "px";
+			originalWidth = newImg.naturalWidth;
+			originalHeight = newImg.naturalHeight;
+			aspectRatio = originalHeight / originalWidth;
 
 			// Create a Konva stage to render the image and occlusions
-			const stage = new Konva.Stage({
+			stage = new Konva.Stage({
 				container: container,
-				width: nativeWidth,
-				height: nativeHeight,
+				width: displayedWidth,
+				height: displayedHeight,
 			});
-			const imageLayer = new Konva.Layer();
-			const shapeLayer = new Konva.Layer();
+
+			imageLayer = new Konva.Layer();
+			shapeLayer = new Konva.Layer();
 			stage.add(imageLayer);
 			stage.add(shapeLayer);
 
@@ -1512,14 +1527,14 @@ export default class MyPlugin extends Plugin {
 				image: newImg,
 				x: 0,
 				y: 0,
-				width: nativeWidth,
-				height: nativeHeight,
+				width: displayedWidth,
+				height: displayedHeight,
 			});
 			imageLayer.add(kImage);
 			imageLayer.draw();
 
 			// Create a reset button; it is initially hidden
-			const resetButton = document.createElement("button");
+			resetButton = document.createElement("button");
 			resetButton.innerText = "reset";
 			resetButton.style.position = "absolute";
 			resetButton.style.bottom = "10px";
@@ -1530,28 +1545,47 @@ export default class MyPlugin extends Plugin {
 			resetButton.style.zIndex = "100";
 			container.appendChild(resetButton);
 
-			// Helper function: check if all occlusions are hidden
-			const checkResetButton = () => {
-				const allHidden = shapeLayer
-					.getChildren()
-					.every((child: Konva.Node) => {
-						if (child instanceof Konva.Rect) {
-							return !child.visible();
-						}
-						return true;
-					});
-				resetButton.style.display = allHidden ? "block" : "none";
+			// Render occlusion shapes
+			renderShapes();
+
+			// Reset button: clicking it makes all occlusions visible
+			resetButton.onclick = (e: MouseEvent) => {
+				e.stopPropagation();
+				shapeLayer.getChildren().forEach((child: Konva.Node) => {
+					if (child instanceof Konva.Rect) {
+						child.visible(true);
+					}
+				});
+				shapeLayer.draw();
+				resetButton.style.display = "none";
 			};
+
+			// Set up continuous monitoring for size changes
+			setupContinuousResizeMonitoring();
+		};
+
+		// Function to render shapes based on current dimensions
+		const renderShapes = () => {
+			// Clear existing shapes
+			shapeLayer.destroyChildren();
+
+			// Get current dimensions
+			const currentWidth = stage.width();
+			const currentHeight = stage.height();
+
+			// Calculate scale factors
+			const scaleX = currentWidth / originalWidth;
+			const scaleY = currentHeight / originalHeight;
 
 			// Render occlusion shapes with a click handler to toggle visibility
 			const shapes = this.occlusion.attachments[key];
 			if (shapes && shapes.length > 0) {
 				shapes.forEach((s: OcclusionShape) => {
 					const rect = new Konva.Rect({
-						x: s.x,
-						y: s.y,
-						width: s.width,
-						height: s.height,
+						x: s.x * scaleX,
+						y: s.y * scaleY,
+						width: s.width * scaleX,
+						height: s.height * scaleY,
 						fill: s.fill,
 						opacity: s.opacity,
 					});
@@ -1569,19 +1603,98 @@ export default class MyPlugin extends Plugin {
 				shapeLayer.draw();
 				checkResetButton();
 			}
-
-			// Reset button: clicking it makes all occlusions visible
-			resetButton.onclick = (e: MouseEvent) => {
-				e.stopPropagation();
-				shapeLayer.getChildren().forEach((child: Konva.Node) => {
-					if (child instanceof Konva.Rect) {
-						child.visible(true);
-					}
-				});
-				shapeLayer.draw();
-				resetButton.style.display = "none";
-			};
 		};
+
+		// Helper function: check if all occlusions are hidden
+		const checkResetButton = () => {
+			const allHidden = shapeLayer
+				.getChildren()
+				.every((child: Konva.Node) => {
+					if (child instanceof Konva.Rect) {
+						return !child.visible();
+					}
+					return true;
+				});
+			resetButton.style.display = allHidden ? "block" : "none";
+		};
+
+		// Function to resize the stage to match container dimensions
+		const resizeStage = () => {
+			if (!container || !stage) return;
+
+			// Get the current container width
+			const containerWidth = container.clientWidth;
+
+			// Calculate height based on aspect ratio
+			const containerHeight = containerWidth * aspectRatio;
+
+			// Only update if dimensions have changed
+			if (
+				stage.width() !== containerWidth ||
+				stage.height() !== containerHeight
+			) {
+				// Update stage dimensions
+				stage.width(containerWidth);
+				stage.height(containerHeight);
+
+				// Update background image
+				const bgImage = imageLayer.findOne("Image") as Konva.Image;
+				if (bgImage) {
+					bgImage.width(containerWidth);
+					bgImage.height(containerHeight);
+					imageLayer.draw();
+				}
+
+				// Re-render shapes with new dimensions
+				renderShapes();
+			}
+		};
+
+		// Set up continuous monitoring for size changes
+		const setupContinuousResizeMonitoring = () => {
+			// Register an interval that continuously checks for size changes
+			const intervalId = window.setInterval(() => {
+				if (container && stage) {
+					resizeStage();
+				}
+			}, 100); // Check every 100ms - adjust as needed for performance
+
+			// Store the interval ID on the container for cleanup
+			container.setAttribute(
+				"data-resize-interval",
+				intervalId.toString()
+			);
+
+			// Also set up a ResizeObserver as a backup
+			const resizeObserver = new ResizeObserver(() => {
+				resizeStage();
+			});
+			resizeObserver.observe(container);
+
+			// Add window resize event listener as another backup
+			const handleWindowResize = () => {
+				resizeStage();
+			};
+			window.addEventListener("resize", handleWindowResize);
+
+			// Register cleanup function
+			this.register(() => {
+				// Clear the interval
+				const storedIntervalId = container.getAttribute(
+					"data-resize-interval"
+				);
+				if (storedIntervalId) {
+					window.clearInterval(parseInt(storedIntervalId));
+				}
+
+				// Disconnect observer
+				resizeObserver.disconnect();
+
+				// Remove event listener
+				window.removeEventListener("resize", handleWindowResize);
+			});
+		};
+
 		newImg.src = imgElement.src;
 		// Replace the original <img> element with our custom container
 		imgElement.replaceWith(container);

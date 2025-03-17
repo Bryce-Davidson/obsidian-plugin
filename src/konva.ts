@@ -390,7 +390,6 @@ export class OcclusionView extends ItemView {
 		// Instead of using ResizeObserver, we can listen for leaf resize events
 		this.registerInterval(
 			window.setInterval(() => {
-				// Check if container dimensions have changed
 				if (this.konvaContainer && this.stage) {
 					const containerWidth = this.konvaContainer.clientWidth;
 					const containerHeight = this.konvaContainer.clientHeight;
@@ -402,7 +401,7 @@ export class OcclusionView extends ItemView {
 						this.resizeStage();
 					}
 				}
-			}, 500) // Check every 500ms
+			}, 2)
 		);
 
 		// Add a transformer change event handler to update the width/height inputs
@@ -494,7 +493,7 @@ export class OcclusionView extends ItemView {
 		this.imageLayer.destroyChildren();
 		this.shapeLayer.destroyChildren();
 
-		// Recreate transformer with free resize settings
+		// Recreate transformer
 		this.transformer = new Konva.Transformer({
 			keepRatio: false,
 			enabledAnchors: [
@@ -515,23 +514,23 @@ export class OcclusionView extends ItemView {
 			anchorSize: 10,
 		});
 		this.shapeLayer.add(this.transformer);
-		this.imageLayer.draw();
-		this.shapeLayer.draw();
 
 		const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 		if (!file || !(file instanceof TFile)) {
 			new Notice("File not found or not a valid image file");
 			return;
 		}
+
 		const data = await this.plugin.app.vault.readBinary(file);
 		const blob = new Blob([data]);
 		const url = URL.createObjectURL(blob);
+
 		const img = new Image();
 		img.onload = () => {
 			const nativeWidth = img.naturalWidth;
 			const nativeHeight = img.naturalHeight;
 
-			// Add the image to the stage
+			// Create Konva image with native dimensions
 			const kImage = new Konva.Image({
 				image: img,
 				x: 0,
@@ -539,13 +538,18 @@ export class OcclusionView extends ItemView {
 				width: nativeWidth,
 				height: nativeHeight,
 			});
+
 			this.imageLayer.add(kImage);
 
-			// Resize the stage to fit the container
+			// Resize stage to match container and scale appropriately
 			this.resizeStage();
 
+			// Load saved shapes after image is properly sized
 			this.loadSavedShapes(filePath);
+
+			URL.revokeObjectURL(url);
 		};
+
 		img.src = url;
 	}
 
@@ -583,11 +587,15 @@ export class OcclusionView extends ItemView {
 			.getChildren()
 			.map((shape: Konva.Node) => {
 				if (shape instanceof Konva.Rect) {
+					// Make sure we're saving the actual dimensions, accounting for any scaling
+					const width = shape.width() * shape.scaleX();
+					const height = shape.height() * shape.scaleY();
+
 					return {
 						x: shape.x(),
 						y: shape.y(),
-						width: shape.width(),
-						height: shape.height(),
+						width: width,
+						height: height,
 						fill: shape.fill() as string,
 						opacity: shape.opacity(),
 					};
@@ -633,6 +641,9 @@ export class OcclusionView extends ItemView {
 				fill: s.fill,
 				opacity: s.opacity,
 				draggable: !this.reviewMode,
+				// Ensure scale is set to 1 when loading
+				scaleX: 1,
+				scaleY: 1,
 			});
 			rect.on("click tap", (e) => {
 				e.cancelBubble = true;
@@ -659,28 +670,56 @@ export class OcclusionView extends ItemView {
 		const containerWidth = this.konvaContainer.clientWidth;
 		const containerHeight = this.konvaContainer.clientHeight;
 
+		// Set stage to container size
 		this.stage.width(containerWidth);
 		this.stage.height(containerHeight);
 
-		// If we have an image loaded, adjust the scale to fit
+		// If we have an image loaded, adjust the scale and position to match original image exactly
 		const backgroundImage = this.imageLayer.findOne("Image") as Konva.Image;
 		if (backgroundImage) {
 			const imgWidth = backgroundImage.width();
 			const imgHeight = backgroundImage.height();
 
-			// Calculate scale to fit the container while maintaining aspect ratio
-			const scale = Math.min(
-				containerWidth / imgWidth,
-				containerHeight / imgHeight,
-				1
-			);
+			// Calculate the scaling factor to maintain aspect ratio
+			const scaleX = containerWidth / imgWidth;
+			const scaleY = containerHeight / imgHeight;
+			const scale = Math.min(scaleX, scaleY);
 
+			// Calculate centering position
+			const centerX = (containerWidth - imgWidth * scale) / 2;
+			const centerY = (containerHeight - imgHeight * scale) / 2;
+
+			// Reset stage position and scale
+			this.stage.position({
+				x: centerX,
+				y: centerY,
+			});
+
+			// Update scale properties
 			this.initialScale = scale;
 			this.currentScale = scale;
+
+			// Apply scale to stage
 			this.stage.scale({ x: scale, y: scale });
+
+			// Ensure the image itself is at 0,0 relative to stage
+			backgroundImage.position({
+				x: 0,
+				y: 0,
+			});
+
+			// Make sure image maintains its original dimensions
+			backgroundImage.width(imgWidth);
+			backgroundImage.height(imgHeight);
+
+			// Reset image scale to 1 since we're scaling the stage
+			backgroundImage.scale({
+				x: 1,
+				y: 1,
+			});
 		}
 
-		this.stage.draw();
+		this.stage.batchDraw();
 	}
 
 	async onClose(): Promise<void> {
