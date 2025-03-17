@@ -8,7 +8,7 @@ import {
 } from "obsidian";
 import Konva from "konva";
 import MyPlugin from "./main"; // Import the main plugin class
-import { OcclusionShape, OcclusionData } from "./main"; // Import the interfaces from main.ts
+import { OcclusionShape } from "./main"; // Import the interfaces from main.ts
 import Fuse from "fuse.js"; // Import Fuse.js for fuzzy search
 
 export const VIEW_TYPE_OCCLUSION = "occlusion-view";
@@ -148,6 +148,54 @@ export class OcclusionView extends ItemView {
 				});
 
 				// Add an icon to visually indicate the file is an image
+				const iconEl = resultItem.createSpan({
+					cls: "text-gray-500 mr-2 flex-shrink-0",
+				});
+				iconEl.innerHTML =
+					'<svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+
+				// Add the file path
+				resultItem.createSpan({
+					text: file.path,
+					cls: "truncate",
+				});
+
+				// Handle click to select this file
+				resultItem.addEventListener("click", () => {
+					this.selectedFilePath = file.path;
+					this.fileSelectEl.value = file.path;
+					this.fileSearchResultsEl.addClass("hidden");
+					this.loadImage(file.path);
+				});
+			});
+		});
+
+		// Add click event listener to show all images when clicking on the search input
+		this.fileSelectEl.addEventListener("click", () => {
+			// Show all image files when clicking on the input
+			this.fileSearchResultsEl.empty();
+			this.fileSearchResultsEl.removeClass("hidden");
+
+			// Get all image files
+			const files = this.plugin.app.vault
+				.getFiles()
+				.filter((f) => f.extension.match(/(png|jpe?g|gif)/i));
+
+			if (files.length === 0) {
+				const noResults = this.fileSearchResultsEl.createDiv({
+					text: "No images found in vault",
+					cls: "p-2 text-sm text-gray-500 dark:text-gray-400",
+				});
+				return;
+			}
+
+			// Create result items for all images
+			files.forEach((file) => {
+				const resultItem = this.fileSearchResultsEl.createDiv({
+					cls: "p-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer text-sm flex items-center",
+				});
+
+				// Add an icon
 				const iconEl = resultItem.createSpan({
 					cls: "text-gray-500 mr-2 flex-shrink-0",
 				});
