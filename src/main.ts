@@ -1505,6 +1505,9 @@ export default class MyPlugin extends Plugin {
 		let originalHeight: number;
 		let aspectRatio: number;
 
+		// Store the file path for double-click handler
+		container.setAttribute("data-file-path", key);
+
 		newImg.onload = () => {
 			originalWidth = newImg.naturalWidth;
 			originalHeight = newImg.naturalHeight;
@@ -1559,6 +1562,11 @@ export default class MyPlugin extends Plugin {
 				shapeLayer.draw();
 				resetButton.style.display = "none";
 			};
+
+			// Add double-click handler to open the occlusion editor
+			stage.on("dblclick dbltap", () => {
+				this.openOcclusionEditorWithFile(key);
+			});
 
 			// Set up continuous monitoring for size changes
 			setupContinuousResizeMonitoring();
@@ -1698,6 +1706,29 @@ export default class MyPlugin extends Plugin {
 		newImg.src = imgElement.src;
 		// Replace the original <img> element with our custom container
 		imgElement.replaceWith(container);
+	}
+
+	// Add this new method to open the Occlusion Editor with a specific file
+	private async openOcclusionEditorWithFile(filePath: string): Promise<void> {
+		// First, activate the occlusion view
+		await this.activateOcclusionView();
+
+		// Find the occlusion view
+		const occlusionLeaf =
+			this.app.workspace.getLeavesOfType(VIEW_TYPE_OCCLUSION)[0];
+		if (occlusionLeaf && occlusionLeaf.view instanceof OcclusionView) {
+			// Get the occlusion view instance
+			const occlusionView = occlusionLeaf.view as OcclusionView;
+
+			// Set the file selector to the specified file path
+			if (occlusionView.fileSelectEl) {
+				occlusionView.fileSelectEl.value = filePath;
+
+				// Trigger the change event to load the image
+				const event = new Event("change");
+				occlusionView.fileSelectEl.dispatchEvent(event);
+			}
+		}
 	}
 
 	private registerCommands(): void {
