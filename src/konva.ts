@@ -300,15 +300,91 @@ export class OcclusionView extends ItemView {
 		this.stage.add(this.imageLayer);
 		this.stage.add(this.shapeLayer);
 
-		this.transformer = new Konva.Transformer();
+		this.transformer = new Konva.Transformer({
+			keepRatio: false,
+			enabledAnchors: [
+				"top-left",
+				"top-center",
+				"top-right",
+				"middle-left",
+				"middle-right",
+				"bottom-left",
+				"bottom-center",
+				"bottom-right",
+			],
+			rotateEnabled: false,
+			borderStroke: "#0096FF",
+			borderStrokeWidth: 2,
+			anchorStroke: "#0096FF",
+			anchorFill: "#FFFFFF",
+			anchorSize: 10,
+		});
 		this.shapeLayer.add(this.transformer);
 
-		this.stage.on("click", (e) => {
+		// Update to handle both mouse and touch events
+		this.stage.on("click tap", (e) => {
 			if (this.reviewMode) return;
 			if (e.target === this.stage) {
 				this.transformer.nodes([]);
 				this.selectedRect = null;
 			}
+		});
+
+		// Add mobile pinch zoom support
+		let lastCenter: { x: number; y: number } | null = null;
+		let lastDist = 0;
+
+		this.stage.on("touchmove", (e) => {
+			e.evt.preventDefault();
+
+			const touch1 = e.evt.touches[0];
+			const touch2 = e.evt.touches[1];
+
+			// Handle pinch zoom
+			if (touch1 && touch2) {
+				// Calculate center point between two touches
+				const center = {
+					x: (touch1.clientX + touch2.clientX) / 2,
+					y: (touch1.clientY + touch2.clientY) / 2,
+				};
+
+				// Calculate distance between touches
+				const dist = Math.sqrt(
+					Math.pow(touch2.clientX - touch1.clientX, 2) +
+						Math.pow(touch2.clientY - touch1.clientY, 2)
+				);
+
+				if (!lastCenter) {
+					lastCenter = center;
+					lastDist = dist;
+					return;
+				}
+
+				// Calculate scale change
+				const scaleChange = dist / lastDist;
+
+				// Update scale
+				const newScale = this.currentScale * scaleChange;
+				this.currentScale = newScale;
+				this.stage.scale({ x: newScale, y: newScale });
+
+				// Update position to zoom toward center point
+				const newPos = {
+					x: center.x - (center.x - this.stage.x()) * scaleChange,
+					y: center.y - (center.y - this.stage.y()) * scaleChange,
+				};
+				this.stage.position(newPos);
+
+				lastCenter = center;
+				lastDist = dist;
+
+				this.stage.batchDraw();
+			}
+		});
+
+		this.stage.on("touchend", () => {
+			lastCenter = null;
+			lastDist = 0;
 		});
 
 		// Instead of using ResizeObserver, we can listen for leaf resize events
@@ -328,6 +404,41 @@ export class OcclusionView extends ItemView {
 				}
 			}, 500) // Check every 500ms
 		);
+
+		// Add a transformer change event handler to update the width/height inputs
+		this.transformer.on("transform", () => {
+			if (this.selectedRect) {
+				// Update the width/height inputs when resizing
+				this.widthInput.value = Math.round(
+					this.selectedRect.width() * this.selectedRect.scaleX()
+				).toString();
+				this.heightInput.value = Math.round(
+					this.selectedRect.height() * this.selectedRect.scaleY()
+				).toString();
+			}
+		});
+
+		// Add this after transformer transform event
+		this.transformer.on("transformend", () => {
+			if (this.selectedRect) {
+				// Apply the scale to the width/height and reset scale to 1
+				const newWidth = Math.round(
+					this.selectedRect.width() * this.selectedRect.scaleX()
+				);
+				const newHeight = Math.round(
+					this.selectedRect.height() * this.selectedRect.scaleY()
+				);
+
+				this.selectedRect.width(newWidth);
+				this.selectedRect.height(newHeight);
+				this.selectedRect.scaleX(1);
+				this.selectedRect.scaleY(1);
+
+				// Update the inputs
+				this.widthInput.value = newWidth.toString();
+				this.heightInput.value = newHeight.toString();
+			}
+		});
 
 		if (this.fileSelectEl.value) {
 			this.loadImage(this.fileSelectEl.value);
@@ -382,7 +493,27 @@ export class OcclusionView extends ItemView {
 	async loadImage(filePath: string): Promise<void> {
 		this.imageLayer.destroyChildren();
 		this.shapeLayer.destroyChildren();
-		this.transformer = new Konva.Transformer();
+
+		// Recreate transformer with free resize settings
+		this.transformer = new Konva.Transformer({
+			keepRatio: false,
+			enabledAnchors: [
+				"top-left",
+				"top-center",
+				"top-right",
+				"middle-left",
+				"middle-right",
+				"bottom-left",
+				"bottom-center",
+				"bottom-right",
+			],
+			rotateEnabled: false,
+			borderStroke: "#0096FF",
+			borderStrokeWidth: 2,
+			anchorStroke: "#0096FF",
+			anchorFill: "#FFFFFF",
+			anchorSize: 10,
+		});
 		this.shapeLayer.add(this.transformer);
 		this.imageLayer.draw();
 		this.shapeLayer.draw();
@@ -428,7 +559,7 @@ export class OcclusionView extends ItemView {
 			opacity: 1,
 			draggable: true,
 		});
-		rect.on("click", (e) => {
+		rect.on("click tap", (e) => {
 			e.cancelBubble = true;
 			if (this.reviewMode) {
 				rect.visible(!rect.visible());
@@ -503,7 +634,7 @@ export class OcclusionView extends ItemView {
 				opacity: s.opacity,
 				draggable: !this.reviewMode,
 			});
-			rect.on("click", (e) => {
+			rect.on("click tap", (e) => {
 				e.cancelBubble = true;
 				if (this.reviewMode) {
 					rect.visible(!rect.visible());
