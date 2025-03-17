@@ -9,6 +9,7 @@ import {
 import Konva from "konva";
 import MyPlugin from "./main"; // Import the main plugin class
 import { OcclusionShape, OcclusionData } from "./main"; // Import the interfaces from main.ts
+import Fuse from "fuse.js"; // Import Fuse.js for fuzzy search
 
 export const VIEW_TYPE_OCCLUSION = "occlusion-view";
 
@@ -16,7 +17,11 @@ export class OcclusionView extends ItemView {
 	plugin: MyPlugin; // Change the type to MyPlugin
 
 	containerEl: HTMLElement;
-	fileSelectEl: HTMLSelectElement;
+	fileSelectEl: HTMLInputElement; // Changed from HTMLSelectElement to HTMLInputElement
+	fileSearchResultsEl: HTMLElement; // Add element for search results
+	selectedFilePath: string = ""; // Track the currently selected file
+	fileSearchResults: TFile[] = []; // Store search results
+	fuse: Fuse<TFile>; // Fuse instance for fuzzy search
 	addRectButton: HTMLButtonElement;
 	deleteButton: HTMLButtonElement;
 	saveButton: HTMLButtonElement;
@@ -76,32 +81,104 @@ export class OcclusionView extends ItemView {
 
 		// Create file selector section with improved mobile styling
 		const fileSelectContainer = topRowContainer.createDiv({
-			cls: "flex-grow max-w-full sm:max-w-xs",
+			cls: "flex-grow max-w-full sm:max-w-xs relative",
 		});
 
-		// Add a label above the select for better mobile UX
+		// Add a label above the search for better mobile UX
 		fileSelectContainer.createEl("label", {
 			text: "Image",
 			cls: "block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1",
 		});
 
-		this.fileSelectEl = fileSelectContainer.createEl("select", {
+		// Create fuzzy search input instead of select dropdown
+		this.fileSelectEl = fileSelectContainer.createEl("input", {
+			type: "text",
+			placeholder: "Search for an image...",
 			cls: "bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white",
 		});
 
+		// Create a container for search results
+		this.fileSearchResultsEl = fileSelectContainer.createDiv({
+			cls: "absolute z-20 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden",
+		});
+
+		// Get image files and initialize Fuse
 		const files = this.plugin.app.vault.getFiles();
 		const imageFiles = files.filter((f) =>
 			f.extension.match(/(png|jpe?g|gif)/i)
 		);
-		imageFiles.forEach((f: TFile) => {
-			const option = this.fileSelectEl.createEl("option", {
-				text: f.path,
-			}) as HTMLOptionElement;
-			option.value = f.path;
+
+		// Initialize Fuse.js
+		this.fuse = new Fuse(imageFiles, {
+			keys: ["path", "name"],
+			threshold: 0.4,
+			ignoreLocation: true,
 		});
-		this.fileSelectEl.onchange = () => {
-			this.loadImage(this.fileSelectEl.value);
-		};
+
+		// Setup the search input event handler
+		this.fileSelectEl.addEventListener("input", () => {
+			const query = this.fileSelectEl.value.trim();
+
+			if (query.length === 0) {
+				this.fileSearchResultsEl.addClass("hidden");
+				return;
+			}
+
+			// Perform fuzzy search
+			this.fileSearchResults = this.fuse
+				.search(query)
+				.map((result) => result.item);
+
+			// Display results
+			this.fileSearchResultsEl.empty();
+			this.fileSearchResultsEl.removeClass("hidden");
+
+			if (this.fileSearchResults.length === 0) {
+				const noResults = this.fileSearchResultsEl.createDiv({
+					text: "No matching images found",
+					cls: "p-2 text-sm text-gray-500 dark:text-gray-400",
+				});
+				return;
+			}
+
+			// Create result items
+			this.fileSearchResults.forEach((file, index) => {
+				const resultItem = this.fileSearchResultsEl.createDiv({
+					cls: "p-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer text-sm flex items-center",
+				});
+
+				// Add an icon to visually indicate the file is an image
+				const iconEl = resultItem.createSpan({
+					cls: "text-gray-500 mr-2 flex-shrink-0",
+				});
+				iconEl.innerHTML =
+					'<svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+
+				// Add the file path
+				resultItem.createSpan({
+					text: file.path,
+					cls: "truncate",
+				});
+
+				// Handle click to select this file
+				resultItem.addEventListener("click", () => {
+					this.selectedFilePath = file.path;
+					this.fileSelectEl.value = file.path;
+					this.fileSearchResultsEl.addClass("hidden");
+					this.loadImage(file.path);
+				});
+			});
+		});
+
+		// Hide results when clicking outside
+		document.addEventListener("click", (e) => {
+			if (
+				!this.fileSearchResultsEl.contains(e.target as Node) &&
+				e.target !== this.fileSelectEl
+			) {
+				this.fileSearchResultsEl.addClass("hidden");
+			}
+		});
 
 		// Create mode toggle and zoom controls in a group
 		const controlsGroup = topRowContainer.createDiv({
@@ -439,8 +516,12 @@ export class OcclusionView extends ItemView {
 			}
 		});
 
-		if (this.fileSelectEl.value) {
-			this.loadImage(this.fileSelectEl.value);
+		// Initialize the first image if there are any
+		if (imageFiles.length > 0) {
+			// Set default selected file
+			this.selectedFilePath = imageFiles[0].path;
+			this.fileSelectEl.value = this.selectedFilePath;
+			this.loadImage(this.selectedFilePath);
 		}
 	}
 
@@ -738,6 +819,13 @@ export class OcclusionView extends ItemView {
 
 		this.shapeLayer.draw();
 		new Notice("All occlusions reset");
+	}
+
+	// Method to set the selected file programmatically (for compatibility with openOcclusionEditorWithFile)
+	setSelectedFile(filePath: string): void {
+		this.selectedFilePath = filePath;
+		this.fileSelectEl.value = filePath;
+		this.loadImage(filePath);
 	}
 }
 

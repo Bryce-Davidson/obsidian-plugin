@@ -1724,14 +1724,8 @@ export default class MyPlugin extends Plugin {
 			// Get the occlusion view instance
 			const occlusionView = occlusionLeaf.view as OcclusionView;
 
-			// Set the file selector to the specified file path
-			if (occlusionView.fileSelectEl) {
-				occlusionView.fileSelectEl.value = filePath;
-
-				// Trigger the change event to load the image
-				const event = new Event("change");
-				occlusionView.fileSelectEl.dispatchEvent(event);
-			}
+			// Use the new setSelectedFile method to set the file path
+			occlusionView.setSelectedFile(filePath);
 		}
 	}
 
