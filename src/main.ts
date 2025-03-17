@@ -1564,7 +1564,11 @@ export default class MyPlugin extends Plugin {
 			};
 
 			// Add double-click handler to open the occlusion editor
-			stage.on("dblclick dbltap", () => {
+			stage.on("dblclick", () => {
+				this.openOcclusionEditorWithFile(key);
+			});
+
+			stage.on("dbltap", () => {
 				this.openOcclusionEditorWithFile(key);
 			});
 
