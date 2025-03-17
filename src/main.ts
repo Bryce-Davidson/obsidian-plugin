@@ -623,7 +623,6 @@ export class UnifiedQueueSidebarView extends BaseSidebarView {
 		this.filterHeaderEl = container.createEl("div", {
 			cls: "filter-header",
 		});
-		this.filterHeaderEl.createEl("h2", { text: "Filters" });
 
 		this.controlsContainerEl = this.filterHeaderEl.createEl("div", {
 			cls: "filter-controls",
