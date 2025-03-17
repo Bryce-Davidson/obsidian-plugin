@@ -1601,15 +1601,21 @@ export default class MyPlugin extends Plugin {
 						fill: s.fill,
 						opacity: s.opacity,
 					});
-					rect.on(
-						"click",
-						(e: Konva.KonvaEventObject<MouseEvent>) => {
-							e.cancelBubble = true;
-							rect.visible(!rect.visible());
-							shapeLayer.draw();
-							checkResetButton();
-						}
-					);
+
+					// Handler function for both click and tap events
+					const toggleVisibilityHandler = (
+						e: Konva.KonvaEventObject<MouseEvent | TouchEvent>
+					) => {
+						e.cancelBubble = true;
+						rect.visible(!rect.visible());
+						shapeLayer.draw();
+						checkResetButton();
+					};
+
+					// Add event listeners for both mouse click and touch tap
+					rect.on("click", toggleVisibilityHandler);
+					rect.on("tap", toggleVisibilityHandler);
+
 					shapeLayer.add(rect);
 				});
 				shapeLayer.draw();
