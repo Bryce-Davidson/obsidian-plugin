@@ -19,6 +19,11 @@ import { customAlphabet } from "nanoid";
 import Fuse from "fuse.js";
 import { OcclusionView, VIEW_TYPE_OCCLUSION } from "./konva";
 import Konva from "konva"; // Add this import for the Konva library
+import {
+	ReactOcclusionView,
+	VIEW_TYPE_OCCLUSION_REACT,
+} from "./components/occlusion";
+import { OcclusionShape, OcclusionData } from "./types";
 
 const nanoid = customAlphabet(
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
@@ -65,21 +70,6 @@ interface NoteData {
 interface Note {
 	cards: { [cardUUID: string]: CardState };
 	data: NoteData;
-}
-
-// Define the OcclusionShape interface here in main.ts
-export interface OcclusionShape {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-	fill: string;
-	opacity: number;
-}
-
-// Define OcclusionData here in main.ts
-export interface OcclusionData {
-	attachments: { [filePath: string]: OcclusionShape[] };
 }
 
 // Unified PluginData interface
@@ -1421,6 +1411,10 @@ export default class MyPlugin extends Plugin {
 			this.activateOcclusionView();
 		});
 
+		this.addRibbonIcon("image-plus", "Open React Occlusion Editor", () => {
+			this.activateReactOcclusionView();
+		});
+
 		this.registerMarkdownPostProcessor((el: HTMLElement) => {
 			el.innerHTML = el.innerHTML.replace(/\[\/?card(?:=[^\]]+)?\]/g, "");
 		});
@@ -1956,6 +1950,12 @@ export default class MyPlugin extends Plugin {
 			name: "Open Occlusion Editor",
 			callback: () => this.activateOcclusionView(),
 		});
+
+		this.addCommand({
+			id: "open-react-occlusion-editor",
+			name: "Open React Occlusion Editor",
+			callback: () => this.activateReactOcclusionView(),
+		});
 	}
 
 	private registerEvents(): void {
@@ -2031,6 +2031,12 @@ export default class MyPlugin extends Plugin {
 		this.registerView(
 			VIEW_TYPE_OCCLUSION,
 			(leaf) => new OcclusionView(leaf, this)
+		);
+
+		// Register the React Occlusion View
+		this.registerView(
+			VIEW_TYPE_OCCLUSION_REACT,
+			(leaf) => new ReactOcclusionView(leaf, this)
 		);
 	}
 
@@ -2113,9 +2119,13 @@ export default class MyPlugin extends Plugin {
 		}
 		const hideTag = startMatch ? startMatch[0] : "[hide]";
 		const newLine =
-			line.slice(0, startIndex) +
-			line.slice(startIndex + hideTag.length, endIndex) +
-			line.slice(endIndex + "[/hide]".length);
+			line.slice(0, startIndex || 0) +
+			(startIndex !== undefined
+				? line.slice(startIndex + hideTag.length, endIndex)
+				: "") +
+			(endIndex !== undefined
+				? line.slice(endIndex + "[/hide]".length)
+				: "");
 		editor.setLine(cursor.line, newLine);
 		new Notice(`Removed ${hideTag}...[/hide] wrappers.`);
 	}
@@ -2319,6 +2329,23 @@ export default class MyPlugin extends Plugin {
 	async activateView() {
 		// This can just call your existing activateOcclusionView method
 		await this.activateOcclusionView();
+	}
+
+	// Add a new method to activate the React Occlusion View
+	async activateReactOcclusionView() {
+		let leaf = this.app.workspace.getLeavesOfType(
+			VIEW_TYPE_OCCLUSION_REACT
+		)[0];
+		if (!leaf) {
+			leaf =
+				this.app.workspace.getRightLeaf(false) ||
+				this.app.workspace.getLeaf(true);
+			await leaf.setViewState({
+				type: VIEW_TYPE_OCCLUSION_REACT,
+				active: true,
+			});
+		}
+		this.app.workspace.revealLeaf(leaf);
 	}
 }
 

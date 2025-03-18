@@ -7,21 +7,21 @@ import {
 	MarkdownView,
 } from "obsidian";
 import Konva from "konva";
-import MyPlugin from "./main"; // Import the main plugin class
-import { OcclusionShape } from "./main"; // Import the interfaces from main.ts
-import Fuse from "fuse.js"; // Import Fuse.js for fuzzy search
+import MyPlugin from "./main";
+import { OcclusionShape } from "./types";
+import Fuse from "fuse.js";
 
 export const VIEW_TYPE_OCCLUSION = "occlusion-view";
 
 export class OcclusionView extends ItemView {
-	plugin: MyPlugin; // Change the type to MyPlugin
+	plugin: MyPlugin;
 
 	containerEl: HTMLElement;
-	fileSelectEl: HTMLInputElement; // Changed from HTMLSelectElement to HTMLInputElement
-	fileSearchResultsEl: HTMLElement; // Add element for search results
-	selectedFilePath: string = ""; // Track the currently selected file
-	fileSearchResults: TFile[] = []; // Store search results
-	fuse: Fuse<TFile>; // Fuse instance for fuzzy search
+	fileSelectEl: HTMLInputElement;
+	fileSearchResultsEl: HTMLElement;
+	selectedFilePath: string = "";
+	fileSearchResults: TFile[] = [];
+	fuse: Fuse<TFile>;
 	addRectButton: HTMLButtonElement;
 	deleteButton: HTMLButtonElement;
 	saveButton: HTMLButtonElement;
@@ -43,7 +43,6 @@ export class OcclusionView extends ItemView {
 	selectedRect: Konva.Rect | null = null;
 	reviewMode: boolean = false;
 
-	// New zoom properties
 	currentScale: number = 1;
 	initialScale: number = 1;
 	isPanning: boolean = false;
@@ -70,17 +69,14 @@ export class OcclusionView extends ItemView {
 	}
 
 	async onOpen() {
-		// Create main container with Tailwind classes
 		this.containerEl = this.contentEl.createDiv({
 			cls: "flex flex-col h-full bg-gray-50 dark:bg-gray-800",
 		});
 
-		// Create a fixed toolbar for controls with Tailwind classes
 		const toolbarEl = this.containerEl.createDiv({
 			cls: "sticky top-0 z-10 bg-white dark:bg-gray-700 shadow-md p-3 flex flex-wrap gap-2 items-center border-b border-gray-200 dark:border-gray-600",
 		});
 
-		// Create a responsive toolbar layout with two rows for mobile
 		const topRowContainer = toolbarEl.createDiv({
 			cls: "w-full flex flex-wrap items-center gap-2 justify-between",
 		});
@@ -103,7 +99,6 @@ export class OcclusionView extends ItemView {
 			cls: "bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white",
 		});
 
-		// Create a container for search results
 		this.fileSearchResultsEl = fileSelectContainer.createDiv({
 			cls: "absolute z-20 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden",
 		});
