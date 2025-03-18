@@ -1478,12 +1478,6 @@ export default class MyPlugin extends Plugin {
 		if (!file) return;
 
 		const key = file.path;
-		// If there is no occlusion data for this file, do nothing
-		if (!this.occlusion.attachments[key]) return;
-
-		// Get the displayed dimensions of the original image
-		const displayedWidth = imgElement.width || imgElement.clientWidth;
-		const displayedHeight = imgElement.height || imgElement.clientHeight;
 
 		// Create a container element that will host our custom rendering
 		const container = document.createElement("div");
@@ -1491,8 +1485,13 @@ export default class MyPlugin extends Plugin {
 		// Set relative positioning so we can absolutely position the reset button
 		container.style.position = "relative";
 		// Set the container to match the displayed size of the original image
+		const displayedWidth = imgElement.width || imgElement.clientWidth;
+		const displayedHeight = imgElement.height || imgElement.clientHeight;
 		container.style.width = "100%"; // Make container responsive
 		container.style.maxWidth = displayedWidth + "px"; // Limit maximum width
+
+		// Store the file path for double-click handler
+		container.setAttribute("data-file-path", key);
 
 		// Create a new image element to load the source
 		const newImg = new Image();
@@ -1503,9 +1502,6 @@ export default class MyPlugin extends Plugin {
 		let originalWidth: number;
 		let originalHeight: number;
 		let aspectRatio: number;
-
-		// Store the file path for double-click handler
-		container.setAttribute("data-file-path", key);
 
 		newImg.onload = () => {
 			originalWidth = newImg.naturalWidth;
@@ -1535,34 +1531,7 @@ export default class MyPlugin extends Plugin {
 			imageLayer.add(kImage);
 			imageLayer.draw();
 
-			// Create a reset button; it is initially hidden
-			resetButton = document.createElement("button");
-			resetButton.innerText = "reset";
-			resetButton.style.position = "absolute";
-			resetButton.style.bottom = "10px";
-			resetButton.style.right = "10px";
-			resetButton.style.padding = "4px 8px";
-			resetButton.style.fontSize = "12px";
-			resetButton.style.display = "none";
-			resetButton.style.zIndex = "100";
-			container.appendChild(resetButton);
-
-			// Render occlusion shapes
-			renderShapes();
-
-			// Reset button: clicking it makes all occlusions visible
-			resetButton.onclick = (e: MouseEvent) => {
-				e.stopPropagation();
-				shapeLayer.getChildren().forEach((child: Konva.Node) => {
-					if (child instanceof Konva.Rect) {
-						child.visible(true);
-					}
-				});
-				shapeLayer.draw();
-				resetButton.style.display = "none";
-			};
-
-			// Add double-click handler to open the occlusion editor
+			// Add double-click handler to open the occlusion editor for all images
 			stage.on("dblclick", () => {
 				this.openOcclusionEditorWithFile(key);
 			});
@@ -1570,6 +1539,36 @@ export default class MyPlugin extends Plugin {
 			stage.on("dbltap", () => {
 				this.openOcclusionEditorWithFile(key);
 			});
+
+			// Only add occlusion-specific functionality if occlusion data exists
+			if (this.occlusion.attachments[key]) {
+				// Create a reset button; it is initially hidden
+				resetButton = document.createElement("button");
+				resetButton.innerText = "reset";
+				resetButton.style.position = "absolute";
+				resetButton.style.bottom = "10px";
+				resetButton.style.right = "10px";
+				resetButton.style.padding = "4px 8px";
+				resetButton.style.fontSize = "12px";
+				resetButton.style.display = "none";
+				resetButton.style.zIndex = "100";
+				container.appendChild(resetButton);
+
+				// Render occlusion shapes
+				renderShapes();
+
+				// Reset button: clicking it makes all occlusions visible
+				resetButton.onclick = (e: MouseEvent) => {
+					e.stopPropagation();
+					shapeLayer.getChildren().forEach((child: Konva.Node) => {
+						if (child instanceof Konva.Rect) {
+							child.visible(true);
+						}
+					});
+					shapeLayer.draw();
+					resetButton.style.display = "none";
+				};
+			}
 
 			// Set up continuous monitoring for size changes
 			setupContinuousResizeMonitoring();
