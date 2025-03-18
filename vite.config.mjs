@@ -19,6 +19,7 @@ export default defineConfig({
 			external: [
 				"obsidian",
 				"electron",
+				"main.css",
 				"@codemirror/autocomplete",
 				"@codemirror/collab",
 				"@codemirror/commands",
