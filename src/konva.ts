@@ -33,7 +33,6 @@ export class OcclusionView extends ItemView {
 	modeToggleButton: HTMLButtonElement;
 	resetButton: HTMLButtonElement;
 	resizeObserver: ResizeObserver;
-	gestureInfoEl: HTMLElement;
 
 	stage: Konva.Stage;
 	imageLayer: Konva.Layer;
@@ -806,37 +805,6 @@ export class OcclusionView extends ItemView {
 			this.fileSelectEl.value = this.selectedFilePath;
 			this.loadImage(this.selectedFilePath);
 		}
-
-		// Add a small info element to let users know about gesture controls
-		this.gestureInfoEl = this.containerEl.createEl("div", {
-			cls: "absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs p-2 rounded pointer-events-none z-10",
-		});
-
-		// Create instruction elements with icons for better visibility
-		const zoomInstructions = this.gestureInfoEl.createDiv({
-			cls: "flex items-center mb-1",
-		});
-		zoomInstructions.innerHTML =
-			'<svg class="w-3 h-3 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-		zoomInstructions.createSpan({ text: "Pinch or scroll to zoom" });
-
-		const panInstructions = this.gestureInfoEl.createDiv({
-			cls: "flex items-center",
-		});
-		panInstructions.innerHTML =
-			'<svg class="w-3 h-3 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19V5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-		panInstructions.createSpan({
-			text: "Space+drag or middle-click to pan",
-		});
-
-		// Make it fade out after 7 seconds (longer since there's more to read)
-		setTimeout(() => {
-			this.gestureInfoEl.addClass(
-				"opacity-0 transition-opacity duration-1000"
-			);
-			// Remove from DOM after transition
-			setTimeout(() => this.gestureInfoEl.remove(), 1000);
-		}, 7000);
 	}
 
 	toggleReviewMode(): void {
