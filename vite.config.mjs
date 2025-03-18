@@ -19,7 +19,6 @@ export default defineConfig({
 			external: [
 				"obsidian",
 				"electron",
-				"main.css",
 				"@codemirror/autocomplete",
 				"@codemirror/collab",
 				"@codemirror/commands",
@@ -31,8 +30,6 @@ export default defineConfig({
 				"@lezer/common",
 				"@lezer/highlight",
 				"@lezer/lr",
-				"react",
-				"react-dom",
 			],
 			output: {
 				exports: "named",
