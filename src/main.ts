@@ -17,8 +17,7 @@ import {
 import { GraphView, VIEW_TYPE_GRAPH } from "./graph-view";
 import { customAlphabet } from "nanoid";
 import Fuse from "fuse.js";
-import { OcclusionView, VIEW_TYPE_OCCLUSION } from "./konva";
-import Konva from "konva"; // Add this import for the Konva library
+import Konva from "konva"; // Import Konva for occlusion preview
 import {
 	ReactOcclusionView,
 	VIEW_TYPE_OCCLUSION_REACT,
@@ -1949,7 +1948,7 @@ export default class MyPlugin extends Plugin {
 		this.addCommand({
 			id: "open-occlusion-editor",
 			name: "Open Occlusion Editor",
-			callback: () => this.activateOcclusionView(),
+			callback: () => this.activateReactOcclusionView(),
 		});
 
 		this.addCommand({
@@ -2027,12 +2026,6 @@ export default class MyPlugin extends Plugin {
 			(leaf) => new UnifiedQueueSidebarView(leaf, this)
 		);
 		this.registerView(VIEW_TYPE_GRAPH, (leaf) => new GraphView(leaf, this));
-
-		// Register the Occlusion View
-		this.registerView(
-			VIEW_TYPE_OCCLUSION,
-			(leaf) => new OcclusionView(leaf, this)
-		);
 
 		// Register the React Occlusion View
 		this.registerView(
@@ -2313,23 +2306,14 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async activateOcclusionView() {
-		let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_OCCLUSION)[0];
-		if (!leaf) {
-			leaf =
-				this.app.workspace.getRightLeaf(false) ||
-				this.app.workspace.getLeaf(true);
-			await leaf.setViewState({
-				type: VIEW_TYPE_OCCLUSION,
-				active: true,
-			});
-		}
-		this.app.workspace.revealLeaf(leaf);
+		// Redirect to the React version
+		await this.activateReactOcclusionView();
 	}
 
 	// Add this method that OcclusionView might call
 	async activateView() {
-		// This can just call your existing activateOcclusionView method
-		await this.activateOcclusionView();
+		// This now calls the React version
+		await this.activateReactOcclusionView();
 	}
 
 	// Add a new method to activate the React Occlusion View
