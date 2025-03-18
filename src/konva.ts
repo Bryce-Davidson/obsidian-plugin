@@ -1065,17 +1065,13 @@ export class OcclusionView extends ItemView {
 			// Apply scale to stage
 			this.stage.scale({ x: scale, y: scale });
 
-			// Ensure the image itself is at 0,0 relative to stage
 			backgroundImage.position({
 				x: 0,
 				y: 0,
 			});
 
-			// Make sure image maintains its original dimensions
 			backgroundImage.width(imgWidth);
 			backgroundImage.height(imgHeight);
-
-			// Reset image scale to 1 since we're scaling the stage
 			backgroundImage.scale({
 				x: 1,
 				y: 1,
@@ -1086,7 +1082,6 @@ export class OcclusionView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
-		// Ensure we clean up all event listeners to prevent memory leaks
 		if (this.stage) {
 			this.stage.off("wheel");
 			this.stage.off("touchmove");
@@ -1101,7 +1096,6 @@ export class OcclusionView extends ItemView {
 	resetOcclusions(): void {
 		if (!this.reviewMode) return;
 
-		// Make all rectangles visible again
 		this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
 			if (child instanceof Konva.Rect) {
 				child.visible(true);
@@ -1112,14 +1106,9 @@ export class OcclusionView extends ItemView {
 		new Notice("All occlusions reset");
 	}
 
-	// Method to set the selected file programmatically (for compatibility with openOcclusionEditorWithFile)
 	setSelectedFile(filePath: string): void {
 		this.selectedFilePath = filePath;
 		this.fileSelectEl.value = filePath;
 		this.loadImage(filePath);
 	}
 }
-
-// Change the default export to be a class that extends MyPlugin
-// This is no longer needed since we're using MyPlugin directly
-// export default class OcclusionPlugin extends Plugin { ... }
