@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { TFile, Notice } from "obsidian";
 import Konva from "konva";
-import { OcclusionEditorProps } from "../../types";
+import { OcclusionEditorProps, OcclusionShape } from "../../types";
 import ImageControls from "./ImageControls";
 import ShapeControls from "./ShapeControls";
 import OcclusionCanvas from "./OcclusionCanvas";
@@ -15,6 +15,7 @@ const OcclusionEditor: React.FC<OcclusionEditorProps> = ({
 	const [imageFiles, setImageFiles] = useState<TFile[]>([]);
 	const [reviewMode, setReviewMode] = useState(false);
 	const [selectedRect, setSelectedRect] = useState<Konva.Rect | null>(null);
+	const [shapes, setShapes] = useState<OcclusionShape[]>([]);
 
 	// Load image files on mount
 	useEffect(() => {
@@ -32,17 +33,45 @@ const OcclusionEditor: React.FC<OcclusionEditorProps> = ({
 		}
 	}, [selectedFilePath]);
 
+	// Load shapes when selectedFile changes
+	useEffect(() => {
+		if (selectedFile) {
+			const savedShapes =
+				plugin.occlusion.attachments[selectedFile] || [];
+			setShapes(savedShapes);
+		}
+	}, [selectedFile]);
+
 	const addRectangle = () => {
-		// This will be handled by the OcclusionCanvas component
-		new Notice("Adding a rectangle");
+		// Use the global function exposed by OcclusionCanvas
+		if (window && (window as any).__addRectToCanvas) {
+			(window as any).__addRectToCanvas();
+		} else {
+			// Fallback to directly adding a rectangle to our shapes state
+			const newShape: OcclusionShape = {
+				x: 100,
+				y: 100,
+				width: 100,
+				height: 100,
+				fill: "#000000",
+				opacity: 0.5,
+			};
+			setShapes([...shapes, newShape]);
+		}
 	};
 
 	const deleteRectangle = () => {
 		if (!selectedRect || reviewMode) return;
 
-		// Delete the selected rectangle
-		selectedRect.destroy();
-		setSelectedRect(null);
+		// Find and delete the selected rectangle from shapes
+		const shapeId = selectedRect.id();
+		const index = parseInt(shapeId.split("-")[1]);
+		if (index >= 0) {
+			const newShapes = [...shapes];
+			newShapes.splice(index, 1);
+			setShapes(newShapes);
+			setSelectedRect(null);
+		}
 
 		new Notice("Rectangle deleted");
 	};
@@ -53,8 +82,19 @@ const OcclusionEditor: React.FC<OcclusionEditorProps> = ({
 			return;
 		}
 
-		// Save the occlusion data to the plugin - will be handled by a hook
-		new Notice("Occlusion data saved");
+		// Save the current shapes
+		console.log(`Saving ${shapes.length} shapes for ${selectedFile}`);
+		plugin.saveOcclusionData(selectedFile, shapes);
+	};
+
+	const handleShapesChange = (newShapes: OcclusionShape[]) => {
+		// Prevent unnecessary state updates by comparing the current and new shapes
+		const currentShapesJson = JSON.stringify(shapes);
+		const newShapesJson = JSON.stringify(newShapes);
+
+		if (currentShapesJson !== newShapesJson) {
+			setShapes(newShapes);
+		}
 	};
 
 	return (
@@ -86,6 +126,8 @@ const OcclusionEditor: React.FC<OcclusionEditorProps> = ({
 				selectedFile={selectedFile}
 				reviewMode={reviewMode}
 				onShapeSelect={setSelectedRect}
+				shapes={shapes}
+				onShapesChange={handleShapesChange}
 			/>
 		</div>
 	);

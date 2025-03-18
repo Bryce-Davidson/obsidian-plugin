@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
 	Stage,
 	Layer,
@@ -15,11 +15,15 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 	selectedFile,
 	reviewMode,
 	onShapeSelect,
+	shapes: propShapes = [],
+	onShapesChange,
 }) => {
 	// State for image and shapes
 	const [image, setImage] = useState<HTMLImageElement | null>(null);
 	const [shapes, setShapes] = useState<OcclusionShape[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [isAddingRect, setIsAddingRect] = useState(false);
+	const [updatedLocally, setUpdatedLocally] = useState(false);
 
 	// State for zoom and pan
 	const [scale, setScale] = useState(1);
@@ -38,6 +42,19 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 	// Refs
 	const stageRef = useRef<Konva.Stage>(null);
 	const transformerRef = useRef<Konva.Transformer>(null);
+
+	// Use shapes from props
+	useEffect(() => {
+		// Only update local shapes from props if they're different
+		// Use JSON comparison to avoid unnecessary updates
+		const currentShapesJson = JSON.stringify(shapes);
+		const propsShapesJson = JSON.stringify(propShapes);
+
+		if (currentShapesJson !== propsShapesJson) {
+			setShapes(propShapes);
+			setUpdatedLocally(false); // Reset the flag as we're getting shapes from props
+		}
+	}, [propShapes]);
 
 	// Load image when selectedFile changes
 	useEffect(() => {
@@ -80,11 +97,6 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 					}
 
 					URL.revokeObjectURL(url);
-
-					// Load shapes for this file
-					const savedShapes =
-						plugin.occlusion.attachments[selectedFile] || [];
-					setShapes(savedShapes);
 				};
 				img.src = url;
 			} catch (error) {
@@ -95,6 +107,15 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 
 		loadImage();
 	}, [selectedFile]);
+
+	// Update shapes in parent component when local shapes change
+	useEffect(() => {
+		// Only send updates to the parent if we made local changes (not from prop updates)
+		if (onShapesChange && updatedLocally) {
+			onShapesChange(shapes);
+			setUpdatedLocally(false); // Reset the flag after notifying parent
+		}
+	}, [shapes, onShapesChange, updatedLocally]);
 
 	// Update transformer when selection changes
 	useEffect(() => {
@@ -300,98 +321,173 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 		}
 	};
 
-	// Generate rectangles from shapes
-	const shapesArray = shapes.map((shape, i) => (
-		<Rect
-			key={i}
-			id={`rect-${i}`}
-			x={shape.x}
-			y={shape.y}
-			width={shape.width}
-			height={shape.height}
-			fill={shape.fill}
-			opacity={shape.opacity}
-			draggable={!reviewMode}
-			onClick={(e) => {
-				e.cancelBubble = true;
+	// Generate rectangles from shapes using useMemo to reduce re-renders
+	const shapesArray = useMemo(() => {
+		return shapes.map((shape, i) => (
+			<Rect
+				key={i}
+				id={`rect-${i}`}
+				x={shape.x}
+				y={shape.y}
+				width={shape.width}
+				height={shape.height}
+				fill={shape.fill}
+				opacity={shape.opacity}
+				draggable={!reviewMode}
+				onClick={(e) => {
+					e.cancelBubble = true;
 
-				if (reviewMode) {
-					// Toggle visibility in review mode
+					if (reviewMode) {
+						// Toggle visibility in review mode
+						const rect = e.target as Konva.Rect;
+						rect.visible(!rect.visible());
+						rect.getLayer()?.batchDraw();
+					} else {
+						setSelectedId(`rect-${i}`);
+					}
+				}}
+				onTap={(e) => {
+					e.cancelBubble = true;
+
+					if (reviewMode) {
+						// Toggle visibility in review mode
+						const rect = e.target as Konva.Rect;
+						rect.visible(!rect.visible());
+						rect.getLayer()?.batchDraw();
+					} else {
+						setSelectedId(`rect-${i}`);
+					}
+				}}
+				onDragEnd={(e) => {
+					// Update shape position after dragging
 					const rect = e.target as Konva.Rect;
-					rect.visible(!rect.visible());
-					rect.getLayer()?.batchDraw();
-				} else {
-					setSelectedId(`rect-${i}`);
-				}
-			}}
-			onTap={(e) => {
-				e.cancelBubble = true;
+					const index = parseInt(rect.id().split("-")[1]);
 
-				if (reviewMode) {
-					// Toggle visibility in review mode
+					if (index >= 0 && index < shapes.length) {
+						// Create a new array with the updated shape to ensure React detects the change
+						const updatedShapes = shapes.map((shape, i) => {
+							if (i === index) {
+								return {
+									...shape,
+									x: rect.x(),
+									y: rect.y(),
+								};
+							}
+							return shape;
+						});
+
+						// Only update if there's an actual change
+						if (
+							JSON.stringify(updatedShapes) !==
+							JSON.stringify(shapes)
+						) {
+							setShapes(updatedShapes);
+							setUpdatedLocally(true); // Set flag for local update
+						}
+					}
+				}}
+				onTransformEnd={(e) => {
+					// Update shape dimensions after transformation
 					const rect = e.target as Konva.Rect;
-					rect.visible(!rect.visible());
-					rect.getLayer()?.batchDraw();
-				} else {
-					setSelectedId(`rect-${i}`);
-				}
-			}}
-			onDragEnd={(e) => {
-				// Update shape position after dragging
-				const rect = e.target as Konva.Rect;
-				const index = shapes.findIndex(
-					(s) =>
-						s.x === shape.x &&
-						s.y === shape.y &&
-						s.width === shape.width &&
-						s.height === shape.height
-				);
+					const index = parseInt(rect.id().split("-")[1]);
 
-				if (index !== -1) {
-					const updatedShapes = [...shapes];
-					updatedShapes[index] = {
-						...shapes[index],
-						x: rect.x(),
-						y: rect.y(),
-					};
-					setShapes(updatedShapes);
-				}
-			}}
-			onTransformEnd={(e) => {
-				// Update shape dimensions after transformation
-				const rect = e.target as Konva.Rect;
-				const index = shapes.findIndex(
-					(s) =>
-						s.x === shape.x &&
-						s.y === shape.y &&
-						s.width === shape.width &&
-						s.height === shape.height
-				);
+					if (index >= 0 && index < shapes.length) {
+						// Calculate new dimensions based on scale
+						const newWidth = rect.width() * rect.scaleX();
+						const newHeight = rect.height() * rect.scaleY();
 
-				if (index !== -1) {
-					// Calculate new dimensions based on scale
-					const newWidth = rect.width() * rect.scaleX();
-					const newHeight = rect.height() * rect.scaleY();
+						// Reset scale to avoid compound scaling
+						rect.scaleX(1);
+						rect.scaleY(1);
+						rect.width(newWidth);
+						rect.height(newHeight);
 
-					// Reset scale to avoid compound scaling
-					rect.scaleX(1);
-					rect.scaleY(1);
-					rect.width(newWidth);
-					rect.height(newHeight);
+						// Create a new array with the updated shape
+						const updatedShapes = shapes.map((shape, i) => {
+							if (i === index) {
+								return {
+									...shape,
+									x: rect.x(),
+									y: rect.y(),
+									width: newWidth,
+									height: newHeight,
+								};
+							}
+							return shape;
+						});
 
-					const updatedShapes = [...shapes];
-					updatedShapes[index] = {
-						...shapes[index],
-						x: rect.x(),
-						y: rect.y(),
-						width: newWidth,
-						height: newHeight,
-					};
-					setShapes(updatedShapes);
-				}
-			}}
-		/>
-	));
+						// Only update if there's an actual change
+						if (
+							JSON.stringify(updatedShapes) !==
+							JSON.stringify(shapes)
+						) {
+							setShapes(updatedShapes);
+							setUpdatedLocally(true); // Set flag for local update
+						}
+					}
+				}}
+			/>
+		));
+	}, [shapes, reviewMode]);
+
+	// Add a public method for adding a rectangle
+	const addRect = () => {
+		setIsAddingRect(true);
+	};
+
+	// Expose addRect through a ref or effect
+	useEffect(() => {
+		// Make addRect available to parent via a global or ref
+		if (window) {
+			(window as any).__addRectToCanvas = addRect;
+		}
+	}, []);
+
+	// Handle stage click for adding a rectangle
+	const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+		// Keep the focus when clicked
+		containerRef.current?.focus();
+
+		if (!isAddingRect || reviewMode) {
+			// If not in add mode, just do regular deselect
+			checkDeselect(e);
+			return;
+		}
+
+		// Get click position relative to the stage
+		const stage = e.target.getStage();
+		if (!stage) return;
+
+		const position = stage.getPointerPosition();
+		if (!position) return;
+
+		// Convert position to image coordinates
+		const x = (position.x - stage.x()) / scale;
+		const y = (position.y - stage.y()) / scale;
+
+		// Create new rectangle
+		const newRect: OcclusionShape = {
+			x,
+			y,
+			width: 100,
+			height: 100,
+			fill: "#000000",
+			opacity: 0.5,
+		};
+
+		// Add to shapes - create a new array to ensure React detects the change
+		const updatedShapes = [...shapes, newRect];
+
+		// Only update if shapes actually changed
+		if (JSON.stringify(updatedShapes) !== JSON.stringify(shapes)) {
+			setShapes(updatedShapes);
+			setUpdatedLocally(true); // Set flag for local update
+			setIsAddingRect(false);
+			new Notice("Rectangle added");
+		} else {
+			setIsAddingRect(false);
+		}
+	};
 
 	return (
 		<div
@@ -417,11 +513,7 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 				onMouseUp={handleMouseUp}
 				onMouseLeave={handleMouseUp}
 				onWheel={handleWheel}
-				onClick={(e) => {
-					checkDeselect(e);
-					// Keep the focus when clicked
-					containerRef.current?.focus();
-				}}
+				onClick={handleStageClick}
 				onTouchStart={checkDeselect}
 				scaleX={scale}
 				scaleY={scale}

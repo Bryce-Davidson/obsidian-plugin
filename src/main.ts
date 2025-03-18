@@ -1468,7 +1468,16 @@ export default class MyPlugin extends Plugin {
 
 		const key = file.path;
 		// If there is no occlusion data for this file, do nothing
-		if (!this.occlusion.attachments[key]) return;
+		if (!this.occlusion.attachments[key]) {
+			console.debug(`No occlusion data found for: ${key}`);
+			return;
+		}
+
+		console.log(
+			`Processing occlusion for ${key}, found ${
+				this.occlusion.attachments[key]?.length || 0
+			} shapes`
+		);
 
 		// Get the displayed dimensions of the original image
 		const displayedWidth = imgElement.width || imgElement.clientWidth;
@@ -2312,6 +2321,45 @@ export default class MyPlugin extends Plugin {
 		} else {
 			this.app.workspace.revealLeaf(leaf);
 		}
+	}
+
+	// Add this method after the activateReactOcclusionView method
+	public saveOcclusionData(filePath: string, shapes: OcclusionShape[]): void {
+		console.log(`Saving ${shapes.length} occlusion shapes for ${filePath}`);
+
+		// Update the occlusion data
+		this.occlusion.attachments[filePath] = shapes;
+
+		// Save the plugin data to disk
+		this.savePluginData()
+			.then(() => {
+				console.log(
+					`Occlusion data for ${filePath} saved successfully`
+				);
+
+				// Force refresh any image with this occlusion
+				document.querySelectorAll("img").forEach((img) => {
+					const alt = img.getAttribute("alt");
+					if (!alt) return;
+
+					const file = this.app.vault
+						.getFiles()
+						.find((f) => f.name === alt || f.path.endsWith(alt));
+
+					if (file && file.path === filePath) {
+						img.removeAttribute("data-occlusion-processed");
+						this.processImageElement(img);
+					}
+				});
+
+				new Notice(
+					`Occlusion data saved for ${filePath.split("/").pop()}`
+				);
+			})
+			.catch((err) => {
+				console.error(`Failed to save occlusion data: ${err}`);
+				new Notice("Failed to save occlusion data");
+			});
 	}
 }
 

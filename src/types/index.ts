@@ -29,6 +29,8 @@ export interface ImageCanvasProps {
 	selectedFile: string;
 	reviewMode: boolean;
 	onShapeSelect: (rect: Konva.Rect | null) => void;
+	shapes?: OcclusionShape[];
+	onShapesChange?: (shapes: OcclusionShape[]) => void;
 }
 
 // Props for the image controls component
