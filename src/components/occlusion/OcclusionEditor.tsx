@@ -85,6 +85,25 @@ const OcclusionEditor: React.FC<OcclusionEditorProps> = ({
 		// Save the current shapes
 		console.log(`Saving ${shapes.length} shapes for ${selectedFile}`);
 		plugin.saveOcclusionData(selectedFile, shapes);
+
+		// Refresh reading views to show the updated occlusions
+		refreshReadingViews();
+
+		new Notice("Occlusion data saved");
+	};
+
+	// Helper function to refresh markdown reading views
+	const refreshReadingViews = () => {
+		const leaves = plugin.app.workspace.getLeavesOfType("markdown");
+
+		for (const leaf of leaves) {
+			const view = leaf.view;
+
+			if (view.getMode && view.getMode() === "preview") {
+				// Force a re-render of the reading view
+				view.previewMode.rerender(true);
+			}
+		}
 	};
 
 	const handleShapesChange = (newShapes: OcclusionShape[]) => {
