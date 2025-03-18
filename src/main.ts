@@ -1713,17 +1713,18 @@ export default class MyPlugin extends Plugin {
 
 	// Add this new method to open the Occlusion Editor with a specific file
 	private async openOcclusionEditorWithFile(filePath: string): Promise<void> {
-		// First, activate the occlusion view
-		await this.activateOcclusionView();
+		// First, activate the React occlusion view
+		await this.activateReactOcclusionView();
 
-		// Find the occlusion view
-		const occlusionLeaf =
-			this.app.workspace.getLeavesOfType(VIEW_TYPE_OCCLUSION)[0];
-		if (occlusionLeaf && occlusionLeaf.view instanceof OcclusionView) {
-			// Get the occlusion view instance
-			const occlusionView = occlusionLeaf.view as OcclusionView;
+		// Find the React occlusion view
+		const occlusionLeaf = this.app.workspace.getLeavesOfType(
+			VIEW_TYPE_OCCLUSION_REACT
+		)[0];
+		if (occlusionLeaf && occlusionLeaf.view instanceof ReactOcclusionView) {
+			// Get the React occlusion view instance
+			const occlusionView = occlusionLeaf.view as ReactOcclusionView;
 
-			// Use the new setSelectedFile method to set the file path
+			// Use the setSelectedFile method to set the file path
 			occlusionView.setSelectedFile(filePath);
 		}
 	}
