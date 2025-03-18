@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { resolve } from "path";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
 	css: {
@@ -30,6 +31,8 @@ export default defineConfig({
 				"@lezer/common",
 				"@lezer/highlight",
 				"@lezer/lr",
+				"react",
+				"react-dom",
 			],
 			output: {
 				exports: "named",
@@ -59,5 +62,5 @@ if you want to view the source, please visit the github repository of this plugi
 		sourcemap: process.env.NODE_ENV !== "production",
 		minify: process.env.NODE_ENV === "production",
 	},
-	plugins: [],
+	plugins: [react()],
 });

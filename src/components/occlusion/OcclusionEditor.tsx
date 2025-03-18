@@ -43,21 +43,19 @@ const OcclusionEditor: React.FC<OcclusionEditorProps> = ({
 	}, [selectedFile]);
 
 	const addRectangle = () => {
-		// Use the global function exposed by OcclusionCanvas
-		if (window && (window as any).__addRectToCanvas) {
-			(window as any).__addRectToCanvas();
-		} else {
-			// Fallback to directly adding a rectangle to our shapes state
-			const newShape: OcclusionShape = {
-				x: 100,
-				y: 100,
-				width: 100,
-				height: 100,
-				fill: "#000000",
-				opacity: 0.5,
-			};
-			setShapes([...shapes, newShape]);
-		}
+		// Don't use window object - create a new shape directly
+		const newShape: OcclusionShape = {
+			x: 100,
+			y: 100,
+			width: 100,
+			height: 100,
+			fill: "#000000",
+			opacity: 0.5,
+		};
+		setShapes([...shapes, newShape]);
+
+		// Optional: Notify with a notice
+		new Notice("Rectangle added");
 	};
 
 	const deleteRectangle = () => {

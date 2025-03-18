@@ -435,14 +435,6 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 		setIsAddingRect(true);
 	};
 
-	// Expose addRect through a ref or effect
-	useEffect(() => {
-		// Make addRect available to parent via a global or ref
-		if (window) {
-			(window as any).__addRectToCanvas = addRect;
-		}
-	}, []);
-
 	// Handle stage click for adding a rectangle
 	const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
 		// Keep the focus when clicked
