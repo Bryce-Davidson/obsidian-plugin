@@ -31,8 +31,8 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 		y: number;
 	} | null>(null);
 
-	// New state for container dimensions
-	const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+	// Remove container size state
+	// const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	// Refs
@@ -114,48 +114,41 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 		}
 	}, [selectedId, onShapeSelect]);
 
-	// Update container dimensions and handle resize
+	// Handle stage resize - revert to original implementation
 	useEffect(() => {
-		const updateDimensions = () => {
-			if (containerRef.current) {
-				const { width, height } =
-					containerRef.current.getBoundingClientRect();
-				setContainerSize({ width, height });
+		const handleResize = () => {
+			if (stageRef.current && image) {
+				const container = stageRef.current.container();
+				const containerWidth = container.offsetWidth;
+				const containerHeight = container.offsetHeight;
 
-				if (stageRef.current) {
-					stageRef.current.width(width);
-					stageRef.current.height(height);
+				stageRef.current.width(containerWidth);
+				stageRef.current.height(containerHeight);
 
-					// Adjust image position if needed
-					if (image) {
-						const scaleX = width / image.naturalWidth;
-						const scaleY = height / image.naturalHeight;
-						const newScale = Math.min(scaleX, scaleY);
+				// Adjust scale to fit after resize
+				const scaleX = containerWidth / image.naturalWidth;
+				const scaleY = containerHeight / image.naturalHeight;
+				const newScale = Math.min(scaleX, scaleY);
 
-						// Center the image
-						const centerX =
-							(width - image.naturalWidth * newScale) / 2;
-						const centerY =
-							(height - image.naturalHeight * newScale) / 2;
+				// Center the image
+				const centerX =
+					(containerWidth - image.naturalWidth * newScale) / 2;
+				const centerY =
+					(containerHeight - image.naturalHeight * newScale) / 2;
 
-						setScale(newScale);
-						setPosition({ x: centerX, y: centerY });
-					}
-				}
+				setScale(newScale);
+				setPosition({ x: centerX, y: centerY });
 			}
 		};
 
-		// Initial update
-		updateDimensions();
+		// Set initial size
+		handleResize();
 
-		// Add resize observer instead of window resize event
-		const resizeObserver = new ResizeObserver(updateDimensions);
-		if (containerRef.current) {
-			resizeObserver.observe(containerRef.current);
-		}
+		// Add resize event listener
+		window.addEventListener("resize", handleResize);
 
 		return () => {
-			resizeObserver.disconnect();
+			window.removeEventListener("resize", handleResize);
 		};
 	}, [image]);
 
@@ -174,7 +167,7 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 	// Handle wheel zoom
 	const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
 		e.evt.preventDefault();
-		e.evt.stopPropagation(); // Add this to prevent parent container scrolling
+		e.evt.stopPropagation(); // Keep this to prevent scrolling
 
 		if (!stageRef.current) return;
 
@@ -234,8 +227,7 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 			}
 		};
 
-		// Attach event listeners to the container ref rather than window
-		// This ensures the space bar only activates when the canvas has focus
+		// Keep the container focusable approach
 		const container = containerRef.current;
 		if (container) {
 			container.addEventListener("keydown", handleKeyDown);
@@ -406,7 +398,7 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 			ref={containerRef}
 			className="relative flex-1 overflow-hidden border border-gray-300 dark:border-gray-600"
 			style={{ width: "100%", height: "100%" }}
-			tabIndex={0} // Make the container focusable
+			tabIndex={0} // Keep the container focusable
 			onFocus={() => {}} // Empty handler to ensure focus works
 			// Prevent default space bar behavior at this level too
 			onKeyDown={(e) => {
@@ -418,8 +410,8 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 		>
 			<Stage
 				ref={stageRef}
-				width={containerSize.width}
-				height={containerSize.height}
+				width={window.innerWidth} // Revert to using window dimensions
+				height={window.innerHeight - 100} // Revert to original height calculation
 				onMouseDown={handleMouseDown}
 				onMouseMove={handleMouseMove}
 				onMouseUp={handleMouseUp}
@@ -427,7 +419,7 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 				onWheel={handleWheel}
 				onClick={(e) => {
 					checkDeselect(e);
-					// Focus the container when clicked
+					// Keep the focus when clicked
 					containerRef.current?.focus();
 				}}
 				onTouchStart={checkDeselect}
@@ -470,6 +462,7 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 					/>
 				</Layer>
 			</Stage>
+			{/* Tooltip removed */}
 		</div>
 	);
 };
