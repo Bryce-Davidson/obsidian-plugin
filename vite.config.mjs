@@ -44,7 +44,6 @@ if you want to view the source, please visit the github repository of this plugi
 					process.env.NODE_ENV !== "production" ? "inline" : false,
 				format: "cjs",
 				assetFileNames: "styles.css",
-				// Ensure all necessary React code is bundled
 				manualChunks: undefined,
 			},
 		},
@@ -52,8 +51,7 @@ if you want to view the source, please visit the github repository of this plugi
 		emptyOutDir: false,
 		sourcemap: process.env.NODE_ENV !== "production" ? "inline" : false,
 		minify: process.env.NODE_ENV === "production",
-		// Match the target in the official starter
-		target: "es2018",
+		target: "esnext",
 	},
 	plugins: [react()],
 });
