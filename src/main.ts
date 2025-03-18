@@ -1406,11 +1406,7 @@ export default class MyPlugin extends Plugin {
 			this.activateUnifiedQueue();
 		});
 
-		this.addRibbonIcon("image-file", "Open Occlusion Editor", () => {
-			this.activateOcclusionView();
-		});
-
-		this.addRibbonIcon("image-plus", "Open React Occlusion Editor", () => {
+		this.addRibbonIcon("image-file", "Open React Occlusion Editor", () => {
 			this.activateReactOcclusionView();
 		});
 
@@ -1712,18 +1708,12 @@ export default class MyPlugin extends Plugin {
 
 	// Add this new method to open the Occlusion Editor with a specific file
 	private async openOcclusionEditorWithFile(filePath: string): Promise<void> {
-		// First, activate the React occlusion view
 		await this.activateReactOcclusionView();
-
-		// Find the React occlusion view
 		const occlusionLeaf = this.app.workspace.getLeavesOfType(
 			VIEW_TYPE_OCCLUSION_REACT
 		)[0];
 		if (occlusionLeaf && occlusionLeaf.view instanceof ReactOcclusionView) {
-			// Get the React occlusion view instance
 			const occlusionView = occlusionLeaf.view as ReactOcclusionView;
-
-			// Use the setSelectedFile method to set the file path
 			occlusionView.setSelectedFile(filePath);
 		}
 	}
@@ -2305,32 +2295,23 @@ export default class MyPlugin extends Plugin {
 		this.allHidden = !this.allHidden;
 	}
 
-	async activateOcclusionView() {
-		// Redirect to the React version
-		await this.activateReactOcclusionView();
-	}
-
-	// Add this method that OcclusionView might call
-	async activateView() {
-		// This now calls the React version
-		await this.activateReactOcclusionView();
-	}
-
 	// Add a new method to activate the React Occlusion View
 	async activateReactOcclusionView() {
 		let leaf = this.app.workspace.getLeavesOfType(
 			VIEW_TYPE_OCCLUSION_REACT
 		)[0];
 		if (!leaf) {
-			leaf =
-				this.app.workspace.getRightLeaf(false) ||
-				this.app.workspace.getLeaf(true);
+			// Get a right leaf first, or create a new leaf if needed
+			const rightLeaf = this.app.workspace.getRightLeaf(false);
+			leaf = rightLeaf || this.app.workspace.getLeaf(true);
+			// At this point, leaf is guaranteed to be non-null
 			await leaf.setViewState({
 				type: VIEW_TYPE_OCCLUSION_REACT,
 				active: true,
 			});
+		} else {
+			this.app.workspace.revealLeaf(leaf);
 		}
-		this.app.workspace.revealLeaf(leaf);
 	}
 }
 
