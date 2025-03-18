@@ -1,5 +1,4 @@
 import React from "react";
-import ReactDOM from "react-dom";
 import { createRoot, Root } from "react-dom/client";
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import OcclusionEditor from "./OcclusionEditor";

@@ -25,10 +25,15 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 	const [scale, setScale] = useState(1);
 	const [position, setPosition] = useState({ x: 0, y: 0 });
 	const [isPanning, setIsPanning] = useState(false);
+	const [isSpacePressed, setIsSpacePressed] = useState(false);
 	const [lastPointerPosition, setLastPointerPosition] = useState<{
 		x: number;
 		y: number;
 	} | null>(null);
+
+	// New state for container dimensions
+	const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+	const containerRef = useRef<HTMLDivElement>(null);
 
 	// Refs
 	const stageRef = useRef<Konva.Stage>(null);
@@ -109,41 +114,48 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 		}
 	}, [selectedId, onShapeSelect]);
 
-	// Handle stage resize
+	// Update container dimensions and handle resize
 	useEffect(() => {
-		const handleResize = () => {
-			if (stageRef.current && image) {
-				const container = stageRef.current.container();
-				const containerWidth = container.offsetWidth;
-				const containerHeight = container.offsetHeight;
+		const updateDimensions = () => {
+			if (containerRef.current) {
+				const { width, height } =
+					containerRef.current.getBoundingClientRect();
+				setContainerSize({ width, height });
 
-				stageRef.current.width(containerWidth);
-				stageRef.current.height(containerHeight);
+				if (stageRef.current) {
+					stageRef.current.width(width);
+					stageRef.current.height(height);
 
-				// Adjust scale to fit after resize
-				const scaleX = containerWidth / image.naturalWidth;
-				const scaleY = containerHeight / image.naturalHeight;
-				const newScale = Math.min(scaleX, scaleY);
+					// Adjust image position if needed
+					if (image) {
+						const scaleX = width / image.naturalWidth;
+						const scaleY = height / image.naturalHeight;
+						const newScale = Math.min(scaleX, scaleY);
 
-				// Center the image
-				const centerX =
-					(containerWidth - image.naturalWidth * newScale) / 2;
-				const centerY =
-					(containerHeight - image.naturalHeight * newScale) / 2;
+						// Center the image
+						const centerX =
+							(width - image.naturalWidth * newScale) / 2;
+						const centerY =
+							(height - image.naturalHeight * newScale) / 2;
 
-				setScale(newScale);
-				setPosition({ x: centerX, y: centerY });
+						setScale(newScale);
+						setPosition({ x: centerX, y: centerY });
+					}
+				}
 			}
 		};
 
-		// Set initial size
-		handleResize();
+		// Initial update
+		updateDimensions();
 
-		// Add resize event listener
-		window.addEventListener("resize", handleResize);
+		// Add resize observer instead of window resize event
+		const resizeObserver = new ResizeObserver(updateDimensions);
+		if (containerRef.current) {
+			resizeObserver.observe(containerRef.current);
+		}
 
 		return () => {
-			window.removeEventListener("resize", handleResize);
+			resizeObserver.disconnect();
 		};
 	}, [image]);
 
@@ -162,6 +174,7 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 	// Handle wheel zoom
 	const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
 		e.evt.preventDefault();
+		e.evt.stopPropagation(); // Add this to prevent parent container scrolling
 
 		if (!stageRef.current) return;
 
@@ -193,10 +206,60 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 		setPosition(newPos);
 	};
 
+	// Handle space bar key events for panning
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.code === "Space") {
+				// Prevent default space bar behavior (scrolling)
+				e.preventDefault();
+
+				if (!isSpacePressed) {
+					setIsSpacePressed(true);
+					if (stageRef.current) {
+						stageRef.current.container().style.cursor = "grabbing";
+					}
+				}
+			}
+		};
+
+		const handleKeyUp = (e: KeyboardEvent) => {
+			if (e.code === "Space") {
+				e.preventDefault(); // Prevent default space bar behavior
+				setIsSpacePressed(false);
+				if (stageRef.current) {
+					stageRef.current.container().style.cursor = "default";
+				}
+				setIsPanning(false);
+				setLastPointerPosition(null);
+			}
+		};
+
+		// Attach event listeners to the container ref rather than window
+		// This ensures the space bar only activates when the canvas has focus
+		const container = containerRef.current;
+		if (container) {
+			container.addEventListener("keydown", handleKeyDown);
+			container.addEventListener("keyup", handleKeyUp);
+			// Make the container focusable
+			container.tabIndex = 0;
+		}
+
+		return () => {
+			if (container) {
+				container.removeEventListener("keydown", handleKeyDown);
+				container.removeEventListener("keyup", handleKeyUp);
+			}
+		};
+	}, [isSpacePressed, containerRef.current]);
+
 	// Handle mouse down for panning
 	const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
-		if (e.evt.button === 1 || (e.evt.button === 0 && e.evt.shiftKey)) {
-			// Middle mouse button or Shift+left click for panning
+		if (
+			e.evt.button === 1 ||
+			(e.evt.button === 0 && e.evt.shiftKey) ||
+			(e.evt.button === 0 && isSpacePressed)
+		) {
+			// Middle mouse button, Shift+left click, or Space+left click for panning
 			e.evt.preventDefault();
 			e.evt.stopPropagation();
 
@@ -339,17 +402,34 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 	));
 
 	return (
-		<div className="relative flex-1 overflow-hidden border border-gray-300 dark:border-gray-600">
+		<div
+			ref={containerRef}
+			className="relative flex-1 overflow-hidden border border-gray-300 dark:border-gray-600"
+			style={{ width: "100%", height: "100%" }}
+			tabIndex={0} // Make the container focusable
+			onFocus={() => {}} // Empty handler to ensure focus works
+			// Prevent default space bar behavior at this level too
+			onKeyDown={(e) => {
+				if (e.code === "Space") {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+			}}
+		>
 			<Stage
 				ref={stageRef}
-				width={window.innerWidth}
-				height={window.innerHeight - 100} // Subtract header height
+				width={containerSize.width}
+				height={containerSize.height}
 				onMouseDown={handleMouseDown}
 				onMouseMove={handleMouseMove}
 				onMouseUp={handleMouseUp}
 				onMouseLeave={handleMouseUp}
 				onWheel={handleWheel}
-				onClick={checkDeselect}
+				onClick={(e) => {
+					checkDeselect(e);
+					// Focus the container when clicked
+					containerRef.current?.focus();
+				}}
 				onTouchStart={checkDeselect}
 				scaleX={scale}
 				scaleY={scale}
@@ -390,42 +470,6 @@ const OcclusionCanvas: React.FC<ImageCanvasProps> = ({
 					/>
 				</Layer>
 			</Stage>
-
-			{/* Gesture info */}
-			<div className="absolute z-10 p-2 text-xs text-white bg-black rounded pointer-events-none bottom-2 right-2 bg-opacity-70">
-				<div className="flex items-center mb-1">
-					<svg
-						className="w-3 h-3 mr-1"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="2"
-					>
-						<path
-							d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						/>
-					</svg>
-					<span>Scroll to zoom</span>
-				</div>
-				<div className="flex items-center">
-					<svg
-						className="w-3 h-3 mr-1"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="2"
-					>
-						<path
-							d="M19 12H5M12 19V5"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						/>
-					</svg>
-					<span>Shift+drag or middle-click to pan</span>
-				</div>
-			</div>
 		</div>
 	);
 };
