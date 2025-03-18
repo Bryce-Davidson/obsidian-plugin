@@ -33,6 +33,7 @@ export class OcclusionView extends ItemView {
 	modeToggleButton: HTMLButtonElement;
 	resetButton: HTMLButtonElement;
 	resizeObserver: ResizeObserver;
+	gestureInfoEl: HTMLElement;
 
 	stage: Konva.Stage;
 	imageLayer: Konva.Layer;
@@ -45,6 +46,11 @@ export class OcclusionView extends ItemView {
 	// New zoom properties
 	currentScale: number = 1;
 	initialScale: number = 1;
+	isPanning: boolean = false;
+	lastPointerPosition: { x: number; y: number } | null = null;
+	lastTouchPosition: { x: number; y: number } | null = null;
+	lastCenter: { x: number; y: number } | null = null;
+	lastDist: number = 0;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
@@ -274,22 +280,61 @@ export class OcclusionView extends ItemView {
 		resetZoomButton.innerHTML =
 			'<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg>';
 
-		zoomInButton.onclick = () => {
-			this.currentScale *= 1.1;
+		// Create a helper function for zooming that uses the same logic as gestures
+		const zoomStageBy = (
+			scaleBy: number,
+			centerX?: number,
+			centerY?: number
+		): void => {
+			// Get stage center if no center point provided
+			if (centerX === undefined || centerY === undefined) {
+				const stage = this.stage;
+				centerX = stage.width() / 2;
+				centerY = stage.height() / 2;
+			}
+
+			// Calculate relative point to maintain position
+			const pointTo = {
+				x: (centerX - this.stage.x()) / this.currentScale,
+				y: (centerY - this.stage.y()) / this.currentScale,
+			};
+
+			// Calculate new scale with min/max constraints
+			const newScale = Math.max(
+				0.1,
+				Math.min(this.currentScale * scaleBy, 10)
+			);
+			this.currentScale = newScale;
+
+			// Calculate new position to zoom toward center point
+			const newPos = {
+				x: centerX - pointTo.x * this.currentScale,
+				y: centerY - pointTo.y * this.currentScale,
+			};
+
+			// Apply new scale and position
 			this.stage.scale({ x: this.currentScale, y: this.currentScale });
-			this.stage.draw();
+			this.stage.position(newPos);
+			this.stage.batchDraw();
+		};
+
+		// Update the button handlers to use our new zoom function
+		zoomInButton.onclick = () => {
+			const center = this.stage.width() / 2;
+			const middle = this.stage.height() / 2;
+			zoomStageBy(1.1, center, middle);
 		};
 
 		zoomOutButton.onclick = () => {
-			this.currentScale *= 0.9;
-			this.stage.scale({ x: this.currentScale, y: this.currentScale });
-			this.stage.draw();
+			const center = this.stage.width() / 2;
+			const middle = this.stage.height() / 2;
+			zoomStageBy(0.9, center, middle);
 		};
 
 		resetZoomButton.onclick = () => {
 			this.currentScale = this.initialScale;
-			this.stage.scale({ x: this.currentScale, y: this.currentScale });
-			this.stage.draw();
+			// Reset position and scale
+			this.resizeStage();
 		};
 
 		// Create a second row for shape controls and action buttons
@@ -455,23 +500,185 @@ export class OcclusionView extends ItemView {
 			}
 		});
 
-		// Add mobile pinch zoom support
-		let lastCenter: { x: number; y: number } | null = null;
-		let lastDist = 0;
-
-		this.stage.on("touchmove", (e) => {
+		// Add wheel zoom support for desktop trackpads and mouse wheels
+		this.stage.on("wheel", (e) => {
+			// Prevent default behavior (page scrolling)
 			e.evt.preventDefault();
 
-			const touch1 = e.evt.touches[0];
-			const touch2 = e.evt.touches[1];
+			// Get pointer position (relative to stage)
+			const pointer = this.stage.getPointerPosition();
+			if (!pointer) return;
 
-			// Handle pinch zoom
-			if (touch1 && touch2) {
-				// Calculate center point between two touches
-				const center = {
+			// Calculate relative pointer position to account for stage scaling and position
+			const mousePointTo = {
+				x: (pointer.x - this.stage.x()) / this.currentScale,
+				y: (pointer.y - this.stage.y()) / this.currentScale,
+			};
+
+			// Calculate new scale based on wheel delta
+			// Use a smaller factor (0.05) for smoother zoom with trackpads
+			const zoomFactor = e.evt.ctrlKey ? 0.1 : 0.05;
+			const direction = e.evt.deltaY < 0 ? 1 : -1;
+
+			// For trackpads, detecting pinch gestures
+			let newScale;
+			if (e.evt.ctrlKey) {
+				// This is likely a pinch gesture (or ctrl+wheel)
+				const scaleBy = direction > 0 ? 1.1 : 0.9;
+				newScale = this.currentScale * scaleBy;
+			} else {
+				// Regular wheel scroll - smoother zoom
+				newScale = this.currentScale * (1 + direction * zoomFactor);
+			}
+
+			// Set min/max zoom constraints
+			newScale = Math.max(0.1, Math.min(newScale, 10));
+
+			// Calculate new position to zoom toward mouse point
+			const newPos = {
+				x: pointer.x - mousePointTo.x * newScale,
+				y: pointer.y - mousePointTo.y * newScale,
+			};
+
+			// Apply the new scale and position
+			this.currentScale = newScale;
+			this.stage.scale({ x: this.currentScale, y: this.currentScale });
+			this.stage.position(newPos);
+			this.stage.batchDraw();
+		});
+
+		// Enhanced panning implementation
+		let panStartPosition: { x: number; y: number } | null = null;
+
+		// Method that handles all panning regardless of input type
+		const startPan = (clientX: number, clientY: number) => {
+			this.isPanning = true;
+			panStartPosition = { x: clientX, y: clientY };
+			this.stage.container().style.cursor = "grabbing";
+		};
+
+		const updatePan = (clientX: number, clientY: number) => {
+			if (!this.isPanning || !panStartPosition) return;
+
+			// Calculate how much the pointer has moved
+			const dx = clientX - panStartPosition.x;
+			const dy = clientY - panStartPosition.y;
+
+			// Update the stage position by the movement amount
+			const currentPos = this.stage.position();
+			this.stage.position({
+				x: currentPos.x + dx,
+				y: currentPos.y + dy,
+			});
+
+			// Reset start position for the next move
+			panStartPosition = { x: clientX, y: clientY };
+			this.stage.batchDraw();
+		};
+
+		const endPan = () => {
+			this.isPanning = false;
+			panStartPosition = null;
+			this.stage.container().style.cursor = "default";
+		};
+
+		// Handle mouse-based panning (using Space key or middle mouse button)
+		document.addEventListener("keydown", (e) => {
+			// Start panning when Space key is pressed
+			if (e.code === "Space" && !this.isPanning) {
+				const pointer = this.stage.getPointerPosition();
+				if (pointer) {
+					e.preventDefault(); // Prevent page scrolling
+					startPan(pointer.x, pointer.y);
+				}
+			}
+		});
+
+		document.addEventListener("keyup", (e) => {
+			// End panning when Space key is released
+			if (e.code === "Space") {
+				endPan();
+			}
+		});
+
+		this.stage.on("mousedown", (e) => {
+			// Middle mouse button (button 1) or Space + left click for panning
+			if (e.evt.button === 1 || (e.evt.button === 0 && this.isPanning)) {
+				e.evt.preventDefault();
+				e.evt.stopPropagation();
+
+				const pointer = this.stage.getPointerPosition();
+				if (pointer) {
+					startPan(pointer.x, pointer.y);
+				}
+			}
+		});
+
+		this.stage.on("mousemove", (e) => {
+			const pointer = this.stage.getPointerPosition();
+			if (pointer && this.isPanning) {
+				e.evt.preventDefault();
+				updatePan(pointer.x, pointer.y);
+			}
+		});
+
+		// End panning on mouse up and mouse leave
+		this.stage.on("mouseup", () => {
+			if (this.isPanning) {
+				endPan();
+			}
+		});
+
+		this.stage.on("mouseleave", () => {
+			if (this.isPanning) {
+				endPan();
+			}
+		});
+
+		// Touch-based panning implementation
+		this.stage.on("touchstart", (e) => {
+			const touches = e.evt.touches;
+
+			// Use single touch for panning
+			if (touches.length === 1 && !this.reviewMode) {
+				e.evt.preventDefault();
+				startPan(touches[0].clientX, touches[0].clientY);
+			} else if (touches.length === 2) {
+				// Initialize for pinch zoom
+				const touch1 = touches[0];
+				const touch2 = touches[1];
+
+				this.lastCenter = {
 					x: (touch1.clientX + touch2.clientX) / 2,
 					y: (touch1.clientY + touch2.clientY) / 2,
 				};
+
+				this.lastDist = Math.sqrt(
+					Math.pow(touch2.clientX - touch1.clientX, 2) +
+						Math.pow(touch2.clientY - touch1.clientY, 2)
+				);
+			}
+		});
+
+		this.stage.on("touchmove", (e) => {
+			const touches = e.evt.touches;
+
+			// Handle pinch zoom with two fingers
+			if (touches.length === 2) {
+				e.evt.preventDefault();
+
+				const touch1 = touches[0];
+				const touch2 = touches[1];
+
+				// Calculate the center point in screen coordinates
+				const screenCenter = {
+					x: (touch1.clientX + touch2.clientX) / 2,
+					y: (touch1.clientY + touch2.clientY) / 2,
+				};
+
+				// Convert screen coordinates to stage coordinates
+				const stagePoint =
+					this.stage.getPointerPosition() || screenCenter;
 
 				// Calculate distance between touches
 				const dist = Math.sqrt(
@@ -479,37 +686,65 @@ export class OcclusionView extends ItemView {
 						Math.pow(touch2.clientY - touch1.clientY, 2)
 				);
 
-				if (!lastCenter) {
-					lastCenter = center;
-					lastDist = dist;
+				if (!this.lastCenter || this.lastDist === 0) {
+					this.lastDist = dist;
+					this.lastCenter = screenCenter;
 					return;
 				}
 
 				// Calculate scale change
-				const scaleChange = dist / lastDist;
+				const scaleChange = dist / this.lastDist;
 
-				// Update scale
-				const newScale = this.currentScale * scaleChange;
-				this.currentScale = newScale;
-				this.stage.scale({ x: newScale, y: newScale });
+				// Set min/max zoom constraints
+				const newScale = Math.max(
+					0.1,
+					Math.min(this.currentScale * scaleChange, 10)
+				);
 
-				// Update position to zoom toward center point
-				const newPos = {
-					x: center.x - (center.x - this.stage.x()) * scaleChange,
-					y: center.y - (center.y - this.stage.y()) * scaleChange,
+				// Calculate the point in the original coordinate system
+				// This is the point that should remain fixed during zoom
+				const pointTo = {
+					x: (stagePoint.x - this.stage.x()) / this.currentScale,
+					y: (stagePoint.y - this.stage.y()) / this.currentScale,
 				};
+
+				// Also calculate panning offset in screen space
+				const dx = screenCenter.x - this.lastCenter.x;
+				const dy = screenCenter.y - this.lastCenter.y;
+
+				// Calculate new position, keeping the point under the gesture center
+				const newPos = {
+					x: stagePoint.x - pointTo.x * newScale + dx,
+					y: stagePoint.y - pointTo.y * newScale + dy,
+				};
+
+				// Apply scale and position
+				this.currentScale = newScale;
+				this.stage.scale({
+					x: this.currentScale,
+					y: this.currentScale,
+				});
 				this.stage.position(newPos);
 
-				lastCenter = center;
-				lastDist = dist;
-
-				this.stage.batchDraw();
+				this.lastDist = dist;
+				this.lastCenter = screenCenter;
 			}
+			// Handle single touch panning
+			else if (touches.length === 1 && this.isPanning) {
+				e.evt.preventDefault();
+				updatePan(touches[0].clientX, touches[0].clientY);
+			}
+
+			this.stage.batchDraw();
 		});
 
 		this.stage.on("touchend", () => {
-			lastCenter = null;
-			lastDist = 0;
+			this.lastDist = 0;
+			this.lastCenter = null;
+
+			if (this.isPanning) {
+				endPan();
+			}
 		});
 
 		// Instead of using ResizeObserver, we can listen for leaf resize events
@@ -571,6 +806,37 @@ export class OcclusionView extends ItemView {
 			this.fileSelectEl.value = this.selectedFilePath;
 			this.loadImage(this.selectedFilePath);
 		}
+
+		// Add a small info element to let users know about gesture controls
+		this.gestureInfoEl = this.containerEl.createEl("div", {
+			cls: "absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs p-2 rounded pointer-events-none z-10",
+		});
+
+		// Create instruction elements with icons for better visibility
+		const zoomInstructions = this.gestureInfoEl.createDiv({
+			cls: "flex items-center mb-1",
+		});
+		zoomInstructions.innerHTML =
+			'<svg class="w-3 h-3 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+		zoomInstructions.createSpan({ text: "Pinch or scroll to zoom" });
+
+		const panInstructions = this.gestureInfoEl.createDiv({
+			cls: "flex items-center",
+		});
+		panInstructions.innerHTML =
+			'<svg class="w-3 h-3 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19V5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+		panInstructions.createSpan({
+			text: "Space+drag or middle-click to pan",
+		});
+
+		// Make it fade out after 7 seconds (longer since there's more to read)
+		setTimeout(() => {
+			this.gestureInfoEl.addClass(
+				"opacity-0 transition-opacity duration-1000"
+			);
+			// Remove from DOM after transition
+			setTimeout(() => this.gestureInfoEl.remove(), 1000);
+		}, 7000);
 	}
 
 	toggleReviewMode(): void {
@@ -852,7 +1118,16 @@ export class OcclusionView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
-		// Optional cleanup if needed in the future
+		// Ensure we clean up all event listeners to prevent memory leaks
+		if (this.stage) {
+			this.stage.off("wheel");
+			this.stage.off("touchmove");
+			this.stage.off("touchend");
+			this.stage.off("mousedown");
+			this.stage.off("mousemove");
+			this.stage.off("mouseup");
+			this.stage.off("mouseleave");
+		}
 	}
 
 	resetOcclusions(): void {
