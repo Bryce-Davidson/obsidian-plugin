@@ -1515,6 +1515,11 @@ export default class MyPlugin extends Plugin {
 				height: displayedHeight,
 			});
 
+			// Add mobile touch configuration
+			stage.on("contentTouchstart", function (e) {
+				e.evt.preventDefault();
+			});
+
 			imageLayer = new Konva.Layer();
 			shapeLayer = new Konva.Layer();
 			stage.add(imageLayer);
@@ -1598,13 +1603,17 @@ export default class MyPlugin extends Plugin {
 						height: s.height * scaleY,
 						fill: s.fill,
 						opacity: s.opacity,
+						perfectDrawEnabled: false, // Improve performance
+						listening: true, // Explicitly enable event listening
 					});
 
 					// Handler function for both click and tap events
 					const toggleVisibilityHandler = (
 						e: Konva.KonvaEventObject<MouseEvent | TouchEvent>
 					) => {
+						console.log("Toggle handler called", e.type);
 						e.cancelBubble = true;
+						e.evt.preventDefault(); // Prevent default browser behavior
 						rect.visible(!rect.visible());
 						shapeLayer.draw();
 						checkResetButton();
@@ -1613,6 +1622,8 @@ export default class MyPlugin extends Plugin {
 					// Add event listeners for both mouse click and touch tap
 					rect.on("click", toggleVisibilityHandler);
 					rect.on("tap", toggleVisibilityHandler);
+					rect.on("touchstart", toggleVisibilityHandler); // Add direct touch events
+					rect.on("touchend", toggleVisibilityHandler); // Add direct touch events
 
 					shapeLayer.add(rect);
 				});
