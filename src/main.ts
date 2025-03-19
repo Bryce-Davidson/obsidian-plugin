@@ -1974,6 +1974,9 @@ export default class MyPlugin extends Plugin {
 				if (file && file instanceof TFile) {
 					await syncFlashcardsForFile(this, file);
 					this.refreshUnifiedQueue();
+
+					// Add this: Process any images in the current view after a short delay
+					setTimeout(() => this.processImagesInActiveView(), 300);
 				}
 			})
 		);
@@ -2329,6 +2332,37 @@ export default class MyPlugin extends Plugin {
 	async activateView() {
 		// This can just call your existing activateOcclusionView method
 		await this.activateOcclusionView();
+	}
+
+	// Add this new method to scan for and process all images in the active view
+	private processImagesInActiveView(): void {
+		// Find all images in the current document view
+		const images = document.querySelectorAll(
+			".markdown-reading-view img:not([data-occlusion-processed])"
+		);
+		console.log(
+			`Processing ${images.length} unprocessed images in active view`
+		);
+
+		// Process each image
+		images.forEach((img) => {
+			this.processImageElement(img as HTMLImageElement);
+		});
+
+		// Schedule another scan after a longer delay to catch any late-loading images
+		setTimeout(() => {
+			const lateImages = document.querySelectorAll(
+				".markdown-reading-view img:not([data-occlusion-processed])"
+			);
+			if (lateImages.length > 0) {
+				console.log(
+					`Processing ${lateImages.length} late-loading images`
+				);
+				lateImages.forEach((img) => {
+					this.processImageElement(img as HTMLImageElement);
+				});
+			}
+		}, 1000);
 	}
 }
 
