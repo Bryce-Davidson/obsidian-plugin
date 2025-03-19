@@ -51,6 +51,10 @@ export class OcclusionView extends ItemView {
 	lastCenter: { x: number; y: number } | null = null;
 	lastDist: number = 0;
 
+	// Move these event listeners to class properties so we can remove them later
+	keydownHandler: (e: KeyboardEvent) => void;
+	keyupHandler: (e: KeyboardEvent) => void;
+
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -581,8 +585,8 @@ export class OcclusionView extends ItemView {
 			this.stage.container().style.cursor = "default";
 		};
 
-		// Handle mouse-based panning (using Space key or middle mouse button)
-		document.addEventListener("keydown", (e) => {
+		// Move these event listeners to class properties so we can remove them later
+		this.keydownHandler = (e: KeyboardEvent) => {
 			// Start panning when Space key is pressed
 			if (e.code === "Space" && !this.isPanning) {
 				const pointer = this.stage.getPointerPosition();
@@ -591,48 +595,18 @@ export class OcclusionView extends ItemView {
 					startPan(pointer.x, pointer.y);
 				}
 			}
-		});
+		};
 
-		document.addEventListener("keyup", (e) => {
+		this.keyupHandler = (e: KeyboardEvent) => {
 			// End panning when Space key is released
 			if (e.code === "Space") {
 				endPan();
 			}
-		});
+		};
 
-		this.stage.on("mousedown", (e) => {
-			// Middle mouse button (button 1) or Space + left click for panning
-			if (e.evt.button === 1 || (e.evt.button === 0 && this.isPanning)) {
-				e.evt.preventDefault();
-				e.evt.stopPropagation();
-
-				const pointer = this.stage.getPointerPosition();
-				if (pointer) {
-					startPan(pointer.x, pointer.y);
-				}
-			}
-		});
-
-		this.stage.on("mousemove", (e) => {
-			const pointer = this.stage.getPointerPosition();
-			if (pointer && this.isPanning) {
-				e.evt.preventDefault();
-				updatePan(pointer.x, pointer.y);
-			}
-		});
-
-		// End panning on mouse up and mouse leave
-		this.stage.on("mouseup", () => {
-			if (this.isPanning) {
-				endPan();
-			}
-		});
-
-		this.stage.on("mouseleave", () => {
-			if (this.isPanning) {
-				endPan();
-			}
-		});
+		// Add event listeners to document
+		document.addEventListener("keydown", this.keydownHandler);
+		document.addEventListener("keyup", this.keyupHandler);
 
 		// Touch-based panning implementation
 		this.stage.on("touchstart", (e) => {
@@ -1082,6 +1056,16 @@ export class OcclusionView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
+		// Clean up keyboard event listeners
+		if (this.keydownHandler) {
+			document.removeEventListener("keydown", this.keydownHandler);
+		}
+
+		if (this.keyupHandler) {
+			document.removeEventListener("keyup", this.keyupHandler);
+		}
+
+		// Existing cleanup code
 		if (this.stage) {
 			this.stage.off("wheel");
 			this.stage.off("touchmove");
