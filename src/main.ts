@@ -1974,9 +1974,6 @@ export default class MyPlugin extends Plugin {
 				if (file && file instanceof TFile) {
 					await syncFlashcardsForFile(this, file);
 					this.refreshUnifiedQueue();
-
-					// Add this: Process any images in the current view after a short delay
-					setTimeout(() => this.processImagesInActiveView(), 300);
 				}
 			})
 		);
