@@ -1549,14 +1549,24 @@ export default class MyPlugin extends Plugin {
 			if (this.occlusion.attachments[key]) {
 				// Create a reset button; it is initially hidden
 				resetButton = document.createElement("button");
-				resetButton.innerText = "reset";
+				resetButton.innerText = ""; // Already empty, which is good
 				resetButton.style.position = "absolute";
 				resetButton.style.bottom = "10px";
 				resetButton.style.right = "10px";
-				resetButton.style.padding = "4px 8px";
+				resetButton.style.padding = "8px"; // Make it square by using equal padding
 				resetButton.style.fontSize = "12px";
 				resetButton.style.display = "none";
 				resetButton.style.zIndex = "100";
+				resetButton.style.width = "30px"; // Set a fixed width
+				resetButton.style.height = "30px"; // Set a fixed height
+				resetButton.style.borderRadius = "4px"; // Optional: slightly rounded corners
+				resetButton.style.border = "1px solid rgba(0,0,0,0.2)"; // Subtle border
+				resetButton.style.backgroundColor = "rgba(255,255,255,0.7)"; // Semi-transparent background
+				resetButton.style.cursor = "pointer"; // Show pointer cursor on hover
+
+				// Add a title/tooltip for accessibility
+				resetButton.title = "Reset occlusions";
+
 				container.appendChild(resetButton);
 
 				// Render occlusion shapes

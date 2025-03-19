@@ -30,7 +30,7 @@ interface Node extends d3.SimulationNodeDatum {
 	offsetY?: number;
 	rating?: number;
 	ratingHistory?: { rating: number; timestamp: number }[];
-	createdAt?: number; // Optional: timestamp at which a card node is created
+	createdAt?: number;
 }
 
 interface Link extends d3.SimulationLinkDatum<Node> {
@@ -42,7 +42,6 @@ interface Link extends d3.SimulationLinkDatum<Node> {
 export class GraphView extends ItemView {
 	private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
 	private container!: d3.Selection<SVGGElement, unknown, null, undefined>;
-	// Two layers: textLayer (for note labels) and nodeLayer (for nodes, links, and cards)
 	private textLayer!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private nodeLayer!: d3.Selection<SVGGElement, unknown, null, undefined>;
 	private simulation!: d3.Simulation<Node, Link>;
@@ -91,7 +90,6 @@ export class GraphView extends ItemView {
 		this.registerEvents();
 	}
 
-	// Control panel (fixed top-right) with a progress bar at the bottom.
 	private initControls() {
 		const controlBox = this.containerEl.createDiv();
 		controlBox.className =
@@ -146,7 +144,6 @@ export class GraphView extends ItemView {
 
 		this.setupControlListeners(controlBox);
 
-		// Timeline and playback control listeners.
 		const timelineSlider =
 			controlBox.querySelector<HTMLInputElement>("#timelineSlider");
 		const timelineLabel =
