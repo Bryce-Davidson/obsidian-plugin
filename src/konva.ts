@@ -181,6 +181,9 @@ export class OcclusionView extends ItemView {
 
 		// Add click event listener to show all images when clicking on the search input
 		this.fileSelectEl.addEventListener("click", () => {
+			// Clear the input field when clicked
+			this.fileSelectEl.value = "";
+
 			// Show all image files when clicking on the input
 			this.fileSearchResultsEl.empty();
 			this.fileSearchResultsEl.removeClass("hidden");
