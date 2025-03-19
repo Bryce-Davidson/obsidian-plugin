@@ -1517,7 +1517,11 @@ export default class MyPlugin extends Plugin {
 
 			// Add mobile touch configuration
 			stage.on("contentTouchstart", function (e) {
-				e.evt.preventDefault();
+				// Only prevent default if it's a direct tap on an occlusion shape
+				// Don't prevent default on the stage background, allowing scrolling
+				if (e.target !== stage && e.target !== kImage) {
+					e.evt.preventDefault();
+				}
 			});
 
 			imageLayer = new Konva.Layer();
@@ -1623,7 +1627,13 @@ export default class MyPlugin extends Plugin {
 					) => {
 						console.log("Toggle handler called", e.type);
 						e.cancelBubble = true;
-						e.evt.preventDefault(); // Prevent default browser behavior
+
+						// Only prevent default for the click/tap on the shape itself
+						// This allows scrolling to still work when touching other areas
+						if (e.target instanceof Konva.Rect) {
+							e.evt.preventDefault();
+						}
+
 						rect.visible(!rect.visible());
 						shapeLayer.draw();
 						checkResetButton();
