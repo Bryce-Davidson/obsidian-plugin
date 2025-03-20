@@ -51,10 +51,6 @@ export class OcclusionView extends ItemView {
 	lastCenter: { x: number; y: number } | null = null;
 	lastDist: number = 0;
 
-	// Move these event listeners to class properties so we can remove them later
-	keydownHandler: (e: KeyboardEvent) => void;
-	keyupHandler: (e: KeyboardEvent) => void;
-
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -500,9 +496,22 @@ export class OcclusionView extends ItemView {
 		// Update to handle both mouse and touch events
 		this.stage.on("click tap", (e) => {
 			if (this.reviewMode) return;
-			if (e.target === this.stage) {
+
+			// If clicked on the stage or any non-rectangle object
+			if (e.target === this.stage || !(e.target instanceof Konva.Rect)) {
+				// Clear transformer nodes
 				this.transformer.nodes([]);
+
+				// Disable dragging on previously selected rectangle
+				if (this.selectedRect) {
+					this.selectedRect.draggable(false);
+				}
+
+				// Clear selection
 				this.selectedRect = null;
+
+				// Redraw the layer to update visual state
+				this.shapeLayer.draw();
 			}
 		});
 
@@ -587,29 +596,6 @@ export class OcclusionView extends ItemView {
 			panStartPosition = null;
 			this.stage.container().style.cursor = "default";
 		};
-
-		// Move these event listeners to class properties so we can remove them later
-		this.keydownHandler = (e: KeyboardEvent) => {
-			// Start panning when Space key is pressed
-			if (e.code === "Space" && !this.isPanning) {
-				const pointer = this.stage.getPointerPosition();
-				if (pointer) {
-					e.preventDefault(); // Prevent page scrolling
-					startPan(pointer.x, pointer.y);
-				}
-			}
-		};
-
-		this.keyupHandler = (e: KeyboardEvent) => {
-			// End panning when Space key is released
-			if (e.code === "Space") {
-				endPan();
-			}
-		};
-
-		// Add event listeners to document
-		document.addEventListener("keydown", this.keydownHandler);
-		document.addEventListener("keyup", this.keyupHandler);
 
 		// Touch-based panning implementation
 		this.stage.on("touchstart", (e) => {
@@ -794,9 +780,14 @@ export class OcclusionView extends ItemView {
 			this.resetButton.style.display = "";
 			this.transformer.nodes([]);
 			this.transformer.visible(false);
+
+			// Make sure all rectangles are not draggable in review mode
 			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
-				if (child instanceof Konva.Rect) child.draggable(false);
+				if (child instanceof Konva.Rect) {
+					child.draggable(false);
+				}
 			});
+
 			this.modeToggleButton.textContent = "Edit";
 			this.modeToggleButton.classList.remove(
 				"bg-blue-600",
@@ -813,9 +804,14 @@ export class OcclusionView extends ItemView {
 			this.saveButton.style.display = "";
 			this.resetButton.style.display = "none";
 			this.transformer.visible(true);
+
+			// In edit mode, only make the selected rectangle draggable (if any)
 			this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
-				if (child instanceof Konva.Rect) child.draggable(true);
+				if (child instanceof Konva.Rect) {
+					child.draggable(child === this.selectedRect);
+				}
 			});
+
 			this.modeToggleButton.textContent = "Review";
 			this.modeToggleButton.classList.remove(
 				"bg-purple-600",
@@ -901,21 +897,30 @@ export class OcclusionView extends ItemView {
 			height: 100,
 			fill: "#000000",
 			opacity: 1,
-			draggable: true,
+			draggable: false,
 		});
+
 		rect.on("click tap", (e) => {
 			e.cancelBubble = true;
 			if (this.reviewMode) {
 				rect.visible(!rect.visible());
 				this.shapeLayer.draw();
 			} else {
+				// Deselect previously selected rectangle
+				if (this.selectedRect && this.selectedRect !== rect) {
+					this.selectedRect.draggable(false);
+				}
+
+				// Select the clicked rectangle
 				this.selectedRect = rect;
+				rect.draggable(true);
 				this.transformer.nodes([rect]);
 				this.colorInput.value = rect.fill() as string;
 				this.widthInput.value = rect.width().toString();
 				this.heightInput.value = rect.height().toString();
 			}
 		});
+
 		this.shapeLayer.add(rect);
 		this.shapeLayer.draw();
 	}
@@ -980,26 +985,36 @@ export class OcclusionView extends ItemView {
 				height: s.height,
 				fill: s.fill,
 				opacity: s.opacity,
-				draggable: !this.reviewMode,
+				draggable: false,
 				// Ensure scale is set to 1 when loading
 				scaleX: 1,
 				scaleY: 1,
 			});
+
 			rect.on("click tap", (e) => {
 				e.cancelBubble = true;
 				if (this.reviewMode) {
 					rect.visible(!rect.visible());
 					this.shapeLayer.draw();
 				} else {
+					// Deselect previously selected rectangle
+					if (this.selectedRect && this.selectedRect !== rect) {
+						this.selectedRect.draggable(false);
+					}
+
+					// Select the clicked rectangle
 					this.selectedRect = rect;
+					rect.draggable(true);
 					this.transformer.nodes([rect]);
 					this.colorInput.value = rect.fill() as string;
 					this.widthInput.value = rect.width().toString();
 					this.heightInput.value = rect.height().toString();
 				}
 			});
+
 			this.shapeLayer.add(rect);
 		});
+
 		this.shapeLayer.draw();
 	}
 
@@ -1059,15 +1074,6 @@ export class OcclusionView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
-		// Clean up keyboard event listeners
-		if (this.keydownHandler) {
-			document.removeEventListener("keydown", this.keydownHandler);
-		}
-
-		if (this.keyupHandler) {
-			document.removeEventListener("keyup", this.keyupHandler);
-		}
-
 		// Existing cleanup code
 		if (this.stage) {
 			this.stage.off("wheel");
