@@ -1515,6 +1515,8 @@ export default class MyPlugin extends Plugin {
 
 		const container = document.createElement("div");
 		container.classList.add("occluded-image-container");
+		// Add a class to track interaction state
+		container.classList.add("occlusion-interaction-disabled");
 		container.style.position = "relative";
 		const displayedWidth = imgElement.width || imgElement.clientWidth;
 		const displayedHeight = imgElement.height || imgElement.clientHeight;
@@ -1606,8 +1608,32 @@ export default class MyPlugin extends Plugin {
 				// Change how touch events are handled
 				stage.on("contentTouchstart", function (e) {
 					// Only prevent default if occlusion interaction is enabled
-					if (occlusionInteractionEnabled && e.target !== stage) {
-						e.evt.preventDefault();
+					if (occlusionInteractionEnabled) {
+						// Only prevent default for actual shape interactions
+						if (e.target !== stage) {
+							e.evt.preventDefault();
+						}
+					} else {
+						// When interaction is disabled, allow all events to pass through
+						// This is crucial for scrolling to work
+						e.cancelBubble = false;
+						// Do not prevent default behavior when interaction is disabled
+						// This allows scrolling to work normally
+					}
+				});
+
+				// Add touch move and touch end handlers to ensure consistent behavior
+				stage.on("contentTouchmove", function (e) {
+					if (!occlusionInteractionEnabled) {
+						// When interaction is disabled, allow scrolling
+						e.cancelBubble = false;
+					}
+				});
+
+				stage.on("contentTouchend", function (e) {
+					if (!occlusionInteractionEnabled) {
+						// When interaction is disabled, allow normal touch behavior
+						e.cancelBubble = false;
 					}
 				});
 
@@ -1653,9 +1679,21 @@ export default class MyPlugin extends Plugin {
 					if (occlusionInteractionEnabled) {
 						enableShapeInteraction();
 						toggleButton.style.backgroundColor = "#4CAF50";
+						container.classList.remove(
+							"occlusion-interaction-disabled"
+						);
+						container.classList.add(
+							"occlusion-interaction-enabled"
+						);
 					} else {
 						disableShapeInteraction();
 						toggleButton.style.backgroundColor = "#4A6BF5";
+						container.classList.remove(
+							"occlusion-interaction-enabled"
+						);
+						container.classList.add(
+							"occlusion-interaction-disabled"
+						);
 					}
 				};
 
@@ -1760,6 +1798,23 @@ export default class MyPlugin extends Plugin {
 			}
 		};
 
+		// Function to disable shape interaction
+		const disableShapeInteraction = () => {
+			shapeLayer.children.forEach((shape) => {
+				if (shape instanceof Konva.Shape) {
+					shape.listening(false);
+					shape.off("click tap");
+				}
+			});
+
+			// Make the stage less "grabby" of events
+			stage.listening(false);
+			// Explicitly set the container to allow regular touch events
+			container.style.touchAction = "auto";
+
+			shapeLayer.draw();
+		};
+
 		// Function to enable shape interaction
 		const enableShapeInteraction = () => {
 			shapeLayer.children.forEach((shape) => {
@@ -1771,17 +1826,12 @@ export default class MyPlugin extends Plugin {
 					}
 				}
 			});
-			shapeLayer.draw();
-		};
 
-		// Function to disable shape interaction
-		const disableShapeInteraction = () => {
-			shapeLayer.children.forEach((shape) => {
-				if (shape instanceof Konva.Shape) {
-					shape.listening(false);
-					shape.off("click tap");
-				}
-			});
+			// Make the stage capture events again
+			stage.listening(true);
+			// Modify container touch action to allow shape interactions
+			container.style.touchAction = "none";
+
 			shapeLayer.draw();
 		};
 
