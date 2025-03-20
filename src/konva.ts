@@ -890,12 +890,26 @@ export class OcclusionView extends ItemView {
 	}
 
 	addRectangle(): void {
+		// Calculate the center of the current viewport
+		const stage = this.stage;
+		const stagePos = stage.position();
+		const scale = this.currentScale;
+
+		// The center in stage coordinates
+		const viewportCenterX = (stage.width() / 2 - stagePos.x) / scale;
+		const viewportCenterY = (stage.height() / 2 - stagePos.y) / scale;
+
+		// Default rectangle size (adjust as needed)
+		const rectWidth = 100;
+		const rectHeight = 100;
+
+		// Create the rectangle at the viewport center
 		const rect = new Konva.Rect({
-			x: 50,
-			y: 50,
-			width: 100,
-			height: 100,
-			fill: "#000000",
+			x: viewportCenterX - rectWidth / 2,
+			y: viewportCenterY - rectHeight / 2,
+			width: rectWidth,
+			height: rectHeight,
+			fill: this.colorInput ? this.colorInput.value : "#000000",
 			opacity: 1,
 			draggable: false,
 		});
@@ -921,7 +935,19 @@ export class OcclusionView extends ItemView {
 			}
 		});
 
+		// Add to layer and automatically select the new rectangle
 		this.shapeLayer.add(rect);
+
+		// Auto-select the newly created rectangle
+		if (!this.reviewMode) {
+			this.selectedRect = rect;
+			rect.draggable(true);
+			this.transformer.nodes([rect]);
+			if (this.colorInput) this.colorInput.value = rect.fill() as string;
+			this.widthInput.value = rect.width().toString();
+			this.heightInput.value = rect.height().toString();
+		}
+
 		this.shapeLayer.draw();
 	}
 
