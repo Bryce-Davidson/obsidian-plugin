@@ -51,6 +51,9 @@ export class OcclusionView extends ItemView {
 	lastCenter: { x: number; y: number } | null = null;
 	lastDist: number = 0;
 
+	// Add a new property to track multiple selections
+	selectedRects: Konva.Rect[] = [];
+
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -441,10 +444,12 @@ export class OcclusionView extends ItemView {
 			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 focus:ring-4 focus:ring-red-300 dark:bg-red-500 dark:hover:bg-red-600 dark:focus:ring-red-800",
 		});
 		this.deleteButton.onclick = () => {
-			if (this.selectedRect && !this.reviewMode) {
-				this.selectedRect.destroy();
+			if (this.selectedRects.length > 0 && !this.reviewMode) {
+				// Delete all selected rectangles
+				this.selectedRects.forEach((rect) => rect.destroy());
 				this.transformer.nodes([]);
 				this.selectedRect = null;
+				this.selectedRects = [];
 				this.shapeLayer.draw();
 			}
 		};
@@ -497,18 +502,26 @@ export class OcclusionView extends ItemView {
 		this.stage.on("click tap", (e) => {
 			if (this.reviewMode) return;
 
-			// If clicked on the stage or any non-rectangle object
-			if (e.target === this.stage || !(e.target instanceof Konva.Rect)) {
+			// Get if shift key is pressed for multi-selection
+			const isShiftPressed = e.evt.shiftKey;
+
+			// If clicked on the stage or any non-rectangle object and not holding shift
+			if (
+				(e.target === this.stage ||
+					!(e.target instanceof Konva.Rect)) &&
+				!isShiftPressed
+			) {
 				// Clear transformer nodes
 				this.transformer.nodes([]);
 
-				// Disable dragging on previously selected rectangle
-				if (this.selectedRect) {
-					this.selectedRect.draggable(false);
-				}
+				// Disable dragging on all previously selected rectangles
+				this.selectedRects.forEach((rect) => {
+					rect.draggable(false);
+				});
 
-				// Clear selection
+				// Clear selections
 				this.selectedRect = null;
+				this.selectedRects = [];
 
 				// Redraw the layer to update visual state
 				this.shapeLayer.draw();
@@ -800,6 +813,10 @@ export class OcclusionView extends ItemView {
 				"bg-purple-600",
 				"hover:bg-purple-700"
 			);
+
+			// Clear selections
+			this.selectedRect = null;
+			this.selectedRects = [];
 		} else {
 			this.controlsDiv.style.display = "";
 			this.addRectButton.style.display = "";
@@ -914,7 +931,12 @@ export class OcclusionView extends ItemView {
 			height: rectHeight,
 			fill: this.colorInput ? this.colorInput.value : "#000000",
 			opacity: 1,
-			draggable: false,
+			draggable: false, // Ensure it starts as not draggable
+		});
+
+		// Define the dragBoundFunc to ensure consistent behavior
+		rect.dragBoundFunc((pos) => {
+			return pos; // Simple pass-through for now
 		});
 
 		rect.on("click tap", (e) => {
@@ -923,18 +945,43 @@ export class OcclusionView extends ItemView {
 				rect.visible(!rect.visible());
 				this.shapeLayer.draw();
 			} else {
-				// Deselect previously selected rectangle
-				if (this.selectedRect && this.selectedRect !== rect) {
-					this.selectedRect.draggable(false);
+				// Check if shift key is held for multi-selection
+				const isShiftPressed = e.evt.shiftKey;
+
+				if (!isShiftPressed) {
+					// Deselect all previously selected rectangles if shift isn't pressed
+					this.selectedRects.forEach((r) => {
+						r.draggable(false);
+					});
+					this.selectedRects = [];
 				}
 
-				// Select the clicked rectangle
+				// Add to selection if not already selected
+				if (!this.selectedRects.includes(rect)) {
+					this.selectedRects.push(rect);
+				}
+
+				// Always update the primary selected rect for controls
 				this.selectedRect = rect;
-				rect.draggable(true);
-				this.transformer.nodes([rect]);
+
+				// Make all selected rectangles draggable
+				this.selectedRects.forEach((r) => r.draggable(true));
+
+				// Update the transformer to show all selected rectangles
+				this.transformer.nodes(this.selectedRects);
+
+				// Update controls for the primary selected rectangle
 				this.colorInput.value = rect.fill() as string;
 				this.widthInput.value = rect.width().toString();
 				this.heightInput.value = rect.height().toString();
+			}
+		});
+
+		// Add additional mousedown and touchstart handler to prevent unintended dragging
+		rect.on("mousedown touchstart", (e) => {
+			// Only allow drag to begin if the rectangle is already selected
+			if (!this.selectedRects.includes(rect) && !e.evt.shiftKey) {
+				rect.draggable(false);
 			}
 		});
 
@@ -943,9 +990,16 @@ export class OcclusionView extends ItemView {
 
 		// Auto-select the newly created rectangle
 		if (!this.reviewMode) {
+			// Clear previous selections
+			this.selectedRects.forEach((r) => {
+				if (r !== rect) r.draggable(false);
+			});
+
+			this.selectedRects = [rect];
 			this.selectedRect = rect;
-			rect.draggable(true);
+			rect.draggable(true); // Make it draggable since it's selected
 			this.transformer.nodes([rect]);
+
 			if (this.colorInput) this.colorInput.value = rect.fill() as string;
 			this.widthInput.value = rect.width().toString();
 			this.heightInput.value = rect.height().toString();
@@ -1014,10 +1068,15 @@ export class OcclusionView extends ItemView {
 				height: s.height,
 				fill: s.fill,
 				opacity: s.opacity,
-				draggable: false,
+				draggable: false, // Ensure it starts as not draggable
 				// Ensure scale is set to 1 when loading
 				scaleX: 1,
 				scaleY: 1,
+			});
+
+			// Define the dragBoundFunc to ensure consistent behavior
+			rect.dragBoundFunc((pos) => {
+				return pos; // Simple pass-through for now
 			});
 
 			rect.on("click tap", (e) => {
@@ -1026,18 +1085,43 @@ export class OcclusionView extends ItemView {
 					rect.visible(!rect.visible());
 					this.shapeLayer.draw();
 				} else {
-					// Deselect previously selected rectangle
-					if (this.selectedRect && this.selectedRect !== rect) {
-						this.selectedRect.draggable(false);
+					// Check if shift key is held for multi-selection
+					const isShiftPressed = e.evt.shiftKey;
+
+					if (!isShiftPressed) {
+						// Deselect all previously selected rectangles if shift isn't pressed
+						this.selectedRects.forEach((r) => {
+							r.draggable(false);
+						});
+						this.selectedRects = [];
 					}
 
-					// Select the clicked rectangle
+					// Add to selection if not already selected
+					if (!this.selectedRects.includes(rect)) {
+						this.selectedRects.push(rect);
+					}
+
+					// Always update the primary selected rect for controls
 					this.selectedRect = rect;
-					rect.draggable(true);
-					this.transformer.nodes([rect]);
+
+					// Make all selected rectangles draggable
+					this.selectedRects.forEach((r) => r.draggable(true));
+
+					// Update the transformer to show all selected rectangles
+					this.transformer.nodes(this.selectedRects);
+
+					// Update controls for the primary selected rectangle
 					this.colorInput.value = rect.fill() as string;
 					this.widthInput.value = rect.width().toString();
 					this.heightInput.value = rect.height().toString();
+				}
+			});
+
+			// Add additional mousedown and touchstart handler to prevent unintended dragging
+			rect.on("mousedown touchstart", (e) => {
+				// Only allow drag to begin if the rectangle is already selected
+				if (!this.selectedRects.includes(rect) && !e.evt.shiftKey) {
+					rect.draggable(false);
 				}
 			});
 
@@ -1138,10 +1222,10 @@ export class OcclusionView extends ItemView {
 	}
 
 	handleKeyDown = (e: KeyboardEvent) => {
-		// Only handle backspace/delete when an occlusion is selected and not in review mode
+		// Only handle backspace/delete when occlusions are selected and not in review mode
 		if (
 			(e.key === "Backspace" || e.key === "Delete") &&
-			this.selectedRect &&
+			this.selectedRects.length > 0 &&
 			!this.reviewMode
 		) {
 			// Check if we're not focused in an input element
@@ -1153,12 +1237,68 @@ export class OcclusionView extends ItemView {
 			if (!isInputFocused) {
 				e.preventDefault(); // Prevent the default backspace behavior
 
-				// Delete the selected rectangle
-				this.selectedRect.destroy();
+				// Delete all selected rectangles
+				this.selectedRects.forEach((rect) => rect.destroy());
 				this.transformer.nodes([]);
 				this.selectedRect = null;
+				this.selectedRects = [];
 				this.shapeLayer.draw();
 			}
 		}
 	};
+
+	// Add a utility method to ensure all occlusions are not draggable except selected ones
+	resetDraggableState(): void {
+		this.shapeLayer.getChildren().forEach((child: Konva.Node) => {
+			if (child instanceof Konva.Rect) {
+				// Only allow dragging for rectangles in the selectedRects array
+				child.draggable(this.selectedRects.includes(child));
+			}
+		});
+	}
+
+	// Add a new method to handle clicked occlusions for both new rectangles and loaded ones
+	handleRectClick(
+		rect: Konva.Rect,
+		e: Konva.KonvaEventObject<MouseEvent | TouchEvent>
+	): void {
+		e.cancelBubble = true;
+
+		if (this.reviewMode) {
+			rect.visible(!rect.visible());
+			this.shapeLayer.draw();
+			return;
+		}
+
+		const isShiftPressed = e.evt.shiftKey;
+
+		// If not holding shift, deselect all current selections
+		if (!isShiftPressed) {
+			this.selectedRects.forEach((r) => {
+				r.draggable(false);
+			});
+			this.selectedRects = [];
+		}
+
+		// Add to selection if not already selected
+		if (!this.selectedRects.includes(rect)) {
+			this.selectedRects.push(rect);
+		}
+
+		// Set as primary selected rectangle
+		this.selectedRect = rect;
+
+		// Update draggable state for all selections
+		this.selectedRects.forEach((r) => r.draggable(true));
+
+		// Update transformer
+		this.transformer.nodes(this.selectedRects);
+
+		// Update controls
+		this.colorInput.value = rect.fill() as string;
+		this.widthInput.value = rect.width().toString();
+		this.heightInput.value = rect.height().toString();
+
+		this.shapeLayer.draw();
+	}
 }
