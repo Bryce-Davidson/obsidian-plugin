@@ -1438,37 +1438,24 @@ export default class MyPlugin extends Plugin {
 				mutation.addedNodes.forEach((node) => {
 					if (node.nodeType === Node.ELEMENT_NODE) {
 						const element = node as HTMLElement;
-						if (element.tagName === "IMG") {
-							this.processImageElement(
-								element as HTMLImageElement
-							);
-						} else {
-							element.querySelectorAll("img").forEach((img) => {
-								this.processImageElement(
-									img as HTMLImageElement
-								);
-							});
-						}
+						element.querySelectorAll("img").forEach((img) => {
+							this.processImageElement(img as HTMLImageElement);
+						});
 					}
 				});
 			});
 		});
 
-		// Start observing the document body for added nodes
 		this.globalObserver.observe(document.body, {
 			childList: true,
 			subtree: true,
 		});
-		console.log("Global mutation observer attached to document.body");
 	}
 
-	// Add the processImageElement method to handle occlusion rendering
 	private processImageElement(imgElement: HTMLImageElement): void {
-		// Avoid processing an image more than once
 		if (imgElement.getAttribute("data-occlusion-processed")) return;
 		imgElement.setAttribute("data-occlusion-processed", "true");
 
-		// Use the alt attribute (assumed to be the file name) to resolve the file
 		const alt = imgElement.getAttribute("alt");
 		if (!alt) return;
 
@@ -1479,26 +1466,22 @@ export default class MyPlugin extends Plugin {
 
 		const key = file.path;
 
-		// Create a container element that will host our custom rendering
+		if (!this.occlusion.attachments[key]) return;
+
 		const container = document.createElement("div");
 		container.classList.add("occluded-image-container");
-		// Set relative positioning so we can absolutely position the reset button
 		container.style.position = "relative";
-		// Set the container to match the displayed size of the original image
 		const displayedWidth = imgElement.width || imgElement.clientWidth;
 		const displayedHeight = imgElement.height || imgElement.clientHeight;
-		container.style.width = "100%"; // Make container responsive
-		container.style.maxWidth = displayedWidth + "px"; // Limit maximum width
+		container.style.width = "100%";
+		container.style.maxWidth = displayedWidth + "px";
 
-		// Store the file path for double-click handler
 		container.setAttribute("data-file-path", key);
 
-		// Create a new image element to load the source
 		const newImg = new Image();
 		let stage: Konva.Stage;
 		let imageLayer: Konva.Layer;
 		let shapeLayer: Konva.Layer;
-		let resetButton: HTMLButtonElement;
 		let originalWidth: number;
 		let originalHeight: number;
 		let aspectRatio: number;
@@ -1508,17 +1491,13 @@ export default class MyPlugin extends Plugin {
 			originalHeight = newImg.naturalHeight;
 			aspectRatio = originalHeight / originalWidth;
 
-			// Create a Konva stage to render the image and occlusions
 			stage = new Konva.Stage({
 				container: container,
 				width: displayedWidth,
 				height: displayedHeight,
 			});
 
-			// Add mobile touch configuration
 			stage.on("contentTouchstart", function (e) {
-				// Only prevent default if it's a direct tap on an occlusion shape
-				// Don't prevent default on the stage background, allowing scrolling
 				if (e.target !== stage && e.target !== kImage) {
 					e.evt.preventDefault();
 				}
@@ -1529,7 +1508,6 @@ export default class MyPlugin extends Plugin {
 			stage.add(imageLayer);
 			stage.add(shapeLayer);
 
-			// Add the background image
 			const kImage = new Konva.Image({
 				image: newImg,
 				x: 0,
@@ -1537,10 +1515,8 @@ export default class MyPlugin extends Plugin {
 				width: displayedWidth,
 				height: displayedHeight,
 			});
-			imageLayer.add(kImage);
-			imageLayer.draw();
+			imageLayer.add(kImage).draw();
 
-			// Add double-click handler to open the occlusion editor for all images
 			stage.on("dblclick", () => {
 				this.openOcclusionEditorWithFile(key);
 			});
@@ -1549,64 +1525,19 @@ export default class MyPlugin extends Plugin {
 				this.openOcclusionEditorWithFile(key);
 			});
 
-			// Only add occlusion-specific functionality if occlusion data exists
-			if (this.occlusion.attachments[key]) {
-				// Create a reset button; it is initially hidden
-				resetButton = document.createElement("button");
-				resetButton.innerText = ""; // Already empty, which is good
-				resetButton.style.position = "absolute";
-				resetButton.style.bottom = "10px";
-				resetButton.style.right = "10px";
-				resetButton.style.padding = "8px"; // Make it square by using equal padding
-				resetButton.style.fontSize = "12px";
-				resetButton.style.display = "none";
-				resetButton.style.zIndex = "100";
-				resetButton.style.width = "30px"; // Set a fixed width
-				resetButton.style.height = "30px"; // Set a fixed height
-				resetButton.style.borderRadius = "4px"; // Optional: slightly rounded corners
-				resetButton.style.border = "1px solid rgba(0,0,0,0.2)"; // Subtle border
-				resetButton.style.backgroundColor = "rgba(255,255,255,0.7)"; // Semi-transparent background
-				resetButton.style.cursor = "pointer"; // Show pointer cursor on hover
-
-				// Add a title/tooltip for accessibility
-				resetButton.title = "Reset occlusions";
-
-				container.appendChild(resetButton);
-
-				// Render occlusion shapes
-				renderShapes();
-
-				// Reset button: clicking it makes all occlusions visible
-				resetButton.onclick = (e: MouseEvent) => {
-					e.stopPropagation();
-					shapeLayer.getChildren().forEach((child: Konva.Node) => {
-						if (child instanceof Konva.Rect) {
-							child.visible(true);
-						}
-					});
-					shapeLayer.draw();
-					resetButton.style.display = "none";
-				};
-			}
-
-			// Set up continuous monitoring for size changes
+			renderShapes();
 			setupContinuousResizeMonitoring();
 		};
 
-		// Function to render shapes based on current dimensions
 		const renderShapes = () => {
-			// Clear existing shapes
 			shapeLayer.destroyChildren();
 
-			// Get current dimensions
 			const currentWidth = stage.width();
 			const currentHeight = stage.height();
 
-			// Calculate scale factors
 			const scaleX = currentWidth / originalWidth;
 			const scaleY = currentHeight / originalHeight;
 
-			// Render occlusion shapes with a click handler to toggle visibility
 			const shapes = this.occlusion.attachments[key];
 			if (shapes && shapes.length > 0) {
 				shapes.forEach((s: OcclusionShape) => {
@@ -1617,74 +1548,39 @@ export default class MyPlugin extends Plugin {
 						height: s.height * scaleY,
 						fill: s.fill,
 						opacity: s.opacity,
-						perfectDrawEnabled: false, // Improve performance
-						listening: true, // Explicitly enable event listening
+						perfectDrawEnabled: false,
+						listening: true,
 					});
 
-					// Handler function for both click and tap events
 					const toggleVisibilityHandler = (
 						e: Konva.KonvaEventObject<MouseEvent | TouchEvent>
 					) => {
-						console.log("Toggle handler called", e.type);
-						e.cancelBubble = true;
-
-						// Only prevent default for the click/tap on the shape itself
-						// This allows scrolling to still work when touching other areas
-						if (e.target instanceof Konva.Rect) {
-							e.evt.preventDefault();
-						}
-
 						rect.visible(!rect.visible());
 						shapeLayer.draw();
-						checkResetButton();
 					};
 
-					// Add event listeners for both mouse click and touch tap
 					rect.on("click", toggleVisibilityHandler);
 					rect.on("tap", toggleVisibilityHandler);
-					rect.on("touchstart", toggleVisibilityHandler); // Add direct touch events
-					rect.on("touchend", toggleVisibilityHandler); // Add direct touch events
 
 					shapeLayer.add(rect);
 				});
 				shapeLayer.draw();
-				checkResetButton();
 			}
 		};
 
-		// Helper function: check if all occlusions are hidden
-		const checkResetButton = () => {
-			const allHidden = shapeLayer
-				.getChildren()
-				.every((child: Konva.Node) => {
-					if (child instanceof Konva.Rect) {
-						return !child.visible();
-					}
-					return true;
-				});
-			resetButton.style.display = allHidden ? "block" : "none";
-		};
-
-		// Function to resize the stage to match container dimensions
 		const resizeStage = () => {
 			if (!container || !stage) return;
 
-			// Get the current container width
 			const containerWidth = container.clientWidth;
-
-			// Calculate height based on aspect ratio
 			const containerHeight = containerWidth * aspectRatio;
 
-			// Only update if dimensions have changed
 			if (
 				stage.width() !== containerWidth ||
 				stage.height() !== containerHeight
 			) {
-				// Update stage dimensions
 				stage.width(containerWidth);
 				stage.height(containerHeight);
 
-				// Update background image
 				const bgImage = imageLayer.findOne("Image") as Konva.Image;
 				if (bgImage) {
 					bgImage.width(containerWidth);
@@ -1692,41 +1588,33 @@ export default class MyPlugin extends Plugin {
 					imageLayer.draw();
 				}
 
-				// Re-render shapes with new dimensions
 				renderShapes();
 			}
 		};
 
-		// Set up continuous monitoring for size changes
 		const setupContinuousResizeMonitoring = () => {
-			// Register an interval that continuously checks for size changes
 			const intervalId = window.setInterval(() => {
 				if (container && stage) {
 					resizeStage();
 				}
-			}, 100); // Check every 100ms - adjust as needed for performance
+			}, 100);
 
-			// Store the interval ID on the container for cleanup
 			container.setAttribute(
 				"data-resize-interval",
 				intervalId.toString()
 			);
 
-			// Also set up a ResizeObserver as a backup
 			const resizeObserver = new ResizeObserver(() => {
 				resizeStage();
 			});
 			resizeObserver.observe(container);
 
-			// Add window resize event listener as another backup
 			const handleWindowResize = () => {
 				resizeStage();
 			};
 			window.addEventListener("resize", handleWindowResize);
 
-			// Register cleanup function
 			this.register(() => {
-				// Clear the interval
 				const storedIntervalId = container.getAttribute(
 					"data-resize-interval"
 				);
@@ -1734,32 +1622,21 @@ export default class MyPlugin extends Plugin {
 					window.clearInterval(parseInt(storedIntervalId));
 				}
 
-				// Disconnect observer
 				resizeObserver.disconnect();
-
-				// Remove event listener
 				window.removeEventListener("resize", handleWindowResize);
 			});
 		};
 
 		newImg.src = imgElement.src;
-		// Replace the original <img> element with our custom container
 		imgElement.replaceWith(container);
 	}
 
-	// Add this new method to open the Occlusion Editor with a specific file
 	private async openOcclusionEditorWithFile(filePath: string): Promise<void> {
-		// First, activate the occlusion view
 		await this.activateOcclusionView();
-
-		// Find the occlusion view
 		const occlusionLeaf =
 			this.app.workspace.getLeavesOfType(VIEW_TYPE_OCCLUSION)[0];
 		if (occlusionLeaf && occlusionLeaf.view instanceof OcclusionView) {
-			// Get the occlusion view instance
 			const occlusionView = occlusionLeaf.view as OcclusionView;
-
-			// Use the new setSelectedFile method to set the file path
 			occlusionView.setSelectedFile(filePath);
 		}
 	}
@@ -1859,15 +1736,13 @@ export default class MyPlugin extends Plugin {
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				const content = editor.getValue();
 				const cursor = editor.getCursor();
-				// Calculate cursor offset
 				const lines = content.split("\n");
 				let offset = 0;
 				for (let i = 0; i < cursor.line; i++) {
-					offset += lines[i].length + 1; // +1 for newline
+					offset += lines[i].length + 1;
 				}
 				offset += cursor.ch;
 
-				// Regex to match a [card=UUID]...[/card] block.
 				const regex = /\[card=([A-Za-z0-9]+)\]([\s\S]*?)\[\/card\]/g;
 				let match: RegExpExecArray | null;
 				let found = false;
@@ -1889,7 +1764,6 @@ export default class MyPlugin extends Plugin {
 					return;
 				}
 
-				// Ensure we have an active file and matching plugin data.
 				const activeFile = this.app.workspace.getActiveFile();
 				if (!activeFile) {
 					new Notice("No active file open.");
@@ -1903,17 +1777,14 @@ export default class MyPlugin extends Plugin {
 					return;
 				}
 
-				// Reinitialize the card's state.
 				const now = new Date();
 				const newCardState: CardState = {
 					cardUUID: cardUUID,
-					// Keep existing content, title, and line number.
 					cardContent:
 						this.notes[activeFile.path].cards[cardUUID].cardContent,
 					cardTitle:
 						this.notes[activeFile.path].cards[cardUUID].cardTitle,
 					line: this.notes[activeFile.path].cards[cardUUID].line,
-					// Reset scheduling values.
 					repetition: 0,
 					interval: 0,
 					ef: 2.5,
@@ -2343,43 +2214,6 @@ export default class MyPlugin extends Plugin {
 			});
 		}
 		this.app.workspace.revealLeaf(leaf);
-	}
-
-	// Add this method that OcclusionView might call
-	async activateView() {
-		// This can just call your existing activateOcclusionView method
-		await this.activateOcclusionView();
-	}
-
-	// Add this new method to scan for and process all images in the active view
-	private processImagesInActiveView(): void {
-		// Find all images in the current document view
-		const images = document.querySelectorAll(
-			".markdown-reading-view img:not([data-occlusion-processed])"
-		);
-		console.log(
-			`Processing ${images.length} unprocessed images in active view`
-		);
-
-		// Process each image
-		images.forEach((img) => {
-			this.processImageElement(img as HTMLImageElement);
-		});
-
-		// Schedule another scan after a longer delay to catch any late-loading images
-		setTimeout(() => {
-			const lateImages = document.querySelectorAll(
-				".markdown-reading-view img:not([data-occlusion-processed])"
-			);
-			if (lateImages.length > 0) {
-				console.log(
-					`Processing ${lateImages.length} late-loading images`
-				);
-				lateImages.forEach((img) => {
-					this.processImageElement(img as HTMLImageElement);
-				});
-			}
-		}, 1000);
 	}
 }
 
