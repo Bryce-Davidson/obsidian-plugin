@@ -1425,48 +1425,93 @@ export default class MyPlugin extends Plugin {
 			el.innerHTML = el.innerHTML.replace(/\[\/?card(?:=[^\]]+)?\]/g, "");
 		});
 
-		// Register post-processor for inline hide, math blocks, and multi-line hide blocks.
 		this.registerMarkdownPostProcessor((element, context) => {
 			processCustomHiddenText(element);
 			processMathBlocks(element);
 			processCustomHiddenCodeBlocks(element, this);
 		});
 
-		// Global MutationObserver to watch for new <img> elements
 		this.globalObserver = new MutationObserver((mutations) => {
-			mutations.forEach((mutation) => {
-				mutation.addedNodes.forEach((node) => {
-					if (node.nodeType === Node.ELEMENT_NODE) {
-						const element = node as HTMLElement;
-						element.querySelectorAll("img").forEach((img) => {
-							this.processImageElement(img as HTMLImageElement);
-						});
-					}
+			// Use setTimeout to process images after the current execution context
+			setTimeout(() => {
+				mutations.forEach((mutation) => {
+					mutation.addedNodes.forEach((node) => {
+						if (node.nodeType === Node.ELEMENT_NODE) {
+							const element = node as HTMLElement;
+							element
+								.querySelectorAll(
+									"img:not([data-occlusion-processed]):not([data-occlusion-processing])"
+								)
+								.forEach((img) => {
+									this.processImageElement(
+										img as HTMLImageElement
+									);
+								});
+						}
+					});
 				});
-			});
+			}, 0);
 		});
 
+		// Consider adding a filter to improve performance
 		this.globalObserver.observe(document.body, {
 			childList: true,
 			subtree: true,
+			attributes: false,
+			characterData: false,
 		});
 	}
 
 	private processImageElement(imgElement: HTMLImageElement): void {
 		if (imgElement.getAttribute("data-occlusion-processed")) return;
-		imgElement.setAttribute("data-occlusion-processed", "true");
+
+		// First, mark the image as being processed to avoid duplicate processing
+		imgElement.setAttribute("data-occlusion-processing", "true");
 
 		const alt = imgElement.getAttribute("alt");
-		if (!alt) return;
+		if (!alt) {
+			imgElement.removeAttribute("data-occlusion-processing");
+			return;
+		}
 
 		const file = this.app.vault
 			.getFiles()
 			.find((f) => f.name === alt || f.path.endsWith(alt));
-		if (!file) return;
+		if (!file) {
+			imgElement.removeAttribute("data-occlusion-processing");
+			return;
+		}
 
 		const key = file.path;
 
-		if (!this.occlusion.attachments[key]) return;
+		if (!this.occlusion.attachments[key]) {
+			imgElement.removeAttribute("data-occlusion-processing");
+			return;
+		}
+
+		const waitForImageLoad = () => {
+			if (imgElement.complete && imgElement.naturalWidth !== 0) {
+				this.replaceImageWithKonva(imgElement, key);
+			} else {
+				imgElement.onload = () => {
+					this.replaceImageWithKonva(imgElement, key);
+				};
+
+				imgElement.onerror = () => {
+					imgElement.removeAttribute("data-occlusion-processing");
+				};
+			}
+		};
+
+		requestAnimationFrame(waitForImageLoad);
+	}
+
+	private replaceImageWithKonva(
+		imgElement: HTMLImageElement,
+		key: string
+	): void {
+		imgElement.removeAttribute("data-occlusion-processing");
+		imgElement.setAttribute("data-occlusion-processed", "true");
 
 		const container = document.createElement("div");
 		container.classList.add("occluded-image-container");
@@ -1491,42 +1536,51 @@ export default class MyPlugin extends Plugin {
 			originalHeight = newImg.naturalHeight;
 			aspectRatio = originalHeight / originalWidth;
 
-			stage = new Konva.Stage({
-				container: container,
-				width: displayedWidth,
-				height: displayedHeight,
-			});
-
-			stage.on("contentTouchstart", function (e) {
-				if (e.target !== stage && e.target !== kImage) {
-					e.evt.preventDefault();
+			setTimeout(() => {
+				if (!container.isConnected) {
+					console.warn(
+						"Container not in DOM when trying to create Konva stage"
+					);
+					return;
 				}
-			});
 
-			imageLayer = new Konva.Layer();
-			shapeLayer = new Konva.Layer();
-			stage.add(imageLayer);
-			stage.add(shapeLayer);
+				stage = new Konva.Stage({
+					container: container,
+					width: displayedWidth,
+					height: displayedHeight,
+				});
 
-			const kImage = new Konva.Image({
-				image: newImg,
-				x: 0,
-				y: 0,
-				width: displayedWidth,
-				height: displayedHeight,
-			});
-			imageLayer.add(kImage).draw();
+				stage.on("contentTouchstart", function (e) {
+					if (e.target !== stage && e.target !== kImage) {
+						e.evt.preventDefault();
+					}
+				});
 
-			stage.on("dblclick", () => {
-				this.openOcclusionEditorWithFile(key);
-			});
+				imageLayer = new Konva.Layer();
+				shapeLayer = new Konva.Layer();
+				stage.add(imageLayer);
+				stage.add(shapeLayer);
 
-			stage.on("dbltap", () => {
-				this.openOcclusionEditorWithFile(key);
-			});
+				const kImage = new Konva.Image({
+					image: newImg,
+					x: 0,
+					y: 0,
+					width: displayedWidth,
+					height: displayedHeight,
+				});
+				imageLayer.add(kImage).draw();
 
-			renderShapes();
-			setupContinuousResizeMonitoring();
+				stage.on("dblclick", () => {
+					this.openOcclusionEditorWithFile(key);
+				});
+
+				stage.on("dbltap", () => {
+					this.openOcclusionEditorWithFile(key);
+				});
+
+				renderShapes();
+				setupContinuousResizeMonitoring();
+			}, 0);
 		};
 
 		const renderShapes = () => {
@@ -1628,7 +1682,8 @@ export default class MyPlugin extends Plugin {
 		};
 
 		newImg.src = imgElement.src;
-		imgElement.replaceWith(container);
+
+		imgElement.parentElement?.replaceChild(container, imgElement);
 	}
 
 	private async openOcclusionEditorWithFile(filePath: string): Promise<void> {
