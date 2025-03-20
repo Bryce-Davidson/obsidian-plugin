@@ -768,6 +768,9 @@ export class OcclusionView extends ItemView {
 			this.fileSelectEl.value = this.selectedFilePath;
 			this.loadImage(this.selectedFilePath);
 		}
+
+		// Add key event listener for backspace and delete keys
+		document.addEventListener("keydown", this.handleKeyDown);
 	}
 
 	toggleReviewMode(): void {
@@ -1100,6 +1103,9 @@ export class OcclusionView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
+		// Remove the key event listener when closing
+		document.removeEventListener("keydown", this.handleKeyDown);
+
 		// Existing cleanup code
 		if (this.stage) {
 			this.stage.off("wheel");
@@ -1130,4 +1136,29 @@ export class OcclusionView extends ItemView {
 		this.fileSelectEl.value = filePath;
 		this.loadImage(filePath);
 	}
+
+	handleKeyDown = (e: KeyboardEvent) => {
+		// Only handle backspace/delete when an occlusion is selected and not in review mode
+		if (
+			(e.key === "Backspace" || e.key === "Delete") &&
+			this.selectedRect &&
+			!this.reviewMode
+		) {
+			// Check if we're not focused in an input element
+			const activeElement = document.activeElement;
+			const isInputFocused =
+				activeElement instanceof HTMLInputElement ||
+				activeElement instanceof HTMLTextAreaElement;
+
+			if (!isInputFocused) {
+				e.preventDefault(); // Prevent the default backspace behavior
+
+				// Delete the selected rectangle
+				this.selectedRect.destroy();
+				this.transformer.nodes([]);
+				this.selectedRect = null;
+				this.shapeLayer.draw();
+			}
+		}
+	};
 }
