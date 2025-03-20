@@ -1531,6 +1531,28 @@ export default class MyPlugin extends Plugin {
 		let originalHeight: number;
 		let aspectRatio: number;
 
+		// Absolutely minimal button
+		const toggleButton = document.createElement("button");
+		toggleButton.style.position = "absolute";
+		toggleButton.style.bottom = "10px";
+		toggleButton.style.right = "10px";
+		toggleButton.style.width = "24px";
+		toggleButton.style.height = "24px";
+		toggleButton.style.borderRadius = "50%";
+		toggleButton.style.backgroundColor = "#4A6BF5";
+		toggleButton.style.border = "2px solid white";
+		toggleButton.style.padding = "0";
+		toggleButton.style.margin = "0";
+		toggleButton.style.zIndex = "1000";
+		toggleButton.style.cursor = "pointer"; // Add pointer cursor
+		toggleButton.style.touchAction = "manipulation"; // Add this to improve touch behavior
+
+		// Variable to track if occlusion interaction is enabled
+		let occlusionInteractionEnabled = false;
+
+		// Append button to container immediately
+		container.appendChild(toggleButton);
+
 		newImg.onload = () => {
 			originalWidth = newImg.naturalWidth;
 			originalHeight = newImg.naturalHeight;
@@ -1550,8 +1572,10 @@ export default class MyPlugin extends Plugin {
 					height: displayedHeight,
 				});
 
+				// Change how touch events are handled
 				stage.on("contentTouchstart", function (e) {
-					if (e.target !== stage && e.target !== kImage) {
+					// Only prevent default if occlusion interaction is enabled
+					if (occlusionInteractionEnabled && e.target !== stage) {
 						e.evt.preventDefault();
 					}
 				});
@@ -1570,6 +1594,7 @@ export default class MyPlugin extends Plugin {
 				});
 				imageLayer.add(kImage).draw();
 
+				// Double-click/tap to open editor remains the same
 				stage.on("dblclick", () => {
 					this.openOcclusionEditorWithFile(key);
 				});
@@ -1580,6 +1605,37 @@ export default class MyPlugin extends Plugin {
 
 				renderShapes();
 				setupContinuousResizeMonitoring();
+
+				// Initially disable interaction with occlusions
+				disableShapeInteraction();
+
+				// Toggle button functionality - ultra simple
+				// Remove the previous listener and create a new one with better touch handling
+				toggleButton.removeEventListener("click", () => {});
+
+				// Add multiple event listeners for better mobile support
+				const toggleButtonHandler = (e) => {
+					e.stopPropagation();
+					e.preventDefault();
+					occlusionInteractionEnabled = !occlusionInteractionEnabled;
+
+					if (occlusionInteractionEnabled) {
+						enableShapeInteraction();
+						toggleButton.style.backgroundColor = "#4CAF50";
+					} else {
+						disableShapeInteraction();
+						toggleButton.style.backgroundColor = "#4A6BF5";
+					}
+				};
+
+				// Add both click and touchend events
+				toggleButton.addEventListener("click", toggleButtonHandler);
+				toggleButton.addEventListener("touchend", toggleButtonHandler, {
+					passive: false,
+				});
+
+				// Move the button in front of Konva stage by re-appending it to ensure it's on top
+				container.appendChild(toggleButton);
 			}, 0);
 		};
 
@@ -1603,23 +1659,54 @@ export default class MyPlugin extends Plugin {
 						fill: s.fill,
 						opacity: s.opacity,
 						perfectDrawEnabled: false,
-						listening: true,
+						listening: false,
 					});
 
-					const toggleVisibilityHandler = (
+					// Store visibility handler
+					const toggleHandler = function (
 						e: Konva.KonvaEventObject<MouseEvent | TouchEvent>
-					) => {
-						rect.visible(!rect.visible());
-						shapeLayer.draw();
+					) {
+						if (occlusionInteractionEnabled) {
+							rect.visible(!rect.visible());
+							shapeLayer.draw();
+							e.cancelBubble = true;
+						}
 					};
 
-					rect.on("click", toggleVisibilityHandler);
-					rect.on("tap", toggleVisibilityHandler);
+					// Store the handler
+					rect.setAttr("customData", {
+						toggleHandler: toggleHandler,
+					});
 
 					shapeLayer.add(rect);
 				});
 				shapeLayer.draw();
 			}
+		};
+
+		// Function to enable shape interaction
+		const enableShapeInteraction = () => {
+			shapeLayer.children.forEach((shape) => {
+				if (shape instanceof Konva.Shape) {
+					shape.listening(true);
+					const customData = shape.getAttr("customData");
+					if (customData && customData.toggleHandler) {
+						shape.on("click tap", customData.toggleHandler);
+					}
+				}
+			});
+			shapeLayer.draw();
+		};
+
+		// Function to disable shape interaction
+		const disableShapeInteraction = () => {
+			shapeLayer.children.forEach((shape) => {
+				if (shape instanceof Konva.Shape) {
+					shape.listening(false);
+					shape.off("click tap");
+				}
+			});
+			shapeLayer.draw();
 		};
 
 		const resizeStage = () => {
@@ -1643,6 +1730,9 @@ export default class MyPlugin extends Plugin {
 				}
 
 				renderShapes();
+
+				// Ensure button stays on top
+				container.appendChild(toggleButton);
 			}
 		};
 
