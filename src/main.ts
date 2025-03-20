@@ -1546,14 +1546,36 @@ export default class MyPlugin extends Plugin {
 		toggleButton.style.zIndex = "1000";
 		toggleButton.style.cursor = "pointer";
 		toggleButton.style.touchAction = "manipulation";
-		// Add a box shadow to make the button more visible
 		toggleButton.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+
+		// Create reset button - initially hidden
+		const resetButton = document.createElement("button");
+		resetButton.style.position = "absolute";
+		resetButton.style.bottom = "10px";
+		resetButton.style.right = "44px"; // 10px (margin) + 24px (toggle button width) + 10px (space)
+		resetButton.style.width = "24px";
+		resetButton.style.height = "24px";
+		resetButton.style.borderRadius = "50%";
+		resetButton.style.backgroundColor = "#9C27B0"; // Purple color
+		resetButton.style.border = "2px solid white";
+		resetButton.style.padding = "0";
+		resetButton.style.margin = "0";
+		resetButton.style.zIndex = "1000";
+		resetButton.style.cursor = "pointer";
+		resetButton.style.touchAction = "manipulation";
+		resetButton.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+		// Remove the HTML content that created the icon
+		resetButton.innerHTML = "";
+		resetButton.style.display = "none"; // Initially hidden
 
 		// Variable to track if occlusion interaction is enabled
 		let occlusionInteractionEnabled = false;
+		// Variable to track if any occlusions are hidden
+		let hasHiddenOcclusions = false;
 
-		// Append button to container immediately
+		// Append buttons to container immediately
 		container.appendChild(toggleButton);
+		container.appendChild(resetButton);
 
 		newImg.onload = () => {
 			originalWidth = newImg.naturalWidth;
@@ -1618,7 +1640,7 @@ export default class MyPlugin extends Plugin {
 				// Initially disable interaction with occlusions
 				disableShapeInteraction();
 
-				// Toggle button functionality - ultra simple
+				// Toggle button functionality
 				// Remove the previous listener and create a new one with better touch handling
 				toggleButton.removeEventListener("click", () => {});
 
@@ -1637,14 +1659,39 @@ export default class MyPlugin extends Plugin {
 					}
 				};
 
-				// Add both click and touchend events
+				// Reset button functionality
+				const resetButtonHandler = (e: MouseEvent | TouchEvent) => {
+					e.stopPropagation();
+					e.preventDefault();
+
+					// Make all shapes visible again
+					shapeLayer.children.forEach((shape) => {
+						if (shape instanceof Konva.Shape) {
+							shape.visible(true);
+						}
+					});
+					shapeLayer.draw();
+
+					// Hide the reset button
+					resetButton.style.display = "none";
+					hasHiddenOcclusions = false;
+				};
+
+				// Add both click and touchend events to toggle button
 				toggleButton.addEventListener("click", toggleButtonHandler);
 				toggleButton.addEventListener("touchend", toggleButtonHandler, {
 					passive: false,
 				});
 
-				// Move the button in front of Konva stage by re-appending it to ensure it's on top
+				// Add both click and touchend events to reset button
+				resetButton.addEventListener("click", resetButtonHandler);
+				resetButton.addEventListener("touchend", resetButtonHandler, {
+					passive: false,
+				});
+
+				// Move the buttons in front of Konva stage by re-appending them to ensure they're on top
 				container.appendChild(toggleButton);
+				container.appendChild(resetButton);
 			}, 0);
 		};
 
@@ -1679,6 +1726,26 @@ export default class MyPlugin extends Plugin {
 							rect.visible(!rect.visible());
 							shapeLayer.draw();
 							e.cancelBubble = true;
+
+							// Check if any shapes are hidden
+							let anyHidden = false;
+							shapeLayer.children.forEach((shape) => {
+								if (
+									shape instanceof Konva.Shape &&
+									!shape.visible()
+								) {
+									anyHidden = true;
+								}
+							});
+
+							// Update reset button visibility
+							if (anyHidden && !hasHiddenOcclusions) {
+								resetButton.style.display = "block";
+								hasHiddenOcclusions = true;
+							} else if (!anyHidden && hasHiddenOcclusions) {
+								resetButton.style.display = "none";
+								hasHiddenOcclusions = false;
+							}
 						}
 					};
 
@@ -1743,12 +1810,17 @@ export default class MyPlugin extends Plugin {
 
 				renderShapes();
 
-				// Ensure button stays on top by re-appending and explicitly checking position
+				// Ensure buttons stay on top by re-appending and explicitly checking position
 				container.appendChild(toggleButton);
+				container.appendChild(resetButton);
 
 				// Make sure toggle button is properly positioned
 				toggleButton.style.bottom = "10px";
 				toggleButton.style.right = "10px";
+
+				// Make sure reset button is properly positioned
+				resetButton.style.bottom = "10px";
+				resetButton.style.right = "44px";
 			}
 		};
 
