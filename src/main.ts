@@ -1544,8 +1544,10 @@ export default class MyPlugin extends Plugin {
 		toggleButton.style.padding = "0";
 		toggleButton.style.margin = "0";
 		toggleButton.style.zIndex = "1000";
-		toggleButton.style.cursor = "pointer"; // Add pointer cursor
-		toggleButton.style.touchAction = "manipulation"; // Add this to improve touch behavior
+		toggleButton.style.cursor = "pointer";
+		toggleButton.style.touchAction = "manipulation";
+		// Add a box shadow to make the button more visible
+		toggleButton.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
 
 		// Variable to track if occlusion interaction is enabled
 		let occlusionInteractionEnabled = false;
@@ -1557,6 +1559,13 @@ export default class MyPlugin extends Plugin {
 			originalWidth = newImg.naturalWidth;
 			originalHeight = newImg.naturalHeight;
 			aspectRatio = originalHeight / originalWidth;
+
+			// Set explicit height on container based on aspect ratio
+			container.style.height = container.clientWidth * aspectRatio + "px";
+			// Make sure container has positioning context for absolute positioning
+			if (container.style.position !== "relative") {
+				container.style.position = "relative";
+			}
 
 			setTimeout(() => {
 				if (!container.isConnected) {
@@ -1614,7 +1623,7 @@ export default class MyPlugin extends Plugin {
 				toggleButton.removeEventListener("click", () => {});
 
 				// Add multiple event listeners for better mobile support
-				const toggleButtonHandler = (e) => {
+				const toggleButtonHandler = (e: MouseEvent | TouchEvent) => {
 					e.stopPropagation();
 					e.preventDefault();
 					occlusionInteractionEnabled = !occlusionInteractionEnabled;
@@ -1722,6 +1731,9 @@ export default class MyPlugin extends Plugin {
 				stage.width(containerWidth);
 				stage.height(containerHeight);
 
+				// Update container height to match stage height
+				container.style.height = containerHeight + "px";
+
 				const bgImage = imageLayer.findOne("Image") as Konva.Image;
 				if (bgImage) {
 					bgImage.width(containerWidth);
@@ -1731,8 +1743,12 @@ export default class MyPlugin extends Plugin {
 
 				renderShapes();
 
-				// Ensure button stays on top
+				// Ensure button stays on top by re-appending and explicitly checking position
 				container.appendChild(toggleButton);
+
+				// Make sure toggle button is properly positioned
+				toggleButton.style.bottom = "10px";
+				toggleButton.style.right = "10px";
 			}
 		};
 
