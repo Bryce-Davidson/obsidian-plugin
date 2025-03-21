@@ -1558,8 +1558,10 @@ export default class MyPlugin extends Plugin {
 			lastTap = currentTime;
 		});
 
-		// Add a subtle indicator that this image can be edited
-		imgElement.style.cursor = "pointer";
+		// Remove the cursor style change
+		// imgElement.style.cursor = "pointer";
+
+		// Keep the title attribute as it provides useful information on hover
 		imgElement.title = "Double-click to edit occlusions";
 
 		// Mark as processed
@@ -1582,6 +1584,12 @@ export default class MyPlugin extends Plugin {
 		const displayedHeight = imgElement.height || imgElement.clientHeight;
 		container.style.width = "100%";
 		container.style.maxWidth = displayedWidth + "px";
+
+		// Remove pointer cursor style, allow default cursor
+		// container.style.cursor = "pointer"; - removed
+
+		// Keep the title attribute as it's helpful without being visually intrusive
+		container.title = "Double-click to edit occlusions";
 
 		container.setAttribute("data-file-path", key);
 
