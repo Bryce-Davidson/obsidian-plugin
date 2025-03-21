@@ -54,6 +54,16 @@ export class OcclusionView extends ItemView {
 	// Add a new property to track multiple selections
 	selectedRects: Konva.Rect[] = [];
 
+	// Add clipboard for storing copied occlusions
+	copiedRects: {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		fill: string;
+		opacity: number;
+	}[] = [];
+
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -782,7 +792,7 @@ export class OcclusionView extends ItemView {
 			this.loadImage(this.selectedFilePath);
 		}
 
-		// Add key event listener for backspace and delete keys
+		// Add key event listener for keyboard shortcuts
 		document.addEventListener("keydown", this.handleKeyDown);
 	}
 
@@ -1222,20 +1232,21 @@ export class OcclusionView extends ItemView {
 	}
 
 	handleKeyDown = (e: KeyboardEvent) => {
-		// Only handle backspace/delete when occlusions are selected and not in review mode
-		if (
-			(e.key === "Backspace" || e.key === "Delete") &&
-			this.selectedRects.length > 0 &&
-			!this.reviewMode
-		) {
-			// Check if we're not focused in an input element
-			const activeElement = document.activeElement;
-			const isInputFocused =
-				activeElement instanceof HTMLInputElement ||
-				activeElement instanceof HTMLTextAreaElement;
+		// Check if we're not focused in an input element
+		const activeElement = document.activeElement;
+		const isInputFocused =
+			activeElement instanceof HTMLInputElement ||
+			activeElement instanceof HTMLTextAreaElement;
 
-			if (!isInputFocused) {
-				e.preventDefault(); // Prevent the default backspace behavior
+		// Only handle when not in an input field
+		if (!isInputFocused) {
+			// Handle delete/backspace
+			if (
+				(e.key === "Backspace" || e.key === "Delete") &&
+				this.selectedRects.length > 0 &&
+				!this.reviewMode
+			) {
+				e.preventDefault(); // Prevent the default behavior
 
 				// Delete all selected rectangles
 				this.selectedRects.forEach((rect) => rect.destroy());
@@ -1243,6 +1254,23 @@ export class OcclusionView extends ItemView {
 				this.selectedRect = null;
 				this.selectedRects = [];
 				this.shapeLayer.draw();
+			}
+
+			// Handle copy (super+c or ctrl+c)
+			if (
+				e.key === "c" &&
+				(e.metaKey || e.ctrlKey) &&
+				this.selectedRects.length > 0 &&
+				!this.reviewMode
+			) {
+				e.preventDefault();
+				this.copySelectedRects();
+			}
+
+			// Handle paste (super+v or ctrl+v)
+			if (e.key === "v" && (e.metaKey || e.ctrlKey) && !this.reviewMode) {
+				e.preventDefault();
+				this.pasteRects();
 			}
 		}
 	};
@@ -1299,6 +1327,93 @@ export class OcclusionView extends ItemView {
 		this.widthInput.value = rect.width().toString();
 		this.heightInput.value = rect.height().toString();
 
+		this.shapeLayer.draw();
+	}
+
+	// Add method to copy selected rectangles
+	copySelectedRects(): void {
+		if (this.selectedRects.length === 0) return;
+
+		// Clear previous copies
+		this.copiedRects = [];
+
+		// Store properties of selected rectangles
+		this.selectedRects.forEach((rect) => {
+			this.copiedRects.push({
+				x: rect.x(),
+				y: rect.y(),
+				width: rect.width() * rect.scaleX(),
+				height: rect.height() * rect.scaleY(),
+				fill: rect.fill() as string,
+				opacity: rect.opacity(),
+			});
+		});
+	}
+
+	// Add method to paste copied rectangles
+	pasteRects(): void {
+		if (this.copiedRects.length === 0) return;
+
+		// Clear current selection
+		this.selectedRects.forEach((rect) => {
+			rect.draggable(false);
+		});
+		this.selectedRects = [];
+
+		// Calculate offset for pasted rectangles (20px to make them visible)
+		const offsetX = 20;
+		const offsetY = 20;
+
+		// Create new rectangles based on copied ones
+		this.copiedRects.forEach((rectData) => {
+			const rect = new Konva.Rect({
+				x: rectData.x + offsetX,
+				y: rectData.y + offsetY,
+				width: rectData.width,
+				height: rectData.height,
+				fill: rectData.fill,
+				opacity: rectData.opacity,
+				draggable: true,
+				scaleX: 1,
+				scaleY: 1,
+			});
+
+			// Define the dragBoundFunc to ensure consistent behavior
+			rect.dragBoundFunc((pos) => {
+				return pos; // Simple pass-through for now
+			});
+
+			// Add click and tap event handlers
+			rect.on("click tap", (e) => {
+				this.handleRectClick(rect, e);
+			});
+
+			// Add mousedown and touchstart handler
+			rect.on("mousedown touchstart", (e) => {
+				// Only allow drag to begin if the rectangle is already selected
+				if (!this.selectedRects.includes(rect) && !e.evt.shiftKey) {
+					rect.draggable(false);
+				}
+			});
+
+			// Add to layer and selection
+			this.shapeLayer.add(rect);
+			this.selectedRects.push(rect);
+		});
+
+		// Set the last rect as the primary selected one
+		if (this.selectedRects.length > 0) {
+			this.selectedRect =
+				this.selectedRects[this.selectedRects.length - 1];
+
+			// Update controls for the primary selected rectangle
+			this.colorInput.value = this.selectedRect.fill() as string;
+			this.widthInput.value = this.selectedRect.width().toString();
+			this.heightInput.value = this.selectedRect.height().toString();
+		}
+
+		// Update transformer to show all selected rectangles
+		this.transformer.nodes(this.selectedRects);
 		this.shapeLayer.draw();
 	}
 }
