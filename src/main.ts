@@ -2074,11 +2074,27 @@ export default class MyPlugin extends Plugin {
 			name: "Wrap Selected Text in [hide][/hide]",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				const selection = editor.getSelection();
-				if (!selection) {
-					new Notice("Please select some text to hide.");
-					return;
+				if (selection && selection.trim().length > 0) {
+					// If text is selected, wrap the selection
+					editor.replaceSelection(`[hide]${selection}[/hide]`);
+					new Notice("Text wrapped in [hide][/hide]");
+				} else {
+					// If nothing is selected, wrap the current line
+					const cursor = editor.getCursor();
+					const line = editor.getLine(cursor.line);
+
+					if (line.trim().length > 0) {
+						// Replace the current line with the wrapped version
+						editor.replaceRange(
+							`[hide]${line}[/hide]`,
+							{ line: cursor.line, ch: 0 },
+							{ line: cursor.line, ch: line.length }
+						);
+						new Notice("Current line wrapped in [hide][/hide]");
+					} else {
+						new Notice("Current line is empty. Nothing to wrap.");
+					}
 				}
-				editor.replaceSelection(`[hide]${selection}[/hide]`);
 			},
 		});
 
@@ -2087,12 +2103,29 @@ export default class MyPlugin extends Plugin {
 			name: "Wrap in multiline hide [hide][/hide]",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				const selection = editor.getSelection();
-				if (!selection || selection.trim().length === 0) {
-					new Notice("Please select some text to hide.");
-					return;
+				if (selection && selection.trim().length > 0) {
+					// If text is selected, wrap the selection
+					editor.replaceSelection("```hide\n" + selection + "\n```");
+					new Notice("Text wrapped in multiline hide block.");
+				} else {
+					// If nothing is selected, wrap the current line
+					const cursor = editor.getCursor();
+					const line = editor.getLine(cursor.line);
+
+					if (line.trim().length > 0) {
+						// Replace the current line with the wrapped version
+						editor.replaceRange(
+							"```hide\n" + line + "\n```",
+							{ line: cursor.line, ch: 0 },
+							{ line: cursor.line, ch: line.length }
+						);
+						new Notice(
+							"Current line wrapped in multiline hide block."
+						);
+					} else {
+						new Notice("Current line is empty. Nothing to wrap.");
+					}
 				}
-				editor.replaceSelection("```hide\n" + selection + "\n```");
-				new Notice("Text wrapped in multiline hide block.");
 			},
 		});
 
