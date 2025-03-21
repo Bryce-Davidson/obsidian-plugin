@@ -13,6 +13,225 @@ import Fuse from "fuse.js"; // Import Fuse.js for fuzzy search
 
 export const VIEW_TYPE_OCCLUSION = "occlusion-view";
 
+// Command interface for undo/redo operations
+interface Command {
+	execute(): void;
+	undo(): void;
+}
+
+// History stack to manage commands
+class CommandHistory {
+	private undoStack: Command[] = [];
+	private redoStack: Command[] = [];
+
+	execute(command: Command): void {
+		command.execute();
+		this.undoStack.push(command);
+		// Clear redo stack when a new command is executed
+		this.redoStack = [];
+	}
+
+	undo(): void {
+		if (this.undoStack.length === 0) return;
+
+		const command = this.undoStack.pop()!;
+		command.undo();
+		this.redoStack.push(command);
+	}
+
+	redo(): void {
+		if (this.redoStack.length === 0) return;
+
+		const command = this.redoStack.pop()!;
+		command.execute();
+		this.undoStack.push(command);
+	}
+
+	clear(): void {
+		this.undoStack = [];
+		this.redoStack = [];
+	}
+}
+
+// Command for adding rectangles
+class AddRectCommand implements Command {
+	private rect: Konva.Rect;
+	private layer: Konva.Layer;
+
+	constructor(rect: Konva.Rect, layer: Konva.Layer) {
+		this.rect = rect;
+		this.layer = layer;
+	}
+
+	execute(): void {
+		this.layer.add(this.rect);
+		this.layer.draw();
+	}
+
+	undo(): void {
+		this.rect.remove();
+		this.layer.draw();
+	}
+}
+
+// Command for deleting rectangles
+class DeleteRectsCommand implements Command {
+	private rects: Konva.Rect[];
+	private layer: Konva.Layer;
+
+	constructor(rects: Konva.Rect[], layer: Konva.Layer) {
+		this.rects = [...rects]; // Create a copy of the array
+		this.layer = layer;
+	}
+
+	execute(): void {
+		this.rects.forEach((rect) => rect.remove());
+		this.layer.draw();
+	}
+
+	undo(): void {
+		this.rects.forEach((rect) => this.layer.add(rect));
+		this.layer.draw();
+	}
+}
+
+// Command for moving rectangles
+class MoveRectsCommand implements Command {
+	private rects: Konva.Rect[];
+	private oldPositions: { x: number; y: number }[];
+	private newPositions: { x: number; y: number }[];
+	private layer: Konva.Layer;
+
+	constructor(rects: Konva.Rect[], layer: Konva.Layer) {
+		this.rects = [...rects];
+		this.layer = layer;
+
+		// Store initial positions
+		this.oldPositions = rects.map((rect) => ({
+			x: rect.x(),
+			y: rect.y(),
+		}));
+
+		// New positions will be set later when the move is complete
+		this.newPositions = [];
+	}
+
+	setNewPositions(): void {
+		this.newPositions = this.rects.map((rect) => ({
+			x: rect.x(),
+			y: rect.y(),
+		}));
+	}
+
+	execute(): void {
+		this.rects.forEach((rect, i) => {
+			if (this.newPositions[i]) {
+				rect.position({
+					x: this.newPositions[i].x,
+					y: this.newPositions[i].y,
+				});
+			}
+		});
+		this.layer.draw();
+	}
+
+	undo(): void {
+		this.rects.forEach((rect, i) => {
+			rect.position({
+				x: this.oldPositions[i].x,
+				y: this.oldPositions[i].y,
+			});
+		});
+		this.layer.draw();
+	}
+}
+
+// Command for pasting rectangles
+class PasteRectsCommand implements Command {
+	private rects: Konva.Rect[];
+	private layer: Konva.Layer;
+
+	constructor(rects: Konva.Rect[], layer: Konva.Layer) {
+		this.rects = [...rects];
+		this.layer = layer;
+	}
+
+	execute(): void {
+		this.rects.forEach((rect) => this.layer.add(rect));
+		this.layer.draw();
+	}
+
+	undo(): void {
+		this.rects.forEach((rect) => rect.remove());
+		this.layer.draw();
+	}
+}
+
+// Command for transforming rectangles (resize)
+class TransformRectsCommand implements Command {
+	private rects: Konva.Rect[];
+	private oldProps: {
+		width: number;
+		height: number;
+		scaleX: number;
+		scaleY: number;
+	}[];
+	private newProps: {
+		width: number;
+		height: number;
+		scaleX: number;
+		scaleY: number;
+	}[];
+	private layer: Konva.Layer;
+
+	constructor(rects: Konva.Rect[], layer: Konva.Layer) {
+		this.rects = [...rects];
+		this.layer = layer;
+
+		// Store initial properties
+		this.oldProps = rects.map((rect) => ({
+			width: rect.width(),
+			height: rect.height(),
+			scaleX: rect.scaleX(),
+			scaleY: rect.scaleY(),
+		}));
+
+		// New properties will be set later
+		this.newProps = [];
+	}
+
+	setNewProps(): void {
+		this.newProps = this.rects.map((rect) => ({
+			width: rect.width(),
+			height: rect.height(),
+			scaleX: rect.scaleX(),
+			scaleY: rect.scaleY(),
+		}));
+	}
+
+	execute(): void {
+		this.rects.forEach((rect, i) => {
+			if (this.newProps[i]) {
+				rect.width(this.newProps[i].width);
+				rect.height(this.newProps[i].height);
+				rect.scaleX(this.newProps[i].scaleX);
+				rect.scaleY(this.newProps[i].scaleY);
+			}
+		});
+		this.layer.draw();
+	}
+
+	undo(): void {
+		this.rects.forEach((rect, i) => {
+			rect.width(this.oldProps[i].width);
+			rect.height(this.oldProps[i].height);
+			rect.scaleX(this.oldProps[i].scaleX);
+			rect.scaleY(this.oldProps[i].scaleY);
+		});
+		this.layer.draw();
+	}
+}
+
 export class OcclusionView extends ItemView {
 	plugin: MyPlugin; // Change the type to MyPlugin
 
@@ -63,6 +282,15 @@ export class OcclusionView extends ItemView {
 		fill: string;
 		opacity: number;
 	}[] = [];
+
+	// Add command history property
+	commandHistory: CommandHistory = new CommandHistory();
+
+	// Track move commands for drag operations
+	currentMoveCommand: MoveRectsCommand | null = null;
+
+	// Track transform commands for resize operations
+	currentTransformCommand: TransformRectsCommand | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
@@ -441,6 +669,23 @@ export class OcclusionView extends ItemView {
 			cls: "flex flex-wrap gap-2",
 		});
 
+		// Add undo/redo buttons to the actionsContainer
+		const undoButton = actionsContainer.createEl("button", {
+			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-gray-600 text-white hover:bg-gray-700 focus:ring-4 focus:ring-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:focus:ring-gray-800",
+			attr: { title: "Undo (Ctrl+Z)", "aria-label": "Undo" },
+		});
+		undoButton.innerHTML =
+			'<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a4 4 0 0 1 0 8H9m-6-8l4-4m0 0L3 2m4 4H3" /></svg>';
+		undoButton.onclick = () => this.undo();
+
+		const redoButton = actionsContainer.createEl("button", {
+			cls: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-gray-600 text-white hover:bg-gray-700 focus:ring-4 focus:ring-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:focus:ring-gray-800",
+			attr: { title: "Redo (Ctrl+Shift+Z)", "aria-label": "Redo" },
+		});
+		redoButton.innerHTML =
+			'<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10h8a4 4 0 0 1 0 8h-4m4-8l-4-4m0 0l4-4m-4 4h4" /></svg>';
+		redoButton.onclick = () => this.redo();
+
 		// Add occlusion button - renamed to "Add"
 		this.addRectButton = actionsContainer.createEl("button", {
 			text: "Add",
@@ -455,12 +700,16 @@ export class OcclusionView extends ItemView {
 		});
 		this.deleteButton.onclick = () => {
 			if (this.selectedRects.length > 0 && !this.reviewMode) {
-				// Delete all selected rectangles
-				this.selectedRects.forEach((rect) => rect.destroy());
+				// Use command system to delete rectangles
+				const command = new DeleteRectsCommand(
+					this.selectedRects,
+					this.shapeLayer
+				);
+				this.commandHistory.execute(command);
+
 				this.transformer.nodes([]);
 				this.selectedRect = null;
 				this.selectedRects = [];
-				this.shapeLayer.draw();
 			}
 		};
 
@@ -750,6 +999,16 @@ export class OcclusionView extends ItemView {
 		);
 
 		// Add a transformer change event handler to update the width/height inputs
+		this.transformer.on("transformstart", () => {
+			if (this.selectedRects.length > 0 && !this.reviewMode) {
+				// Create a transform command when resizing starts
+				this.currentTransformCommand = new TransformRectsCommand(
+					this.selectedRects,
+					this.shapeLayer
+				);
+			}
+		});
+
 		this.transformer.on("transform", () => {
 			if (this.selectedRect) {
 				// Update the width/height inputs when resizing
@@ -762,25 +1021,38 @@ export class OcclusionView extends ItemView {
 			}
 		});
 
-		// Add this after transformer transform event
 		this.transformer.on("transformend", () => {
-			if (this.selectedRect) {
-				// Apply the scale to the width/height and reset scale to 1
-				const newWidth = Math.round(
-					this.selectedRect.width() * this.selectedRect.scaleX()
-				);
-				const newHeight = Math.round(
-					this.selectedRect.height() * this.selectedRect.scaleY()
-				);
+			if (
+				this.selectedRects.length > 0 &&
+				this.currentTransformCommand &&
+				!this.reviewMode
+			) {
+				// Apply the transform changes
+				this.selectedRects.forEach((rect) => {
+					// Apply the scale to the width/height and reset scale to 1
+					const newWidth = Math.round(rect.width() * rect.scaleX());
+					const newHeight = Math.round(rect.height() * rect.scaleY());
 
-				this.selectedRect.width(newWidth);
-				this.selectedRect.height(newHeight);
-				this.selectedRect.scaleX(1);
-				this.selectedRect.scaleY(1);
+					rect.width(newWidth);
+					rect.height(newHeight);
+					rect.scaleX(1);
+					rect.scaleY(1);
+				});
 
-				// Update the inputs
-				this.widthInput.value = newWidth.toString();
-				this.heightInput.value = newHeight.toString();
+				// Update the inputs if a primary selection exists
+				if (this.selectedRect) {
+					this.widthInput.value = this.selectedRect
+						.width()
+						.toString();
+					this.heightInput.value = this.selectedRect
+						.height()
+						.toString();
+				}
+
+				// Complete the transform command
+				this.currentTransformCommand.setNewProps();
+				this.commandHistory.execute(this.currentTransformCommand);
+				this.currentTransformCommand = null;
 			}
 		});
 
@@ -793,7 +1065,31 @@ export class OcclusionView extends ItemView {
 		}
 
 		// Add key event listener for keyboard shortcuts
-		document.addEventListener("keydown", this.handleKeyDown);
+		this.registerKeyboardShortcuts();
+
+		// Set up drag and transform event capture for undo/redo
+		this.stage.on("dragstart", (e) => {
+			if (e.target instanceof Konva.Rect && !this.reviewMode) {
+				// Create a new move command when dragging starts
+				this.currentMoveCommand = new MoveRectsCommand(
+					this.selectedRects,
+					this.shapeLayer
+				);
+			}
+		});
+
+		this.stage.on("dragend", (e) => {
+			if (
+				e.target instanceof Konva.Rect &&
+				this.currentMoveCommand &&
+				!this.reviewMode
+			) {
+				// Complete the move command when dragging ends
+				this.currentMoveCommand.setNewPositions();
+				this.commandHistory.execute(this.currentMoveCommand);
+				this.currentMoveCommand = null;
+			}
+		});
 	}
 
 	toggleReviewMode(): void {
@@ -949,43 +1245,7 @@ export class OcclusionView extends ItemView {
 			return pos; // Simple pass-through for now
 		});
 
-		rect.on("click tap", (e) => {
-			e.cancelBubble = true;
-			if (this.reviewMode) {
-				rect.visible(!rect.visible());
-				this.shapeLayer.draw();
-			} else {
-				// Check if shift key is held for multi-selection
-				const isShiftPressed = e.evt.shiftKey;
-
-				if (!isShiftPressed) {
-					// Deselect all previously selected rectangles if shift isn't pressed
-					this.selectedRects.forEach((r) => {
-						r.draggable(false);
-					});
-					this.selectedRects = [];
-				}
-
-				// Add to selection if not already selected
-				if (!this.selectedRects.includes(rect)) {
-					this.selectedRects.push(rect);
-				}
-
-				// Always update the primary selected rect for controls
-				this.selectedRect = rect;
-
-				// Make all selected rectangles draggable
-				this.selectedRects.forEach((r) => r.draggable(true));
-
-				// Update the transformer to show all selected rectangles
-				this.transformer.nodes(this.selectedRects);
-
-				// Update controls for the primary selected rectangle
-				this.colorInput.value = rect.fill() as string;
-				this.widthInput.value = rect.width().toString();
-				this.heightInput.value = rect.height().toString();
-			}
-		});
+		rect.on("click tap", (e) => this.handleRectClick(rect, e));
 
 		// Add additional mousedown and touchstart handler to prevent unintended dragging
 		rect.on("mousedown touchstart", (e) => {
@@ -995,8 +1255,9 @@ export class OcclusionView extends ItemView {
 			}
 		});
 
-		// Add to layer and automatically select the new rectangle
-		this.shapeLayer.add(rect);
+		// Use command system to add the rectangle
+		const command = new AddRectCommand(rect, this.shapeLayer);
+		this.commandHistory.execute(command);
 
 		// Auto-select the newly created rectangle
 		if (!this.reviewMode) {
@@ -1014,8 +1275,6 @@ export class OcclusionView extends ItemView {
 			this.widthInput.value = rect.width().toString();
 			this.heightInput.value = rect.height().toString();
 		}
-
-		this.shapeLayer.draw();
 	}
 
 	async saveOcclusionData(): Promise<void> {
@@ -1199,6 +1458,7 @@ export class OcclusionView extends ItemView {
 	async onClose(): Promise<void> {
 		// Remove the key event listener when closing
 		document.removeEventListener("keydown", this.handleKeyDown);
+		console.log("Keyboard shortcuts unregistered");
 
 		// Existing cleanup code
 		if (this.stage) {
@@ -1248,12 +1508,16 @@ export class OcclusionView extends ItemView {
 			) {
 				e.preventDefault(); // Prevent the default behavior
 
-				// Delete all selected rectangles
-				this.selectedRects.forEach((rect) => rect.destroy());
+				// Use command system to delete rectangles
+				const command = new DeleteRectsCommand(
+					this.selectedRects,
+					this.shapeLayer
+				);
+				this.commandHistory.execute(command);
+
 				this.transformer.nodes([]);
 				this.selectedRect = null;
 				this.selectedRects = [];
-				this.shapeLayer.draw();
 			}
 
 			// Handle copy (super+c or ctrl+c)
@@ -1271,6 +1535,30 @@ export class OcclusionView extends ItemView {
 			if (e.key === "v" && (e.metaKey || e.ctrlKey) && !this.reviewMode) {
 				e.preventDefault();
 				this.pasteRects();
+			}
+
+			// Handle undo with Command+Z (macOS) or Ctrl+Z (Windows/Linux)
+			if (
+				e.key === "z" &&
+				(e.metaKey || e.ctrlKey) &&
+				!e.shiftKey &&
+				!this.reviewMode
+			) {
+				e.preventDefault();
+				console.log("Undo triggered with keyboard shortcut");
+				this.undo();
+			}
+
+			// Handle redo with Command+Shift+Z (macOS) or Ctrl+Shift+Z (Windows/Linux)
+			// Also support Ctrl+Y as an alternative redo shortcut
+			if (
+				((e.key === "z" && e.shiftKey) || e.key === "y") &&
+				(e.metaKey || e.ctrlKey) &&
+				!this.reviewMode
+			) {
+				e.preventDefault();
+				console.log("Redo triggered with keyboard shortcut");
+				this.redo();
 			}
 		}
 	};
@@ -1365,6 +1653,8 @@ export class OcclusionView extends ItemView {
 		const offsetY = 20;
 
 		// Create new rectangles based on copied ones
+		const newRects: Konva.Rect[] = [];
+
 		this.copiedRects.forEach((rectData) => {
 			const rect = new Konva.Rect({
 				x: rectData.x + offsetX,
@@ -1396,10 +1686,13 @@ export class OcclusionView extends ItemView {
 				}
 			});
 
-			// Add to layer and selection
-			this.shapeLayer.add(rect);
+			newRects.push(rect);
 			this.selectedRects.push(rect);
 		});
+
+		// Use command system to paste rectangles
+		const command = new PasteRectsCommand(newRects, this.shapeLayer);
+		this.commandHistory.execute(command);
 
 		// Set the last rect as the primary selected one
 		if (this.selectedRects.length > 0) {
@@ -1414,6 +1707,50 @@ export class OcclusionView extends ItemView {
 
 		// Update transformer to show all selected rectangles
 		this.transformer.nodes(this.selectedRects);
+	}
+
+	undo(): void {
+		if (this.reviewMode) return;
+
+		console.log("Undoing last action");
+		this.commandHistory.undo();
+
+		// After undoing, update selection state
+		this.updateSelectionState();
+	}
+
+	redo(): void {
+		if (this.reviewMode) return;
+
+		console.log("Redoing last action");
+		this.commandHistory.redo();
+
+		// After redoing, update selection state
+		this.updateSelectionState();
+	}
+
+	// Helper method to update selection state after undo/redo
+	updateSelectionState(): void {
+		// First clear the current selection
+		this.selectedRects = [];
+		this.selectedRect = null;
+		this.transformer.nodes([]);
+
+		// We need a way to determine which rectangles should be selected after undo/redo
+		// For now, we'll just work with what's visible and selectable on the stage
+		this.resetDraggableState();
 		this.shapeLayer.draw();
+	}
+
+	// Add this after the handleKeyDown method
+	registerKeyboardShortcuts(): void {
+		// Remove any existing event listener before adding a new one
+		document.removeEventListener("keydown", this.handleKeyDown);
+
+		// Add the event listener to handle keyboard shortcuts
+		document.addEventListener("keydown", this.handleKeyDown);
+
+		// Log that shortcuts are registered
+		console.log("Keyboard shortcuts registered for occlusion editor");
 	}
 }
