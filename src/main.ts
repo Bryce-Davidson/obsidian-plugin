@@ -1443,9 +1443,15 @@ export default class MyPlugin extends Plugin {
 									"img:not([data-occlusion-processed]):not([data-occlusion-processing])"
 								)
 								.forEach((img) => {
-									this.processImageElement(
-										img as HTMLImageElement
-									);
+									// Ensure we're only processing real img elements, not spans with image-related attributes
+									if (
+										img.nodeName === "IMG" &&
+										img instanceof HTMLImageElement
+									) {
+										this.processImageElement(
+											img as HTMLImageElement
+										);
+									}
 								});
 						}
 					});
@@ -1463,6 +1469,13 @@ export default class MyPlugin extends Plugin {
 	}
 
 	private processImageElement(imgElement: HTMLImageElement): void {
+		if (
+			!(imgElement instanceof HTMLImageElement) ||
+			imgElement.nodeName !== "IMG"
+		) {
+			return;
+		}
+
 		if (imgElement.getAttribute("data-occlusion-processed")) return;
 
 		// First, mark the image as being processed to avoid duplicate processing
