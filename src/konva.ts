@@ -273,6 +273,10 @@ export class OcclusionView extends ItemView {
 	// Add a new property to track multiple selections
 	selectedRects: Konva.Rect[] = [];
 
+	// Add snapping related properties
+	snapThreshold: number = 10; // Distance in pixels to trigger snapping
+	isSnapping: boolean = false; // Track if snapping is currently enabled
+
 	// Add clipboard for storing copied occlusions
 	copiedRects: {
 		x: number;
@@ -481,6 +485,13 @@ export class OcclusionView extends ItemView {
 		const controlsGroup = topRowContainer.createDiv({
 			cls: "flex items-center gap-2",
 		});
+
+		// Add a snapping indicator
+		const snappingIndicator = controlsGroup.createDiv({
+			cls: "text-xs font-medium text-gray-700 dark:text-gray-300 px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded hidden",
+			attr: { id: "snapping-status" },
+		});
+		snappingIndicator.textContent = "Snapping Enabled";
 
 		// Create mode toggle button with Tailwind classes
 		this.modeToggleButton = controlsGroup.createEl("button", {
@@ -1078,6 +1089,18 @@ export class OcclusionView extends ItemView {
 			}
 		});
 
+		// Add a new event handler for dragmove to handle snapping
+		this.stage.on("dragmove", (e) => {
+			if (e.target instanceof Konva.Rect && !this.reviewMode) {
+				// Check if shift key is pressed to enable snapping
+				this.isSnapping = e.evt.shiftKey;
+
+				if (this.isSnapping) {
+					this.handleSnapping(e.target);
+				}
+			}
+		});
+
 		this.stage.on("dragend", (e) => {
 			if (
 				e.target instanceof Konva.Rect &&
@@ -1123,6 +1146,9 @@ export class OcclusionView extends ItemView {
 			// Clear selections
 			this.selectedRect = null;
 			this.selectedRects = [];
+
+			// Reset the snapping state when exiting review mode
+			this.isSnapping = false;
 		} else {
 			this.controlsDiv.style.display = "";
 			this.addRectButton.style.display = "";
@@ -1560,6 +1586,16 @@ export class OcclusionView extends ItemView {
 				console.log("Redo triggered with keyboard shortcut");
 				this.redo();
 			}
+
+			// Handle shift key for snapping indicator
+			if (e.key === "Shift" && !this.reviewMode) {
+				// Update a visual indicator that snapping is available when dragging
+				const statusElement =
+					document.getElementById("snapping-status");
+				if (statusElement) {
+					statusElement.style.display = "inline";
+				}
+			}
 		}
 	};
 
@@ -1746,11 +1782,219 @@ export class OcclusionView extends ItemView {
 	registerKeyboardShortcuts(): void {
 		// Remove any existing event listener before adding a new one
 		document.removeEventListener("keydown", this.handleKeyDown);
+		document.removeEventListener("keyup", this.handleKeyUp);
 
 		// Add the event listener to handle keyboard shortcuts
 		document.addEventListener("keydown", this.handleKeyDown);
+		document.addEventListener("keyup", this.handleKeyUp);
 
 		// Log that shortcuts are registered
 		console.log("Keyboard shortcuts registered for occlusion editor");
+	}
+
+	// Add the keyup handler
+	handleKeyUp = (e: KeyboardEvent) => {
+		if (e.key === "Shift" && !this.reviewMode) {
+			// Hide the snapping indicator
+			const statusElement = document.getElementById("snapping-status");
+			if (statusElement) {
+				statusElement.style.display = "none";
+			}
+
+			// Reset snapping state
+			this.isSnapping = false;
+		}
+	};
+
+	// Method to handle snapping during drag operations
+	handleSnapping(rect: Konva.Rect): void {
+		// Get all rectangles except the ones being dragged
+		const otherRects = this.getAllOtherRectangles();
+
+		// Calculate the current rect's edges
+		const rectEdges = this.getRectangleEdges(rect);
+
+		// Initialize variables to track the closest snapping distances using type assertion
+		let closestSnapX = null as null | {
+			distance: number;
+			position: number;
+		};
+		let closestSnapY = null as null | {
+			distance: number;
+			position: number;
+		};
+
+		// Check each other rectangle for potential snap points
+		otherRects.forEach((otherRect) => {
+			const otherEdges = this.getRectangleEdges(otherRect);
+
+			// Check horizontal snapping (left and right edges)
+			this.checkEdgeSnapping(
+				rectEdges.left,
+				otherEdges,
+				"horizontal",
+				(position) => {
+					if (
+						closestSnapX === null ||
+						Math.abs(position - rectEdges.left) <
+							Math.abs(closestSnapX.distance)
+					) {
+						closestSnapX = {
+							distance: position - rectEdges.left,
+							position: position,
+						};
+					}
+				}
+			);
+
+			this.checkEdgeSnapping(
+				rectEdges.right,
+				otherEdges,
+				"horizontal",
+				(position) => {
+					if (
+						closestSnapX === null ||
+						Math.abs(position - rectEdges.right) <
+							Math.abs(closestSnapX.distance)
+					) {
+						closestSnapX = {
+							distance: position - rectEdges.right,
+							position: position - rect.width(),
+						};
+					}
+				}
+			);
+
+			// Check vertical snapping (top and bottom edges)
+			this.checkEdgeSnapping(
+				rectEdges.top,
+				otherEdges,
+				"vertical",
+				(position) => {
+					if (
+						closestSnapY === null ||
+						Math.abs(position - rectEdges.top) <
+							Math.abs(closestSnapY.distance)
+					) {
+						closestSnapY = {
+							distance: position - rectEdges.top,
+							position: position,
+						};
+					}
+				}
+			);
+
+			this.checkEdgeSnapping(
+				rectEdges.bottom,
+				otherEdges,
+				"vertical",
+				(position) => {
+					if (
+						closestSnapY === null ||
+						Math.abs(position - rectEdges.bottom) <
+							Math.abs(closestSnapY.distance)
+					) {
+						closestSnapY = {
+							distance: position - rectEdges.bottom,
+							position: position - rect.height(),
+						};
+					}
+				}
+			);
+		});
+
+		// Apply the snapping if we found any snap points within the threshold
+		let newX = rect.x();
+		let newY = rect.y();
+
+		if (
+			closestSnapX &&
+			Math.abs(closestSnapX.distance) <= this.snapThreshold
+		) {
+			newX = closestSnapX.position;
+		}
+
+		if (
+			closestSnapY &&
+			Math.abs(closestSnapY.distance) <= this.snapThreshold
+		) {
+			newY = closestSnapY.position;
+		}
+
+		// Update the rectangle position
+		rect.position({ x: newX, y: newY });
+
+		// If we're moving multiple rectangles, adjust the others based on the snapped one
+		if (this.selectedRects.length > 1) {
+			const deltaX = newX - rect.x();
+			const deltaY = newY - rect.y();
+
+			this.selectedRects.forEach((selectedRect) => {
+				if (selectedRect !== rect) {
+					selectedRect.position({
+						x: selectedRect.x() + deltaX,
+						y: selectedRect.y() + deltaY,
+					});
+				}
+			});
+		}
+	}
+
+	// Get all rectangles except those currently selected
+	getAllOtherRectangles(): Konva.Rect[] {
+		const otherRects: Konva.Rect[] = [];
+
+		this.shapeLayer.getChildren().forEach((node) => {
+			if (
+				node instanceof Konva.Rect &&
+				!this.selectedRects.includes(node)
+			) {
+				otherRects.push(node);
+			}
+		});
+
+		return otherRects;
+	}
+
+	// Calculate a rectangle's edge positions
+	getRectangleEdges(rect: Konva.Rect): {
+		left: number;
+		right: number;
+		top: number;
+		bottom: number;
+	} {
+		return {
+			left: rect.x(),
+			right: rect.x() + rect.width(),
+			top: rect.y(),
+			bottom: rect.y() + rect.height(),
+		};
+	}
+
+	// Check if an edge should snap to any of the other edges
+	checkEdgeSnapping(
+		edge: number,
+		otherEdges: {
+			left: number;
+			right: number;
+			top: number;
+			bottom: number;
+		},
+		direction: "horizontal" | "vertical",
+		callback: (position: number) => void
+	): void {
+		// Edges to check based on direction
+		const edgesToCheck =
+			direction === "horizontal"
+				? [otherEdges.left, otherEdges.right]
+				: [otherEdges.top, otherEdges.bottom];
+
+		// Check if any edge is within the snap threshold
+		edgesToCheck.forEach((otherEdge) => {
+			const distance = Math.abs(edge - otherEdge);
+			if (distance <= this.snapThreshold) {
+				callback(otherEdge);
+			}
+		});
 	}
 }
