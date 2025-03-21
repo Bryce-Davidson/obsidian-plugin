@@ -1550,34 +1550,11 @@ export default class MyPlugin extends Plugin {
 		toggleButton.style.touchAction = "manipulation";
 		toggleButton.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
 
-		// Create reset button - initially hidden
-		const resetButton = document.createElement("button");
-		resetButton.style.position = "absolute";
-		resetButton.style.bottom = "10px";
-		resetButton.style.right = "44px"; // 10px (margin) + 24px (toggle button width) + 10px (space)
-		resetButton.style.width = "24px";
-		resetButton.style.height = "24px";
-		resetButton.style.borderRadius = "50%";
-		resetButton.style.backgroundColor = "#9C27B0"; // Purple color
-		resetButton.style.border = "2px solid white";
-		resetButton.style.padding = "0";
-		resetButton.style.margin = "0";
-		resetButton.style.zIndex = "1000";
-		resetButton.style.cursor = "pointer";
-		resetButton.style.touchAction = "manipulation";
-		resetButton.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
-		// Remove the HTML content that created the icon
-		resetButton.innerHTML = "";
-		resetButton.style.display = "none"; // Initially hidden
-
 		// Variable to track if occlusion interaction is enabled
 		let occlusionInteractionEnabled = false;
-		// Variable to track if any occlusions are hidden
-		let hasHiddenOcclusions = false;
 
-		// Append buttons to container immediately
+		// Append button to container immediately
 		container.appendChild(toggleButton);
-		container.appendChild(resetButton);
 
 		newImg.onload = () => {
 			originalWidth = newImg.naturalWidth;
@@ -1666,7 +1643,7 @@ export default class MyPlugin extends Plugin {
 				// Initially disable interaction with occlusions
 				disableShapeInteraction();
 
-				// Toggle button functionality
+				// Toggle button functionality - now includes reset
 				// Remove the previous listener and create a new one with better touch handling
 				toggleButton.removeEventListener("click", () => {});
 
@@ -1674,9 +1651,12 @@ export default class MyPlugin extends Plugin {
 				const toggleButtonHandler = (e: MouseEvent | TouchEvent) => {
 					e.stopPropagation();
 					e.preventDefault();
+
+					// Toggle the interaction state
 					occlusionInteractionEnabled = !occlusionInteractionEnabled;
 
 					if (occlusionInteractionEnabled) {
+						// Enable interaction mode
 						enableShapeInteraction();
 						toggleButton.style.backgroundColor = "#4CAF50";
 						container.classList.remove(
@@ -1686,6 +1666,17 @@ export default class MyPlugin extends Plugin {
 							"occlusion-interaction-enabled"
 						);
 					} else {
+						// Disable interaction mode AND reset all shapes
+
+						// First, make all shapes visible again (reset functionality)
+						shapeLayer.children.forEach((shape) => {
+							if (shape instanceof Konva.Shape) {
+								shape.visible(true);
+							}
+						});
+						shapeLayer.draw();
+
+						// Then disable interaction
 						disableShapeInteraction();
 						toggleButton.style.backgroundColor = "#4A6BF5";
 						container.classList.remove(
@@ -1697,39 +1688,14 @@ export default class MyPlugin extends Plugin {
 					}
 				};
 
-				// Reset button functionality
-				const resetButtonHandler = (e: MouseEvent | TouchEvent) => {
-					e.stopPropagation();
-					e.preventDefault();
-
-					// Make all shapes visible again
-					shapeLayer.children.forEach((shape) => {
-						if (shape instanceof Konva.Shape) {
-							shape.visible(true);
-						}
-					});
-					shapeLayer.draw();
-
-					// Hide the reset button
-					resetButton.style.display = "none";
-					hasHiddenOcclusions = false;
-				};
-
 				// Add both click and touchend events to toggle button
 				toggleButton.addEventListener("click", toggleButtonHandler);
 				toggleButton.addEventListener("touchend", toggleButtonHandler, {
 					passive: false,
 				});
 
-				// Add both click and touchend events to reset button
-				resetButton.addEventListener("click", resetButtonHandler);
-				resetButton.addEventListener("touchend", resetButtonHandler, {
-					passive: false,
-				});
-
-				// Move the buttons in front of Konva stage by re-appending them to ensure they're on top
+				// Move the button in front of Konva stage by re-appending it to ensure it's on top
 				container.appendChild(toggleButton);
-				container.appendChild(resetButton);
 			}, 0);
 		};
 
@@ -1764,26 +1730,6 @@ export default class MyPlugin extends Plugin {
 							rect.visible(!rect.visible());
 							shapeLayer.draw();
 							e.cancelBubble = true;
-
-							// Check if any shapes are hidden
-							let anyHidden = false;
-							shapeLayer.children.forEach((shape) => {
-								if (
-									shape instanceof Konva.Shape &&
-									!shape.visible()
-								) {
-									anyHidden = true;
-								}
-							});
-
-							// Update reset button visibility
-							if (anyHidden && !hasHiddenOcclusions) {
-								resetButton.style.display = "block";
-								hasHiddenOcclusions = true;
-							} else if (!anyHidden && hasHiddenOcclusions) {
-								resetButton.style.display = "none";
-								hasHiddenOcclusions = false;
-							}
 						}
 					};
 
@@ -1860,17 +1806,12 @@ export default class MyPlugin extends Plugin {
 
 				renderShapes();
 
-				// Ensure buttons stay on top by re-appending and explicitly checking position
+				// Ensure button stays on top by re-appending and explicitly checking position
 				container.appendChild(toggleButton);
-				container.appendChild(resetButton);
 
 				// Make sure toggle button is properly positioned
 				toggleButton.style.bottom = "10px";
 				toggleButton.style.right = "10px";
-
-				// Make sure reset button is properly positioned
-				resetButton.style.bottom = "10px";
-				resetButton.style.right = "44px";
 			}
 		};
 
