@@ -1924,16 +1924,37 @@ export default class MyPlugin extends Plugin {
 			name: "Wrap Selected Text in [card][/card]",
 			editorCallback: async (editor: Editor) => {
 				const selection = editor.getSelection();
+
 				if (selection && selection.trim().length > 0) {
-					editor.replaceSelection(`[card]${selection.trim()}[/card]`);
+					// Add newlines around the selected content for better readability
+					editor.replaceSelection(
+						`[card]\n${selection.trim()}\n[/card]`
+					);
 					new Notice("Text wrapped as flashcard");
-					const activeFile = this.app.workspace.getActiveFile();
-					if (activeFile && activeFile instanceof TFile) {
-						await syncFlashcardsForFile(this, activeFile);
-						this.refreshUnifiedQueue();
-					}
 				} else {
-					new Notice("Please select some text first");
+					// If nothing is selected, wrap the current line
+					const cursor = editor.getCursor();
+					const line = editor.getLine(cursor.line);
+
+					if (line.trim().length > 0) {
+						// Replace the current line with the wrapped version
+						editor.replaceRange(
+							`[card]\n${line.trim()}\n[/card]`,
+							{ line: cursor.line, ch: 0 },
+							{ line: cursor.line, ch: line.length }
+						);
+						new Notice("Current line wrapped as flashcard");
+					} else {
+						new Notice("Current line is empty. Nothing to wrap.");
+						return;
+					}
+				}
+
+				// Sync the flashcards
+				const activeFile = this.app.workspace.getActiveFile();
+				if (activeFile && activeFile instanceof TFile) {
+					await syncFlashcardsForFile(this, activeFile);
+					this.refreshUnifiedQueue();
 				}
 			},
 		});
