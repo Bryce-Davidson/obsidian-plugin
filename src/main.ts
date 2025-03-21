@@ -1483,6 +1483,8 @@ export default class MyPlugin extends Plugin {
 
 		const alt = imgElement.getAttribute("alt");
 		if (!alt) {
+			// Even without alt text, add double-click/double-tap handler for occlusion editor
+			this.addImageClickHandlers(imgElement);
 			imgElement.removeAttribute("data-occlusion-processing");
 			return;
 		}
@@ -1491,13 +1493,17 @@ export default class MyPlugin extends Plugin {
 			.getFiles()
 			.find((f) => f.name === alt || f.path.endsWith(alt));
 		if (!file) {
+			// Even without a matching file, add double-click/double-tap handler for occlusion editor
+			this.addImageClickHandlers(imgElement);
 			imgElement.removeAttribute("data-occlusion-processing");
 			return;
 		}
 
 		const key = file.path;
 
+		// If there are no existing occlusions for this image, just add click handlers
 		if (!this.occlusion.attachments[key]) {
+			this.addImageClickHandlers(imgElement);
 			imgElement.removeAttribute("data-occlusion-processing");
 			return;
 		}
@@ -1517,6 +1523,47 @@ export default class MyPlugin extends Plugin {
 		};
 
 		requestAnimationFrame(waitForImageLoad);
+	}
+
+	// New helper method to add double-click/double-tap handlers to standard images
+	private addImageClickHandlers(imgElement: HTMLImageElement): void {
+		const alt = imgElement.getAttribute("alt");
+		if (!alt) return;
+
+		const file = this.app.vault
+			.getFiles()
+			.find((f) => f.name === alt || f.path.endsWith(alt));
+		if (!file) return;
+
+		const key = file.path;
+
+		// Add double-click handler
+		imgElement.addEventListener("dblclick", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.openOcclusionEditorWithFile(key);
+		});
+
+		// Add double-tap handler for mobile
+		let lastTap = 0;
+		imgElement.addEventListener("touchend", (e) => {
+			const currentTime = new Date().getTime();
+			const tapLength = currentTime - lastTap;
+			if (tapLength < 500 && tapLength > 0) {
+				// Double tap detected
+				e.preventDefault();
+				e.stopPropagation();
+				this.openOcclusionEditorWithFile(key);
+			}
+			lastTap = currentTime;
+		});
+
+		// Add a subtle indicator that this image can be edited
+		imgElement.style.cursor = "pointer";
+		imgElement.title = "Double-click to edit occlusions";
+
+		// Mark as processed
+		imgElement.setAttribute("data-occlusion-processed", "true");
 	}
 
 	private replaceImageWithKonva(
